@@ -1,9 +1,15 @@
-package finopsagent
+package main
 
-import "github.com/ibm/finops-agent/pkg/core"
+import (
+	"fmt"
+
+	"github.com/ibm/finops-agent/pkg/core"
+)
 
 // entry point for finops-agent
 func main() {
+	fmt.Println("Starting IBM Finops Agent...")
+
 	// Initialize/Bootstrap the Agent Data Source
 	dataSource := core.NewAgentDataSource()
 

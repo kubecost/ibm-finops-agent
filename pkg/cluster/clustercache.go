@@ -75,7 +75,6 @@ type KubernetesClusterCache struct {
 	namespaceWatch             WatchController
 	nodeWatch                  WatchController
 	podWatch                   WatchController
-	kubecostConfigMapWatch     WatchController
 	serviceWatch               WatchController
 	daemonsetsWatch            WatchController
 	deploymentsWatch           WatchController
@@ -157,7 +156,6 @@ func (kcc *KubernetesClusterCache) Run() {
 	go kcc.nodeWatch.Run(1, stopCh)
 	go kcc.podWatch.Run(1, stopCh)
 	go kcc.serviceWatch.Run(1, stopCh)
-	go kcc.kubecostConfigMapWatch.Run(1, stopCh)
 	go kcc.daemonsetsWatch.Run(1, stopCh)
 	go kcc.deploymentsWatch.Run(1, stopCh)
 	go kcc.statefulsetWatch.Run(1, stopCh)
