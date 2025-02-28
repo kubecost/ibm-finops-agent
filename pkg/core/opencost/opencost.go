@@ -20,7 +20,7 @@ import (
 	"github.com/opencost/opencost/pkg/kubeconfig"
 )
 
-func NewOpenCostDataSource() source.OpenCostDataSource {
+func NewOpenCostDataSource() (source.OpenCostDataSource, cluster.ClusterCache) {
 	// Kubernetes API setup
 	kubeClientset, err := kubeconfig.LoadKubeClient("")
 	if err != nil {
@@ -28,6 +28,8 @@ func NewOpenCostDataSource() source.OpenCostDataSource {
 	}
 
 	// Create Kubernetes Cluster Cache + Watchers
+	// FIXME (bolt): This needs to be pulled out of the opencost bootstrapping specifically
+	// FIXME (bolt): to allow custom proxy/auth, etc... (anything that cloudy or turbo require)
 	k8sCache := cluster.NewKubernetesClusterCache(kubeClientset)
 	k8sCache.Run()
 
@@ -77,5 +79,5 @@ func NewOpenCostDataSource() source.OpenCostDataSource {
 		panic(fatalErr)
 	}
 
-	return dataSource
+	return dataSource, k8sCache
 }
