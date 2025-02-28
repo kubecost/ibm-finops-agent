@@ -1,0 +1,81 @@
+package opencost
+
+import (
+	"context"
+	"time"
+
+	"github.com/ibm/finops-agent/pkg/cluster"
+
+	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/opencost/opencost/core/pkg/source"
+	"github.com/opencost/opencost/core/pkg/util/retry"
+
+	"github.com/opencost/opencost/pkg/costmodel"
+
+	"github.com/opencost/opencost/modules/prometheus-source/pkg/prom"
+
+	"github.com/opencost/opencost/pkg/cloud/provider"
+	"github.com/opencost/opencost/pkg/config"
+	"github.com/opencost/opencost/pkg/env"
+	"github.com/opencost/opencost/pkg/kubeconfig"
+)
+
+func NewOpenCostDataSource() source.OpenCostDataSource {
+	// Kubernetes API setup
+	kubeClientset, err := kubeconfig.LoadKubeClient("")
+	if err != nil {
+		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
+	}
+
+	// Create Kubernetes Cluster Cache + Watchers
+	k8sCache := cluster.NewKubernetesClusterCache(kubeClientset)
+	k8sCache.Run()
+
+	// Create ConfigFileManager for synchronization of shared configuration
+	confManager := config.NewConfigFileManager(&config.ConfigFileManagerOpts{
+		BucketStoreConfig: env.GetKubecostConfigBucket(),
+		LocalConfigPath:   "/",
+	})
+
+	//configPrefix := env.GetConfigPathWithDefault("/var/configs/")
+
+	cloudProviderKey := env.GetCloudProviderAPIKey()
+	cloudProvider, err := provider.NewProvider(cluster.NewOpenCostClusterCacheAdapter(k8sCache), cloudProviderKey, confManager)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// ClusterInfo Provider to provide the cluster map with local and remote cluster data
+	clusterInfoProvider := costmodel.NewLocalClusterInfoProvider(kubeClientset, cloudProvider)
+
+	const maxRetries = 10
+	const retryInterval = 10 * time.Second
+
+	var fatalErr error
+
+	ctx, cancel := context.WithCancel(context.Background())
+	dataSource, _ := retry.Retry(
+		ctx,
+		func() (source.OpenCostDataSource, error) {
+			ds, e := prom.NewDefaultPrometheusDataSource(clusterInfoProvider)
+			if e != nil {
+				if source.IsRetryable(e) {
+					return nil, e
+				}
+				fatalErr = e
+				cancel()
+			}
+
+			return ds, e
+		},
+		maxRetries,
+		retryInterval,
+	)
+
+	if fatalErr != nil {
+		log.Fatalf("Failed to create Prometheus data source: %s", fatalErr)
+		panic(fatalErr)
+	}
+
+	return dataSource
+}
