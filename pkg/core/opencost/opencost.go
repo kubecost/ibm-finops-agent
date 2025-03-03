@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
@@ -17,22 +18,9 @@ import (
 	"github.com/opencost/opencost/pkg/cloud/provider"
 	"github.com/opencost/opencost/pkg/config"
 	"github.com/opencost/opencost/pkg/env"
-	"github.com/opencost/opencost/pkg/kubeconfig"
 )
 
-func NewOpenCostDataSource() (source.OpenCostDataSource, cluster.ClusterCache) {
-	// Kubernetes API setup
-	kubeClientset, err := kubeconfig.LoadKubeClient("")
-	if err != nil {
-		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
-	}
-
-	// Create Kubernetes Cluster Cache + Watchers
-	// FIXME (bolt): This needs to be pulled out of the opencost bootstrapping specifically
-	// FIXME (bolt): to allow custom proxy/auth, etc... (anything that cloudy or turbo require)
-	k8sCache := cluster.NewKubernetesClusterCache(kubeClientset)
-	k8sCache.Run()
-
+func NewOpenCostDataSource(kubeClientset kubernetes.Interface, k8sCache cluster.ClusterCache) source.OpenCostDataSource {
 	// Create ConfigFileManager for synchronization of shared configuration
 	confManager := config.NewConfigFileManager(&config.ConfigFileManagerOpts{
 		BucketStoreConfig: env.GetKubecostConfigBucket(),
@@ -79,5 +67,5 @@ func NewOpenCostDataSource() (source.OpenCostDataSource, cluster.ClusterCache) {
 		panic(fatalErr)
 	}
 
-	return dataSource, k8sCache
+	return dataSource
 }
