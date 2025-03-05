@@ -1,0 +1,135 @@
+name: Unit Tests
+
+on:
+  schedule:
+      - cron: '0 14 * * *'
+  pull_request:
+    branches:
+      - develop
+      - v*.*
+  push:
+    branches:
+      - develop
+
+  merge_group:
+      types: [checks_requested]
+
+jobs:
+  test-finops-agent:
+    runs-on: Kubecost-Linux-Medium-x86
+
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - uses: actions/checkout@v4
+        with:
+          path: ./finops-agent
+
+      - uses: actions/checkout@v4
+        with:
+          repository: 'kubecost/opencost'
+          ref: 'develop'
+          fetch-depth: 0
+          path: ./opencost
+
+    #   - name: Attempt to check out matching branch name, or target branch name of OC
+    #     run: |
+    #         pushd ./opencost
+    #         echo "Attempting to check out matching branch ${{ github.head_ref }} in OC. If that fails, check out ${{ github.base_ref }}"
+    #         set -x
+    #         git checkout "${{ github.head_ref }}" || git checkout "${{ github.base_ref }}" || true
+    #         set +x
+    #         popd
+
+      # Saves us from having to redownload all modules
+      - name: Go Mod cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          # The directory is important. We cover both OC and KCM with the
+          # ./kubecost/**/go.sum hash. Critically important because of the
+          # "replace" in KCM's go.mod
+          key: ${{ runner.os }}-go-${{ hashFiles('./finops-agent/**/go.sum') }}
+
+      - name: Test
+        working-directory: ./finops-agent
+        run: |
+          go test -v ./... --coverprofile=coverage.out
+
+      - name: get-pr-info
+        shell: bash
+        env:
+          PR_NUM: ${{ github.event.number }}
+        run: |
+          echo $PR_NUM > pr_num.txt
+          echo $GITHUB_BASE_REF > base.txt
+          echo $GITHUB_HEAD_REF > head.txt
+          mv ./finops-agent/coverage.out coverage.out
+
+      - name: save coverage file
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage
+          retention-days: 5
+          path: |
+                coverage.out
+                pr_num.txt
+                base.txt
+                head.txt
+
+      - name: Build
+        working-directory: ./finops-agent
+        run: |
+          go build -o finops-agent ./cmd/finops-agent/main.go
+
+#   notify-fail:
+#     needs: [test-cost-model]
+#     runs-on: Kubecost-Linux-Small-x86
+#     if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled() && github.ref == 'refs/heads/develop' }}
+#     steps:
+#       - name: Slack notify
+#         id: slack
+#         uses: slackapi/slack-github-action@v2
+#         with:
+#           webhook-type: webhook-trigger
+#           payload: |
+#             {
+#               "workflow": "${{github.workflow}}",
+#               "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+#               "message": "KCM Develop branch unit testing has failed! Please check the logs for more information."
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }} 
+
+  set-labels:
+    needs: [test-finops-agent]
+    runs-on: Kubecost-Linux-Small-x86
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
+    steps:
+      - name: label unit tests failing
+        if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled()}}
+        uses: andymckay/labeler@1.0.4
+        with:
+          add-labels: "unit tests failed"
+      - uses: mondeja/remove-labels-gh-action@v2
+        if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled()}}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          labels: |
+            unit tests passed
+      - name: Label unit tests passing
+        if: ${{ always()  && !contains(needs.*.result, 'failure') && !cancelled()}}
+        uses: andymckay/labeler@1.0.4
+        with:
+          add-labels: "unit tests passed"
+      - uses: mondeja/remove-labels-gh-action@v2
+        if: ${{ always()  && !contains(needs.*.result, 'failure') && !cancelled()}}
+        with:
+            token: ${{ secrets.GITHUB_TOKEN }}
+            labels: |
+              unit tests failed
