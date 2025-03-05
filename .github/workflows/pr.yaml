@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: 'kubecost/opencost'
-          ref: 'develop'
+          ref: 'bolt/opencost-mods'
           fetch-depth: 0
           path: ./opencost
 
