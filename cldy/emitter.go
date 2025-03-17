@@ -53,11 +53,11 @@ func createIfNotExists(path string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return os.Mkdir(path, 0777)
+	return os.Mkdir(path, os.ModePerm)
 }
 
 func (ce *Emitter) Emit(cs emitter.ClusterSnapshot) error {
-	err := os.Mkdir(ce.nextSamplePath(), 0777)
+	err := os.Mkdir(ce.nextSamplePath(), os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -94,11 +94,11 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 		if err != nil {
 			return err
 		}
-		err = ce.writeStatsFile(true, val.Node.NodeName, data)
+		err = ce.writeStatsFile(stats, val.Node.NodeName, data)
 		if err != nil {
 			return err
 		}
-		err = ce.writeStatsFile(false, val.Node.NodeName, data)
+		err = ce.writeStatsFile(baseline, val.Node.NodeName, data)
 		if err != nil {
 			return err
 		}
@@ -106,19 +106,18 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 	return nil
 }
 
-func (ce *Emitter) writeStatsFile(isStats bool, nodeName string, data []byte) error {
-	var outputPath string
-	if isStats {
+func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
+	var fileName string
+	if outputPrefix == stats {
 		if ce.sampleCt == -1 {
 			return nil
 		}
-		fileName := fmt.Sprintf(statsFileTemplate, stats, nodeName)
-		outputPath = ce.currentSamplePath() + fileName
+		fileName = ce.currentSamplePath()
 	} else {
-		fileName := fmt.Sprintf(statsFileTemplate, baseline, nodeName)
-		outputPath = ce.nextSamplePath() + fileName
+		fileName = ce.nextSamplePath()
 	}
-	file, err := os.Create(outputPath)
+	fileName = fileName + fmt.Sprintf(statsFileTemplate, outputPrefix, nodeName)
+	file, err := os.Create(fileName)
 	if err != nil {
 		return err
 	}
@@ -141,6 +140,7 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 
 func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]proto.Message {
 	return map[string][]proto.Message{
+		//TODO: add cronjobs
 		"nodes":                  convertObj(snapshot.Nodes),
 		"pods":                   convertObj(snapshot.Pods),
 		"deployments":            convertObj(snapshot.Deployments),

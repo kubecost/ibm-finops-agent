@@ -2,6 +2,7 @@ package cldy
 
 import (
 	"archive/tar"
+	"compress/flate"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -138,7 +139,7 @@ func (ce *CldyUploader) uploadData(path string) error {
 // found to the tar writer; the purpose for accepting multiple writers is to allow
 // for multiple outputs
 func createTGZ(writer io.Writer, srcs ...*os.File) (rerr error) {
-	gzw, _ := gzip.NewWriterLevel(writer, 9)
+	gzw, _ := gzip.NewWriterLevel(writer, flate.BestCompression)
 	defer safeClose(gzw.Close, &rerr)
 	tw := tar.NewWriter(gzw)
 	defer safeClose(tw.Close, &rerr)
