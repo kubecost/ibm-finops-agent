@@ -16,12 +16,12 @@ type customerRegion int
 
 const (
 	nativeUS customerRegion = iota
-	hybridEU customerRegion = iota
-	hybridAU customerRegion = iota
-	hybridME customerRegion = iota
-	nativeEU customerRegion = iota
-	nativeAU customerRegion = iota
-	nativeME customerRegion = iota
+	hybridEU
+	hybridAU
+	hybridME
+	nativeEU
+	nativeAU
+	nativeME
 )
 
 // generic uploader, could be apptio, custom s3 or custom azure blob
