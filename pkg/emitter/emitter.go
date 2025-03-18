@@ -6,6 +6,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	stv1 "k8s.io/api/storage/v1"
+	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 // KubernetesSnapshot contains the state of a Kubernetes cluster at a given point in time.
@@ -26,8 +27,9 @@ type KubernetesSnapshot struct {
 	ReplicationControllers []*v1.ReplicationController
 }
 
+// NodeStatsSummary contains summary data sets
 type NodeStatsSummary struct {
-	// TODO: Representation of /<node>/stats/summary
+	Stats []stats.Summary
 }
 
 type MetricsSummary struct {
