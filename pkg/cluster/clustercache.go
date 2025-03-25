@@ -8,6 +8,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	stv1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // TODO: Cloudy/Turbo needs filtering functionality for specific k8s resources!
@@ -62,4 +64,7 @@ type ClusterCache interface {
 
 	// GetAllReplicationControllers returns all cached replication controllers
 	GetAllReplicationControllers() []*v1.ReplicationController
+
+	// ListUnstructuredByGroupVersionResource returns array of unstructured objects by group version resource
+	ListUnstructuredByGroupVersionResource(gvr schema.GroupVersionResource) []*unstructured.Unstructured
 }
