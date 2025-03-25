@@ -10,7 +10,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -23,7 +22,6 @@ import (
 var (
 	cfg     *rest.Config
 	cli     client.Client
-	dyncli  dynamic.Interface
 	testEnv *envtest.Environment
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -41,20 +39,22 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		// create an object for sync
 		Expect(cli.Create(ctx, _testDeployment_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
 
-		dcc := NewDynamicClusterCache(dyncli, 10*time.Minute)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute)
+		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
 		dcc.Run(context.Background())
 
-		deployments, err := dcc.GetAllDeployments()
-		Expect(err).ShouldNot(HaveOccurred())
+		deployments := dcc.GetAllDeployments()
 		Expect(len(deployments)).Should(Equal(1))
 		Expect(deployments[0].Name).Should(Equal(_testDeploymentName_))
 		dcc.Stop()
 	})
 
 	It("can get auto sync with updated resources", func() {
-		dcc := NewDynamicClusterCache(dyncli, 10*time.Minute)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute)
+		Expect(err).ShouldNot(HaveOccurred())
+
 		Expect(dcc).NotTo(BeNil())
 		dcc.Run(context.Background())
 
@@ -72,8 +72,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		time.Sleep(time.Second)
 
 		// verify the change is in cache
-		deployments, err := dcc.GetAllDeployments()
-		Expect(err).ShouldNot(HaveOccurred())
+		deployments := dcc.GetAllDeployments()
 		Expect(len(deployments)).Should(Equal(1))
 		annotations := deployments[0].GetAnnotations()
 		Expect(len(annotations)).Should(Equal(1))
@@ -94,9 +93,6 @@ var _ = BeforeSuite(func() {
 	cfg, err = testEnv.Start()
 	Expect(err).ShouldNot(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
-
-	dyncli, err = dynamic.NewForConfig(cfg)
-	Expect(err).ShouldNot(HaveOccurred())
 
 	cli, err = client.New(cfg, client.Options{})
 	Expect(err).ShouldNot(HaveOccurred())
