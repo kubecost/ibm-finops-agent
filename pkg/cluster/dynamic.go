@@ -32,7 +32,7 @@ var (
 
 		{Group: "apps", Version: "v1", Resource: "deployments"},
 		{Group: "apps", Version: "v1", Resource: "daemonsets"},
-		{Group: "apps", Version: "v1", Resource: "daemonsets"},
+		{Group: "apps", Version: "v1", Resource: "statefulsets"},
 		{Group: "apps", Version: "v1", Resource: "replicasets"},
 
 		{Group: "storage.k8s.io", Version: "v1", Resource: "storageclasses"},
