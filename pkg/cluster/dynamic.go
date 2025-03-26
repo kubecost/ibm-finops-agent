@@ -1,7 +1,6 @@
 package cluster
 
 import (
-	"context"
 	"log"
 	"reflect"
 	"time"
@@ -43,8 +42,6 @@ var (
 // DynamicClusterCache is the implementation of ClusterCache with dynamic informers
 type DynamicClusterCache struct {
 	dynamicinformer.DynamicSharedInformerFactory
-	ctx    context.Context
-	cancel context.CancelFunc
 }
 
 func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration) (ClusterCache, error) {
@@ -86,24 +83,16 @@ func ConvertUnstructuredArrayToTypedArray[T any](uObjs []*unstructured.Unstructu
 	return array
 }
 
-func (dcc *DynamicClusterCache) Run(ctx context.Context) {
+func (dcc *DynamicClusterCache) Start(stopCh <-chan struct{}) {
 
-	dcc.ctx, dcc.cancel = context.WithCancel(ctx)
+	dcc.DynamicSharedInformerFactory.Start(stopCh)
 
-	dcc.Start(dcc.ctx.Done())
-
-	synced := dcc.WaitForCacheSync(dcc.ctx.Done())
+	synced := dcc.WaitForCacheSync(stopCh)
 	for v, ok := range synced {
 		if !ok {
 			log.Fatalf("caches failed to sync: %v", v)
 		}
 	}
-}
-
-func (dcc *DynamicClusterCache) Stop() {
-	dcc.cancel()
-
-	dcc.Shutdown()
 }
 
 func (dcc *DynamicClusterCache) ListUnstructuredByGroupVersionResource(gvr schema.GroupVersionResource) []*unstructured.Unstructured {

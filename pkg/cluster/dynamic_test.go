@@ -43,20 +43,24 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
-		dcc.Run(context.Background())
+		dccCtx, dccCancel := context.WithCancel(context.Background())
+		dcc.Start(dccCtx.Done())
 
 		deployments := dcc.GetAllDeployments()
 		Expect(len(deployments)).Should(Equal(1))
 		Expect(deployments[0].Name).Should(Equal(_testDeploymentName_))
-		dcc.Stop()
+
+		dccCancel()
+		dcc.Shutdown()
 	})
 
 	It("can get auto sync with updated resources", func() {
 		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
-
 		Expect(dcc).NotTo(BeNil())
-		dcc.Run(context.Background())
+
+		dccCtx, dccCancel := context.WithCancel(context.Background())
+		dcc.Start(dccCtx.Done())
 
 		deploy := &appsv1.Deployment{}
 		Expect(cli.Get(ctx, types.NamespacedName{Namespace: _testNamespace_, Name: _testDeploymentName_}, deploy, &client.GetOptions{})).Should(Succeed())
@@ -78,7 +82,8 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		Expect(len(annotations)).Should(Equal(1))
 		Expect(annotations[key]).Should(Equal(value))
 
-		dcc.Stop()
+		dccCancel()
+		dcc.Shutdown()
 	})
 
 })

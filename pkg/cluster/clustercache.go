@@ -1,8 +1,6 @@
 package cluster
 
 import (
-	"context"
-
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -17,11 +15,11 @@ import (
 // ClusterCache defines an contract for an object which caches components within a cluster, ensuring
 // up to date resources using watchers
 type ClusterCache interface {
-	// Run starts the watcher processes
-	Run(ctx context.Context)
 
-	// Stops the watcher processes
-	Stop()
+	// Starts the watcher processes
+	Start(stopCh <-chan struct{})
+	// Shutdown the watcher processes
+	Shutdown()
 
 	// GetAllNamespaces returns all the cached namespaces
 	GetAllNamespaces() []*v1.Namespace

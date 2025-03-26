@@ -34,13 +34,16 @@ func NewAgentDataSource() DataSource {
 	}
 
 	cfg, err := kubeconfig.LoadKubeconfig("")
+	if err != nil {
+		log.Fatalf("Failed to load Kubernetes config: %s", err.Error())
+	}
 	// Create Kubernetes Cluster Cache + Watchers
 	k8sCache, err := cluster.NewDynamicClusterCache(cfg, defaultCacheResyncDuration)
 	if err != nil {
 		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
 	}
 
-	k8sCache.Run(context.Background())
+	k8sCache.Start(context.Background().Done())
 
 	opencostSource := opencost.NewOpenCostDataSource(kubeClientset, k8sCache)
 
