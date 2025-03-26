@@ -1,4 +1,4 @@
-name: Unit Tests
+name: Unit Tests and Build Docker Image
 
 on:
   schedule:
@@ -17,6 +17,9 @@ on:
 jobs:
   test-finops-agent:
     runs-on: Kubecost-Linux-Medium-x86
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Install Go
@@ -26,11 +29,11 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          path: ./finops-agent
+          path: ./ibm-finops-agent
 
       - uses: actions/checkout@v4
         with:
-          repository: 'kubecost/opencost'
+          repository: 'opencost/opencost'
           ref: 'bolt/opencost-mods'
           fetch-depth: 0
           path: ./opencost
@@ -54,10 +57,10 @@ jobs:
           # The directory is important. We cover both OC and KCM with the
           # ./kubecost/**/go.sum hash. Critically important because of the
           # "replace" in KCM's go.mod
-          key: ${{ runner.os }}-go-${{ hashFiles('./finops-agent/**/go.sum') }}
+          key: ${{ runner.os }}-go-${{ hashFiles('./ibm-finops-agent/**/go.sum') }}
 
       - name: Test
-        working-directory: ./finops-agent
+        working-directory: ./ibm-finops-agent
         run: |
           go test -v ./... --coverprofile=coverage.out
 
@@ -69,7 +72,7 @@ jobs:
           echo $PR_NUM > pr_num.txt
           echo $GITHUB_BASE_REF > base.txt
           echo $GITHUB_HEAD_REF > head.txt
-          mv ./finops-agent/coverage.out coverage.out
+          mv ./ibm-finops-agent/coverage.out coverage.out
 
       - name: save coverage file
         uses: actions/upload-artifact@v4
@@ -82,10 +85,45 @@ jobs:
                 base.txt
                 head.txt
 
-      - name: Build
-        working-directory: ./finops-agent
+      - name: Build Go binary
+        working-directory: ./ibm-finops-agent
         run: |
-          go build -o finops-agent ./cmd/finops-agent/main.go
+          go build -o ibm-finops-agent ./cmd/finops-agent/main.go
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/ibm-finops-agent
+          tags: |
+            type=sha,prefix=pr-
+            type=ref,event=pr
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./ibm-finops-agent/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            DUCK_VERSION=v0.9.2
+            version=${{ github.sha }}
+            commit=${{ github.sha }}
 
 #   notify-fail:
 #     needs: [test-cost-model]
