@@ -1,7 +1,9 @@
 package core
 
 import (
+	"context"
 	"log"
+	"time"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core/opencost"
@@ -19,6 +21,10 @@ type DataSource interface {
 	Cluster() cluster.ClusterCache
 }
 
+var (
+	defaultCacheResyncDuration = 60 * time.Minute
+)
+
 func NewAgentDataSource() DataSource {
 	// NOTE: (bolt) This just uses a fairly straight-forward kube client initialization. We should add specific proxy/auth
 	// NOTE: (bolt) requirements for the other data sources.
@@ -27,9 +33,17 @@ func NewAgentDataSource() DataSource {
 		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
 	}
 
+	cfg, err := kubeconfig.LoadKubeconfig("")
+	if err != nil {
+		log.Fatalf("Failed to load Kubernetes config: %s", err.Error())
+	}
 	// Create Kubernetes Cluster Cache + Watchers
-	k8sCache := cluster.NewKubernetesClusterCache(kubeClientset)
-	k8sCache.Run()
+	k8sCache, err := cluster.NewDynamicClusterCache(cfg, defaultCacheResyncDuration)
+	if err != nil {
+		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
+	}
+
+	k8sCache.Start(context.Background().Done())
 
 	opencostSource := opencost.NewOpenCostDataSource(kubeClientset, k8sCache)
 

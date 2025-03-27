@@ -59,7 +59,7 @@ jobs:
       - name: Test
         working-directory: ./finops-agent
         run: |
-          go test -v ./... --coverprofile=coverage.out
+          make test
 
       - name: get-pr-info
         shell: bash
