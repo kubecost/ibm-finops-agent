@@ -74,6 +74,10 @@ func TestTarCleanup(t *testing.T) {
 	}
 }
 
+func TestUpload(t *testing.T) {
+
+}
+
 type mockApptioService struct {
 	uploadCt int
 }

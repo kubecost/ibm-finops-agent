@@ -24,6 +24,7 @@ type CldyUploader struct {
 	uploadSet      *set
 	stop           chan struct{}
 	clusterID      string
+	agentVersion   string
 	uploadPathDir  string
 	StorageService StorageService
 }
@@ -120,14 +121,20 @@ func (ce *CldyUploader) ConstructPayload() (path string, rerr error) {
 }
 
 func (ce *CldyUploader) uploadData(path string) error {
-	payload := UploadPayload{
-		ClusterUID:   "",
-		FileName:     "",
-		AgentVersion: "",
-		UploadHash:   "",
-		FilePath:     "",
+
+	fileName, hash, err := getFileNameAndHash(path)
+	if err != nil {
+		return err
 	}
-	err := ce.StorageService.Upload(payload)
+	payload := UploadPayload{
+		ClusterUID:   ce.clusterID,
+		FileName:     fileName,
+		AgentVersion: ce.agentVersion,
+		UploadHash:   hash,
+		FilePath:     path,
+	}
+	// TODO add retries for each stage
+	err = ce.StorageService.Upload(payload)
 	if err != nil {
 		return err
 	}
