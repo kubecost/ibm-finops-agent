@@ -7,6 +7,8 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	stv1 "k8s.io/api/storage/v1"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
+
+	"github.com/opencost/opencost/core/pkg/source"
 )
 
 // KubernetesSnapshot contains the state of a Kubernetes cluster at a given point in time.
@@ -32,8 +34,88 @@ type NodeStatsSummary struct {
 	Stats []stats.Summary
 }
 
+// MetricsSummary contains the metrics results from opencost data source queries.
 type MetricsSummary struct {
-	// TODO: Representation of metrics results required for opencost
+	Hourly *MetricsSnapshot
+	Daily  *MetricsSnapshot
+}
+
+// MetricsSnapshot contains the metrics results from opencost data source queries.
+type MetricsSnapshot struct {
+	PVActiveMinutes              []*source.PVActiveMinutesResult
+	PVUsedAverage                []*source.PVUsedAvgResult
+	PVUsedMax                    []*source.PVUsedMaxResult
+	LocalStorageActiveMinutes    []*source.LocalStorageActiveMinutesResult
+	LocalStorageCost             []*source.LocalStorageCostResult
+	LocalStorageUsedCost         []*source.LocalStorageUsedCostResult
+	LocalStorageUsedAvg          []*source.LocalStorageUsedAvgResult
+	LocalStorageUsedMax          []*source.LocalStorageUsedMaxResult
+	LocalStorageBytes            []*source.LocalStorageBytesResult
+	NodeActiveMinutes            []*source.NodeActiveMinutesResult
+	NodeCPUCoresCapacity         []*source.NodeCPUCoresCapacityResult
+	NodeCPUCoresAllocatable      []*source.NodeCPUCoresAllocatableResult
+	NodeRAMBytesCapacity         []*source.NodeRAMBytesCapacityResult
+	NodeRAMBytesAllocatable      []*source.NodeRAMBytesAllocatableResult
+	NodeGPUCount                 []*source.NodeGPUCountResult
+	NodeCPUModeTotal             []*source.NodeCPUModeTotalResult
+	NodeIsSpot                   []*source.NodeIsSpotResult
+	NodeRAMSystemPercent         []*source.NodeRAMSystemPercentResult
+	NodeRAMUserPercent           []*source.NodeRAMUserPercentResult
+	LBActiveMinutes              []*source.LBActiveMinutesResult
+	LBPricePerHr                 []*source.LBPricePerHrResult
+	ClusterManagementDuration    []*source.ClusterManagementDurationResult
+	ClusterManagementPricePerHr  []*source.ClusterManagementPricePerHrResult
+	Pods                         []*source.PodsResult
+	PodsUID                      []*source.PodsResult
+	RAMBytesAllocated            []*source.RAMBytesAllocatedResult
+	RAMRequests                  []*source.RAMRequestsResult
+	RAMUsageAvg                  []*source.RAMUsageAvgResult
+	RAMUsageMax                  []*source.RAMUsageMaxResult
+	NodeRAMPricePerGiBHr         []*source.NodeRAMPricePerGiBHrResult
+	CPUCoresAllocated            []*source.CPUCoresAllocatedResult
+	CPURequests                  []*source.CPURequestsResult
+	CPUUsageAvg                  []*source.CPUUsageAvgResult
+	CPUUsageMax                  []*source.CPUUsageMaxResult
+	NodeCPUPricePerHr            []*source.NodeCPUPricePerHrResult
+	GPUsAllocated                []*source.GPUsAllocatedResult
+	GPUsRequested                []*source.GPUsRequestedResult
+	GPUsUsageAvg                 []*source.GPUsUsageAvgResult
+	GPUsUsageMax                 []*source.GPUsUsageMaxResult
+	NodeGPUPricePerHr            []*source.NodeGPUPricePerHrResult
+	GPUInfo                      []*source.GPUInfoResult
+	IsGPUShared                  []*source.IsGPUSharedResult
+	PodPVCAllocation             []*source.PodPVCAllocationResult
+	PVCBytesRequested            []*source.PVCBytesRequestedResult
+	PVCInfo                      []*source.PVCInfoResult
+	PVBytes                      []*source.PVBytesResult
+	PVPricePerGiBHour            []*source.PVPricePerGiBHourResult
+	PVInfo                       []*source.PVInfoResult
+	NetZoneGiB                   []*source.NetZoneGiBResult
+	NetZonePricePerGiB           []*source.NetZonePricePerGiBResult
+	NetRegionGiB                 []*source.NetRegionGiBResult
+	NetRegionPricePerGiB         []*source.NetRegionPricePerGiBResult
+	NetInternetGiB               []*source.NetInternetGiBResult
+	NetInternetPricePerGiB       []*source.NetInternetPricePerGiBResult
+	NetInternetServiceGiB        []*source.NetInternetServiceGiBResult
+	NetTransferBytes             []*source.NetTransferBytesResult
+	NetZoneIngressGiB            []*source.NetZoneIngressGiBResult
+	NetRegionIngressGiB          []*source.NetRegionIngressGiBResult
+	NetInternetIngressGiB        []*source.NetInternetIngressGiBResult
+	NetInternetServiceIngressGiB []*source.NetInternetServiceIngressGiBResult
+	NetReceiveBytes              []*source.NetReceiveBytesResult
+	NamespaceAnnotations         []*source.NamespaceAnnotationsResult
+	PodAnnotations               []*source.PodAnnotationsResult
+	NodeLabels                   []*source.NodeLabelsResult
+	NamespaceLabels              []*source.NamespaceLabelsResult
+	PodLabels                    []*source.PodLabelsResult
+	ServiceLabels                []*source.ServiceLabelsResult
+	DeploymentLabels             []*source.DeploymentLabelsResult
+	StatefulSetLabels            []*source.StatefulSetLabelsResult
+	DaemonSetLabels              []*source.DaemonSetLabelsResult
+	JobLabels                    []*source.JobLabelsResult
+	PodsWithReplicaSetOwner      []*source.PodsWithReplicaSetOwnerResult
+	ReplicaSetsWithoutOwners     []*source.ReplicaSetsWithoutOwnersResult
+	ReplicaSetsWithRollout       []*source.ReplicaSetsWithRolloutResult
 }
 
 type ClusterSnapshot struct {
@@ -45,5 +127,9 @@ type ClusterSnapshot struct {
 // Emitter is a contract for an implementation which is directly sent cluster data snapshots on
 // a regular interval.
 type Emitter interface {
-	Emit(ClusterSnapshot) error
+	// ID returns the identifier of the emitter for identification purposes.
+	ID() EmitterID
+
+	// Emits the `ClusterSnapshot` based on the emitter's implementation.
+	Emit(*ClusterSnapshot) error
 }

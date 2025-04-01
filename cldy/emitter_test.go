@@ -3,11 +3,12 @@ package cldy_test
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ibm/finops-agent/cldy"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ibm/finops-agent/cldy"
 
 	"github.com/ibm/finops-agent/pkg/emitter"
 
@@ -181,10 +182,10 @@ func (m *mockUploader) AddSample(sample string) {
 	m.data = append(m.data, sample)
 }
 
-func buildTestData() (emitter.ClusterSnapshot, error) {
+func buildTestData() (*emitter.ClusterSnapshot, error) {
 	metadata := emitter.KubernetesSnapshot{}
 	nodeStats := emitter.NodeStatsSummary{}
-	snapshot := emitter.ClusterSnapshot{
+	snapshot := &emitter.ClusterSnapshot{
 		Kubernetes: &metadata,
 		NodeStats:  &nodeStats,
 	}

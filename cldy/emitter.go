@@ -56,7 +56,11 @@ func createIfNotExists(path string) error {
 	return os.Mkdir(path, os.ModePerm)
 }
 
-func (ce *Emitter) Emit(cs emitter.ClusterSnapshot) error {
+func (ce *Emitter) ID() emitter.EmitterID {
+	return emitter.CldyEmitterID
+}
+
+func (ce *Emitter) Emit(cs *emitter.ClusterSnapshot) error {
 	err := os.Mkdir(ce.nextSamplePath(), os.ModePerm)
 	if err != nil {
 		return err
