@@ -3,6 +3,7 @@ package cldy_test
 import (
 	"github.com/ibm/finops-agent/cldy"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -75,7 +76,96 @@ func TestTarCleanup(t *testing.T) {
 }
 
 func TestUpload(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Errorf("Error creating temp dir: %s", err)
+	}
+	err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+	if err != nil {
+		t.Errorf("Error copying test data: %s", err)
+	}
+	config := cldy.UploaderConfig{
+		UploadFrequency: time.Nanosecond,
+		ScratchDir:      tempDir,
+	}
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	uploader := cldy.NewCldyUploader(config, stopCh)
+	uploader.SetClusterID("test_id")
+	actualUploader := uploader.(*cldy.CldyUploader)
+	mockService := mockApptioService{}
+	actualUploader.StorageService = &mockService
+	uploader.AddSample(tempDir + "/scratch/temp_test_data")
+	time.Sleep(time.Second)
+	if err != nil {
+		t.Errorf("Error building payload: %s", err)
+	}
+	payload := cldy.UploadPayload{
+		ClusterUID:   "test_id",
+		FileName:     "temp_test_data",
+		AgentVersion: "1.0.0",
+		UploadHash:   "testing_hash",
+		FilePath:     tempDir + "/scratch/temp_test_data",
+	}
+	err = actualUploader.StorageService.Upload(payload)
+	if err != nil {
+		t.Errorf("Error uploading payload: %s", err)
+	}
+	if mockService.uploadCt != 1 {
+		t.Errorf("Error uploading payload: expected 1, got %d", mockService.uploadCt)
+	}
+}
 
+func TestTempRealUpload(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Errorf("Error creating temp dir: %s", err)
+	}
+	err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+	if err != nil {
+		t.Errorf("Error copying test data: %s", err)
+	}
+	config := cldy.UploaderConfig{
+		UploadFrequency: time.Hour,
+		ScratchDir:      tempDir,
+	}
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	uploader := cldy.NewCldyUploader(config, stopCh)
+	uploader.SetClusterID("test_id")
+	actualUploader := uploader.(*cldy.CldyUploader)
+	apptioConfig := cldy.ApptioConfig{
+		KeyAccess:       "",
+		KeySecret:       "",
+		EnvID:           "",
+		OpenToken:       "", // colected via login
+		CustomerType:    "",
+		Timeout:         0,
+		Retries:         0,
+		ProxyURL:        url.URL{},
+		ProxyAuth:       "",
+		ProxyInsecure:   false,
+		FrontdoorURL:    "https://frontdoor-stage.apptio.com",
+		CloudabilityURL: "https://api-s.cloudability.com",
+	}
+	realService := cldy.NewApptioSerivce(apptioConfig)
+	actualUploader.StorageService = realService
+	uploader.AddSample(tempDir + "/scratch/temp_test_data")
+	time.Sleep(time.Second)
+	if err != nil {
+		t.Errorf("Error building payload: %s", err)
+	}
+	payload := cldy.UploadPayload{
+		ClusterUID:   "test_id",
+		FileName:     "temp_test_data",
+		AgentVersion: "1.0.0",
+		UploadHash:   "testing_hash",
+		FilePath:     tempDir + "/scratch/temp_test_data",
+	}
+	err = actualUploader.StorageService.Upload(payload)
+	if err != nil {
+		t.Errorf("Error uploading payload: %s", err)
+	}
 }
 
 type mockApptioService struct {

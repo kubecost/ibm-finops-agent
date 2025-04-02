@@ -121,7 +121,6 @@ func (ce *CldyUploader) ConstructPayload() (path string, rerr error) {
 }
 
 func (ce *CldyUploader) uploadData(path string) error {
-
 	fileName, hash, err := getFileNameAndHash(path)
 	if err != nil {
 		return err
@@ -133,7 +132,6 @@ func (ce *CldyUploader) uploadData(path string) error {
 		UploadHash:   hash,
 		FilePath:     path,
 	}
-	// TODO add retries for each stage
 	err = ce.StorageService.Upload(payload)
 	if err != nil {
 		return err
