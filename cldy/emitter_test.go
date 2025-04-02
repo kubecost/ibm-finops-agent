@@ -1,6 +1,7 @@
 package cldy_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -39,7 +40,7 @@ func TestLoadData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = cldyEmitter.Emit(data)
+	err = cldyEmitter.Emit(context.TODO(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,7 @@ func TestLoadData(t *testing.T) {
 	if len(mockUpload.data) != 0 {
 		t.Fatalf("uploader data not empty: %v", mockUpload.data)
 	}
-	err = cldyEmitter.Emit(data)
+	err = cldyEmitter.Emit(context.TODO(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestLoadDataAsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = cldyEmitter.Emit(data)
+	err = cldyEmitter.Emit(context.TODO(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestLoadDataAsJSON(t *testing.T) {
 	if len(mockUpload.data) != 0 {
 		t.Fatalf("uploader data not empty: %v", mockUpload.data)
 	}
-	err = cldyEmitter.Emit(data)
+	err = cldyEmitter.Emit(context.TODO(), data)
 	if err != nil {
 		t.Fatal(err)
 	}

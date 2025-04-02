@@ -1,6 +1,8 @@
 package emitter
 
 import (
+	"context"
+
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -131,5 +133,5 @@ type Emitter interface {
 	ID() EmitterID
 
 	// Emits the `ClusterSnapshot` based on the emitter's implementation.
-	Emit(*ClusterSnapshot) error
+	Emit(context.Context, *ClusterSnapshot) error
 }

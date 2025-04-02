@@ -21,7 +21,7 @@ type SnapshotProvider interface {
 
 // FIXME: (bolt) use a metrics summary cache duration of 5 minutes while we're using a prometheus data source.
 // FIXME: (bolt) this should be fine to run on a much faster frequency with a non-promethues metrics querier.
-const metricsSummaryCacheDuration = 5 * time.Minute
+var metricsSummaryCacheDuration time.Duration = 5 * time.Minute
 
 // ConcurrentSnapshotProvider is a struct that implements the `SnapshotProvider` interface and executes the
 // snapshot generation process concurrently.

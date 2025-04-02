@@ -1,6 +1,8 @@
 package emitter
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/core"
@@ -53,12 +55,15 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 
 	// spawn a new goroutine which will loop and wait the interval each iteration
 	go func() {
+		runContext, cancelRun := context.WithCancel(context.Background())
+
 		for {
 			// use a select statement to receive whichever channel receives data first
 			select {
 			// if our stop channel receives data, it means we have explicitly called
 			// Stop(), and must reset our AtomicRunState to it's initial idle state
 			case <-de.runState.OnStop():
+				cancelRun()
 				de.runState.Reset()
 				return // exit go routine
 
@@ -76,10 +81,12 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 					return
 				}
 
-				// emit the snapshot to all registered emitters
+				// emit the snapshot to all registered emitters -- note that the emitters run serially,
+				// each blocking until emission is complete. This gives us a _little_ bit of flexibility
+				// in the emission process at the cost of performance. We can definitely iterate on this.
 				for _, emitter := range de.emitters {
-					if err := emitter.Emit(snapshot); err != nil {
-						log.Errorf("failed to emit snapshot: %v", err)
+					if err := emit(runContext, emitter, snapshot); err != nil {
+						log.Errorf("[%s] failed to emit snapshot: %v", emitter.ID(), err)
 					}
 				}
 			}()
@@ -87,6 +94,32 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 	}()
 
 	return true
+}
+
+// emit is helper function that handles the emission of a snapshot to a specific emitter
+// and captures and recovers from any panics that occur during the emission process.
+func emit(ctx context.Context, emitter Emitter, snapshot *ClusterSnapshot) (err error) {
+	// panics are recovered and propagated as errors
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok {
+				err = fmt.Errorf("unexpected panic: %w", e)
+			} else if s, ok := r.(string); ok {
+				err = fmt.Errorf("unexpected panic: %s", s)
+			} else {
+				err = fmt.Errorf("unexpected panic: %+v", r)
+			}
+		}
+	}()
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Currently, each emitter will block until the emission is complete. This can easily
+	// be changed later to allow for non-blocking emissions, but we'll have to ensure that
+	// the shared ClusterSnapshot remains immutable during the emission process.
+	err = emitter.Emit(ctx, snapshot)
+	return
 }
 
 // Stop halts the emission process from running any further emissions, but may not halt
