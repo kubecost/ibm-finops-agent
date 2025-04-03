@@ -38,6 +38,8 @@ func NewOpenCostDataSource(kubeClientset kubernetes.Interface, k8sCache cluster.
 	// ClusterInfo Provider to provide the cluster map with local and remote cluster data
 	clusterInfoProvider := costmodel.NewLocalClusterInfoProvider(kubeClientset, cloudProvider)
 
+	// var nssg NodeStatsSummaryGetter = newGetter()
+
 	const maxRetries = 10
 	const retryInterval = 10 * time.Second
 

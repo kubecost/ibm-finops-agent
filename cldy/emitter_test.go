@@ -1,13 +1,15 @@
 package cldy_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ibm/finops-agent/cldy"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ibm/finops-agent/cldy"
 
 	"github.com/ibm/finops-agent/pkg/emitter"
 
@@ -38,7 +40,7 @@ func TestLoadData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = cldyEmitter.Emit(data)
+	err = cldyEmitter.Emit(context.TODO(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,7 @@ func TestLoadData(t *testing.T) {
 	if len(mockUpload.data) != 0 {
 		t.Fatalf("uploader data not empty: %v", mockUpload.data)
 	}
-	err = cldyEmitter.Emit(data)
+	err = cldyEmitter.Emit(context.TODO(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +115,7 @@ func TestLoadDataAsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = cldyEmitter.Emit(data)
+	err = cldyEmitter.Emit(context.TODO(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +123,7 @@ func TestLoadDataAsJSON(t *testing.T) {
 	if len(mockUpload.data) != 0 {
 		t.Fatalf("uploader data not empty: %v", mockUpload.data)
 	}
-	err = cldyEmitter.Emit(data)
+	err = cldyEmitter.Emit(context.TODO(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,10 +183,10 @@ func (m *mockUploader) AddSample(sample string) {
 	m.data = append(m.data, sample)
 }
 
-func buildTestData() (emitter.ClusterSnapshot, error) {
+func buildTestData() (*emitter.ClusterSnapshot, error) {
 	metadata := emitter.KubernetesSnapshot{}
 	nodeStats := emitter.NodeStatsSummary{}
-	snapshot := emitter.ClusterSnapshot{
+	snapshot := &emitter.ClusterSnapshot{
 		Kubernetes: &metadata,
 		NodeStats:  &nodeStats,
 	}
