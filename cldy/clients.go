@@ -31,9 +31,9 @@ const defaultTimeout = time.Second * 10
 const defaultRetries = 3
 const proxyAuthHeader = "Proxy-Authorization"
 
-const frontDoorLoginDescription = "perform login request to FrontDoor using keyAccess and keySecret"
-const presignedURLDescription = "acquire presigned URL from Cloudability with acquired Open-token"
-const s3UploadDescription = "upload sample to Cloudability S3 using presigned URL"
+const frontDoorLoginDescription = "performing login request to FrontDoor using keyAccess and keySecret"
+const presignedURLDescription = "acquiring presigned URL from Cloudability with acquired Open-token"
+const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
 
 type customerRegion int
 
@@ -293,7 +293,7 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 func doWithRetry(client *http.Client, req *http.Request, requestDescription string) (*http.Response, error) {
 
 	for i := 1; i < 4; i++ {
-		log.Infof("Attempt %d: trying to %s", i, requestDescription)
+		log.Infof("Attempt %d: %s", i, requestDescription)
 		resp, err := client.Do(req)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 			return resp, nil

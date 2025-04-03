@@ -2,9 +2,10 @@ package cldy
 
 import (
 	"crypto/md5"
-	"encoding/hex"
+	"encoding/base64"
 	"io"
 	"os"
+	"path"
 	"sync"
 )
 
@@ -85,11 +86,10 @@ func getFileNameAndHash(filePath string) (string, string, error) {
 	}
 	defer safeClose(file.Close, &err)
 
+	fileName := path.Base(filePath)
 	hash := md5.New()
 	if _, err = io.Copy(hash, file); err != nil {
 		return "", "", err
 	}
-
-	hashInBytes := hash.Sum(nil)
-	return file.Name(), hex.EncodeToString(hashInBytes), nil
+	return fileName, base64.StdEncoding.EncodeToString(hash.Sum(nil)), nil
 }

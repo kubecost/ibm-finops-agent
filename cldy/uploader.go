@@ -99,7 +99,7 @@ func (ce *CldyUploader) ConstructPayload() (path string, rerr error) {
 	}
 	defer safeCloseFiles(files, &rerr)
 
-	path = ce.uploadPathDir + "/" + ce.clusterID + "-" + time.Now().Format("20060102-15-04-05") + ".tgz"
+	path = ce.uploadPathDir + "/" + ce.clusterID + "_" + time.Now().Format("2006-01-02-15-04-05") + ".tgz"
 	tw, err := os.Create(path)
 	defer safeClose(tw.Close, &rerr)
 	if err != nil {
