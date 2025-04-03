@@ -85,18 +85,18 @@ func TestSnapshottingTemporaryCache(t *testing.T) {
 
 // MockDataSource contains mock implementations of the interfaces returned by the data source.
 type MockDataSource struct {
-	ClusterCache   				*MockClusterCache
-	MetricsQuerier 			 	*MockMetricsQuerier
-	NodeStatsSummaryClient   	*MockNodeClient
+	ClusterCache           *MockClusterCache
+	MetricsQuerier         *MockMetricsQuerier
+	NodeStatsSummaryClient *MockNodeClient
 }
 
 // NewMockDataSource creates a new mock data source implementation with services that track
 // method calls only (empty responses).
 func NewMockDataSource() *MockDataSource {
 	return &MockDataSource{
-		ClusterCache:   NewMockClusterCache(),
-		MetricsQuerier: NewMockMetricsQuerier(),
-		NodeStatsSummaryClient: 	NewMockNodeClient(),
+		ClusterCache:           NewMockClusterCache(),
+		MetricsQuerier:         NewMockMetricsQuerier(),
+		NodeStatsSummaryClient: NewMockNodeClient(),
 	}
 }
 
@@ -670,7 +670,7 @@ type MockNodeClient struct {
 	Calls map[string]int
 }
 
-// NewMockNodeClient creates a new mock metrics querier
+// NewMockNodeClient creates a new mock metrics client
 func NewMockNodeClient() *MockNodeClient {
 	return &MockNodeClient{
 		Calls: make(map[string]int),

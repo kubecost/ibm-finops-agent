@@ -23,27 +23,27 @@ type NodeClient interface {
 }
 
 type NodeClientSource struct {
-	config KubeAgentConfig
-	cache cluster.ClusterCache
+	config   KubeAgentConfig
+	cache    cluster.ClusterCache
 	endpoint string
-	name string
+	name     string
 }
 
-func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config KubeAgentConfig) (NodeClient) {
-	return NodeClientSource{	
-		config: 	config,
-		cache: 		cache,
-		endpoint: 	"/stats/summary",
-		name: 		"statsSummary",
+func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config KubeAgentConfig) NodeClient {
+	return NodeClientSource{
+		config:   config,
+		cache:    cache,
+		endpoint: "/stats/summary",
+		name:     "statsSummary",
 	}
 }
 
-func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) (NodeClient) {
-	return NodeClientSource{	
-		config: 	config,
-		cache: 		cache,
-		endpoint: 	"/metrics/cAdvisor",
-		name: 		"cAdvisor",
+func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) NodeClient {
+	return NodeClientSource{
+		config:   config,
+		cache:    cache,
+		endpoint: "/metrics/cAdvisor",
+		name:     "cAdvisor",
 	}
 }
 
@@ -59,10 +59,6 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cloudability metric agent is unable to get a list of nodes: %v", err)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("error occurred requesting container statistics: %v", err)
 	}
 
 	// log.Debugln("Starting node collection loop")
@@ -90,9 +86,9 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 			}
 
 			nd := nodeFetchData{
-				nodeName:          currentNode.Name,
+				nodeName: currentNode.Name,
 				// prefix:            prefix, ALEX TODO: Pull this from the struct
-				ClusterHostURL:    ncs.config.ClusterHostURL,
+				ClusterHostURL: ncs.config.ClusterHostURL,
 			}
 
 			data, err := retrieveNodeData(nd, ncs, currentNode)
@@ -119,9 +115,9 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 }
 
 type nodeFetchData struct {
-	nodeName          string
-	prefix            string
-	ClusterHostURL    string
+	nodeName       string
+	prefix         string
+	ClusterHostURL string
 }
 
 // connectionOptions returns the connection methods that are allowed for this node based on config
@@ -177,7 +173,7 @@ func isFargateNode(n v1.Node) bool {
 
 func getReadyNodes(ncs NodeClientSource) []*v1.Node {
 	var nodes = ncs.cache.GetAllNodes()
-	
+
 	var readyNodes []*v1.Node
 	for _, n := range nodes {
 		i, nc := getNodeCondition(
@@ -229,7 +225,7 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 
 // Alex TODO: Check if this should be split off into another section
 type connectionMethod struct {
-	API nodeAPI
+	API    nodeAPI
 	client Client
 }
 
@@ -278,18 +274,17 @@ func setupProxyAPI(clusterHostURL, nodeName string) proxyAPI {
 	}
 }
 
-
 // Alex TODO: Check if this should be split off into another section
 type KubeAgentConfig struct {
-	ClusterHostURL         string
-	ForceKubeProxy         bool
-	UseInClusterConfig     bool
-	ConcurrentPollers      int
-	DirectNodeClient       Client
-	InClusterClient        Client
+	ClusterHostURL     string
+	ForceKubeProxy     bool
+	UseInClusterConfig bool
+	ConcurrentPollers  int
+	DirectNodeClient   Client
+	InClusterClient    Client
 }
 
-func NewKubeAgentConfig() (KubeAgentConfig) {
+func NewKubeAgentConfig() KubeAgentConfig {
 	return KubeAgentConfig{
 		ClusterHostURL: "test",
 	}
@@ -297,28 +292,28 @@ func NewKubeAgentConfig() (KubeAgentConfig) {
 
 // Client defines an HTTP Client
 type Client struct {
-	HTTPClient      *http.Client
-	retries         uint
+	HTTPClient *http.Client
+	retries    uint
 }
 
 func NewClient(HTTPClient http.Client, insecure bool, bearerToken, bearerTokenPath string, retries uint,
 	parseMetricData bool) Client {
 	return Client{
-		HTTPClient:      &HTTPClient,
-		retries:         retries,
+		HTTPClient: &HTTPClient,
+		retries:    retries,
 	}
 }
 
 // Alex TODO: Rename this and check the ability of its cycling
 func (c *Client) CycleEndPoint(method string, sourceName string, URL string) (*stats.Summary, error) {
-	
+
 	attempts := c.retries + 1
 
 	for i := uint(0); i < attempts; i++ {
 		if i > 0 {
 			time.Sleep(time.Duration(int64(math.Pow(2, float64(i)))) * time.Second)
 		}
-		
+
 		data, err := MakeRequest(c, method, URL)
 		if err == nil {
 			return data, nil
@@ -353,14 +348,14 @@ func MakeRequest(c *Client, method string, URL string) (*stats.Summary, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-        // Alex TODO: Throw Error for reading
-    }
+		// Alex TODO: Throw Error for reading
+	}
 
 	var data stats.Summary
 	err = json.Unmarshal(body, &data)
 	if err != nil {
-        // Alex TODO: Throw Error for unmarshalling
-    }
+		// Alex TODO: Throw Error for unmarshalling
+	}
 
 	return &data, err
 }
