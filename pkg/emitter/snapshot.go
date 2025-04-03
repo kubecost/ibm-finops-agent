@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	clustercache "github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
@@ -118,8 +119,10 @@ func snapshotKubernetes(cluster clustercache.ClusterCache) (*KubernetesSnapshot,
 	}, nil
 }
 
-func snapshotNodeStats( /* client NodeStatsSummaryClient */ ) (*NodeStatsSummary, error) {
-	// TODO: Fetch NodeStatusSummary using the provided client
+func snapshotNodeStats( client nodes.NodeClient ) (*NodeStatsSummary, error) {
+	// ALEX TODO: Hook this up
+	data, err := client.GetNodeData()
+
 	return &NodeStatsSummary{
 		Stats: []stats.Summary{},
 	}, nil

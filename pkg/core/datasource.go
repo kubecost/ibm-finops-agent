@@ -7,6 +7,7 @@ import (
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core/opencost"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/pkg/kubeconfig"
 )
@@ -47,11 +48,14 @@ func NewAgentDataSource() DataSource {
 
 	opencostSource := opencost.NewOpenCostDataSource(kubeClientset, k8sCache)
 
+	config := nodes.NewKubeAgentConfig()
+	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, config)
 	// TODO: Initialization of any other data sources here
 
 	return &agentDataSource{
 		metrics:      opencostSource.Metrics(),
 		clusterCache: k8sCache,
+		nodeStatsSummaryClient: nodeStatsSummaryClient,
 	}
 }
 
@@ -62,7 +66,9 @@ type agentDataSource struct {
 	// Kubernetes Cluster Informers
 	clusterCache cluster.ClusterCache
 
-	// TODO: Node Stats Summary Client
+	// Node Stats Summary Client
+	nodeStatsSummaryClient nodes.NodeClient
+	
 	// TODO: HTTP Server/Proxy for Turbo?
 }
 
