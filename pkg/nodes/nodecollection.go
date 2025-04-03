@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,10 +15,11 @@ import (
 	"github.com/ibm/finops-agent/pkg/cluster"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/util/retry"
+	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 type NodeClient interface {
-	GetNodeData() (map[string]error, error)
+	GetNodeData() ([]*stats.Summary, error)
 }
 
 type NodeClientSource struct {
@@ -46,9 +48,10 @@ func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) (
 }
 
 // Alex TODO: Should return a map of maps?
-func (ncs NodeClientSource) GetNodeData() (map[string]error, error) {
+func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 	var nodes []*v1.Node
 	failedNodeList := make(map[string]error)
+	var dataList []*stats.Summary
 
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() (err error) {
 		nodes = getReadyNodes(ncs)
@@ -92,11 +95,13 @@ func (ncs NodeClientSource) GetNodeData() (map[string]error, error) {
 				ClusterHostURL:    ncs.config.ClusterHostURL,
 			}
 
-			err := retrieveNodeData(nd, ncs, currentNode)
+			data, err := retrieveNodeData(nd, ncs, currentNode)
 			if err != nil {
 				m.Lock()
 				failedNodeList[currentNode.Name] = fmt.Errorf("node metrics retrieval problem occurred: %v", err)
 				m.Unlock()
+			} else {
+				dataList = append(dataList, data)
 			}
 
 			// Alex Todo: Lock around the appending of the retrieveNode data to a result array
@@ -110,7 +115,7 @@ func (ncs NodeClientSource) GetNodeData() (map[string]error, error) {
 	wg.Wait()
 	// log.Debugln("All nodes data has been gathered, no longer waiting")
 
-	return failedNodeList, nil
+	return dataList, nil
 }
 
 type nodeFetchData struct {
@@ -139,7 +144,7 @@ func connectionOptions(ncs NodeClientSource, n v1.Node, nd nodeFetchData) []conn
 }
 
 // retrieveNodeData fetches summary and container data for the node
-func retrieveNodeData(nd nodeFetchData, ncs NodeClientSource, n v1.Node) error {
+func retrieveNodeData(nd nodeFetchData, ncs NodeClientSource, n v1.Node) (*stats.Summary, error) {
 	connectionMethods := connectionOptions(ncs, n, nd)
 
 	// if we receive an error after the max number of retries when attempting to hit an endpoint that
@@ -147,10 +152,16 @@ func retrieveNodeData(nd nodeFetchData, ncs NodeClientSource, n v1.Node) error {
 	// ALEX NOTE: Removed the validation step. Considering reimplementing
 	for _, cm := range connectionMethods {
 		// ALEX TODO: Change the name of nc.name... probably
-		cm.client.CycleEndPoint(http.MethodGet, ncs.name, cm.API.formatEndpoint(ncs.endpoint))
+		data, err := cm.client.CycleEndPoint(http.MethodGet, ncs.name, cm.API.formatEndpoint(ncs.endpoint))
+		if err != nil {
+			// Alex TODO: Error message
+		} else {
+			return data, err
+		}
 	}
 
-	return nil
+	err := fmt.Errorf("problem getting node address:")
+	return nil, err
 }
 
 // isFargateNode detects whether a node is a Fargate node, which affects
@@ -299,7 +310,7 @@ func NewClient(HTTPClient http.Client, insecure bool, bearerToken, bearerTokenPa
 }
 
 // Alex TODO: Rename this and check the ability of its cycling
-func (c *Client) CycleEndPoint(method string, sourceName string, URL string) (b []byte, err error) {
+func (c *Client) CycleEndPoint(method string, sourceName string, URL string) (*stats.Summary, error) {
 	
 	attempts := c.retries + 1
 
@@ -308,19 +319,20 @@ func (c *Client) CycleEndPoint(method string, sourceName string, URL string) (b 
 			time.Sleep(time.Duration(int64(math.Pow(2, float64(i)))) * time.Second)
 		}
 		
-		bytes, err := MakeRequest(c, method, URL)
+		data, err := MakeRequest(c, method, URL)
 		if err == nil {
-			return bytes, nil
+			return data, nil
 		}
 		// if verbose {
 		// 	log.Warnf("%v URL: %s -- retrying: %v", err, URL, i+1)
 		// }
 	}
 	// Alex TODO: The requests failed
+	err := fmt.Errorf("Request failed")
 	return nil, err
 }
 
-func MakeRequest(c *Client, method string, URL string) (b []byte, err error) {
+func MakeRequest(c *Client, method string, URL string) (*stats.Summary, error) {
 	request, err := http.NewRequest(method, URL, nil)
 	if err != nil {
 		// Alex TODO: Error generating request
@@ -339,10 +351,16 @@ func MakeRequest(c *Client, method string, URL string) (b []byte, err error) {
 		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))
 	}
 
-	bytes, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-        // Alex TODO: Throw Error
+        // Alex TODO: Throw Error for reading
     }
 
-	return bytes, err
+	var data stats.Summary
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+        // Alex TODO: Throw Error for unmarshalling
+    }
+
+	return &data, err
 }
