@@ -52,7 +52,7 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 	var nodeStats *NodeStatsSummary
 	group.Go(func() error {
 		var err error
-		nodeStats, err = snapshotNodeStats( /* ds.NodeStatsSummaryClient() */ )
+		nodeStats, err = snapshotNodeStats( ds.StatsSummary() )
 		return err
 	})
 

@@ -20,6 +20,9 @@ type DataSource interface {
 
 	// Kubernetes Cluster Informers
 	Cluster() cluster.ClusterCache
+
+	// Node Stats Summary Client
+	StatsSummary() nodes.NodeClient
 }
 
 var (
@@ -78,4 +81,8 @@ func (ads *agentDataSource) Metrics() source.MetricsQuerier {
 
 func (ads *agentDataSource) Cluster() cluster.ClusterCache {
 	return ads.clusterCache
+}
+
+func (ads *agentDataSource) StatsSummary() nodes.NodeClient {
+	return ads.nodeStatsSummaryClient
 }
