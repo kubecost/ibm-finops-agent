@@ -6,6 +6,7 @@ import (
 	"unsafe"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -83,8 +84,9 @@ func TestSnapshottingTemporaryCache(t *testing.T) {
 
 // MockDataSource contains mock implementations of the interfaces returned by the data source.
 type MockDataSource struct {
-	ClusterCache   *MockClusterCache
-	MetricsQuerier *MockMetricsQuerier
+	ClusterCache   				*MockClusterCache
+	MetricsQuerier 			 	*MockMetricsQuerier
+	NodeStatsSummaryClient   	*MockNodeClient
 }
 
 // NewMockDataSource creates a new mock data source implementation with services that track
@@ -93,6 +95,7 @@ func NewMockDataSource() *MockDataSource {
 	return &MockDataSource{
 		ClusterCache:   NewMockClusterCache(),
 		MetricsQuerier: NewMockMetricsQuerier(),
+		NodeStatsSummaryClient: 	NewMockNodeClient(),
 	}
 }
 
@@ -102,6 +105,10 @@ func (mds *MockDataSource) Cluster() cluster.ClusterCache {
 
 func (mds *MockDataSource) Metrics() source.MetricsQuerier {
 	return mds.MetricsQuerier
+}
+
+func (mds *MockDataSource) StatsSummary() nodes.NodeClient {
+	return mds.NodeStatsSummaryClient
 }
 
 //--------------------------------------------------------------------------
@@ -650,4 +657,32 @@ func newEmptyResult[T any](decoder source.ResultDecoder[T]) *source.Future[T] {
 	}()
 
 	return source.NewFuture(decoder, ch)
+}
+
+//--------------------------------------------------------------------------
+//  Mock NodeClient
+//--------------------------------------------------------------------------
+
+// MockNodeClient is a mock implementation of the nodes.NodeClient interface
+// that records the number of times each method is called.
+type MockNodeClient struct {
+	Calls map[string]int
+}
+
+// NewMockNodeClient creates a new mock metrics querier
+func NewMockNodeClient() *MockNodeClient {
+	return &MockNodeClient{
+		Calls: make(map[string]int),
+	}
+}
+
+// Helper to record method calls
+func (m *MockNodeClient) recordCall(method string) {
+	m.Calls[method]++
+}
+
+// Implementation of interface methods
+func (m *MockNodeClient) GetNodeData() (map[string]error, error) {
+	m.recordCall("GetNodeData")
+	return nil, nil
 }

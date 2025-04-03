@@ -16,7 +16,11 @@ import (
 	"k8s.io/client-go/util/retry"
 )
 
-type NodeClient struct {
+type NodeClient interface {
+	GetNodeData() (map[string]error, error)
+}
+
+type NodeClientSource struct {
 	config KubeAgentConfig
 	cache cluster.ClusterCache
 	endpoint string
@@ -24,7 +28,7 @@ type NodeClient struct {
 }
 
 func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config KubeAgentConfig) (NodeClient) {
-	return NodeClient{	
+	return NodeClientSource{	
 		config: 	config,
 		cache: 		cache,
 		endpoint: 	"/stats/summary",
@@ -33,7 +37,7 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config KubeAgentConfi
 }
 
 func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) (NodeClient) {
-	return NodeClient{	
+	return NodeClientSource{	
 		config: 	config,
 		cache: 		cache,
 		endpoint: 	"/metrics/cAdvisor",
@@ -42,12 +46,12 @@ func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) (
 }
 
 // Alex TODO: Should return a map of maps?
-func (nc *NodeClient) GetNodeData() (map[string]error, error) {
+func (ncs NodeClientSource) GetNodeData() (map[string]error, error) {
 	var nodes []*v1.Node
 	failedNodeList := make(map[string]error)
 
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() (err error) {
-		nodes = getReadyNodes(nc)
+		nodes = getReadyNodes(ncs)
 		return
 	})
 	if err != nil {
@@ -64,7 +68,7 @@ func (nc *NodeClient) GetNodeData() (map[string]error, error) {
 	var m sync.Mutex
 
 	// creates a max number of concurrent goroutines that are allowed
-	limiter := make(chan struct{}, nc.config.ConcurrentPollers)
+	limiter := make(chan struct{}, ncs.config.ConcurrentPollers)
 
 	for _, n := range nodes {
 		// block if channel is full (limiting number of goroutines)
@@ -85,10 +89,10 @@ func (nc *NodeClient) GetNodeData() (map[string]error, error) {
 			nd := nodeFetchData{
 				nodeName:          currentNode.Name,
 				// prefix:            prefix, ALEX TODO: Pull this from the struct
-				ClusterHostURL:    nc.config.ClusterHostURL,
+				ClusterHostURL:    ncs.config.ClusterHostURL,
 			}
 
-			err := retrieveNodeData(nd, nc, currentNode)
+			err := retrieveNodeData(nd, ncs, currentNode)
 			if err != nil {
 				m.Lock()
 				failedNodeList[currentNode.Name] = fmt.Errorf("node metrics retrieval problem occurred: %v", err)
@@ -117,33 +121,33 @@ type nodeFetchData struct {
 
 // connectionOptions returns the connection methods that are allowed for this node based on config
 // settings and cluster composition
-func connectionOptions(nc *NodeClient, n v1.Node, nd nodeFetchData) []connectionMethod {
+func connectionOptions(ncs NodeClientSource, n v1.Node, nd nodeFetchData) []connectionMethod {
 	connectionMethods := make([]connectionMethod, 1)
 	// The config shouldn't allow direct connection if Fargate nodes were
 	// found in the cluster at startup, but check again here to be safe. ALEX NOTE: Maybe this part about the double-check is no longer true
-	if !nc.config.ForceKubeProxy && !isFargateNode(n) {
+	if !ncs.config.ForceKubeProxy && !isFargateNode(n) {
 		directAPI, err := setupDirectNodeAPI(&n)
 		if err != nil {
 			// log.Debugf("Unable to attempt direct connection to node %s: %v", nd.nodeName, err)
 		} else {
-			connectionMethods = append(connectionMethods, connectionMethod{directAPI, nc.config.DirectNodeClient})
+			connectionMethods = append(connectionMethods, connectionMethod{directAPI, ncs.config.DirectNodeClient})
 		}
 	}
-	proxyAPI := setupProxyAPI(nc.config.ClusterHostURL, nd.nodeName)
-	connectionMethods = append(connectionMethods, connectionMethod{proxyAPI, nc.config.InClusterClient})
+	proxyAPI := setupProxyAPI(ncs.config.ClusterHostURL, nd.nodeName)
+	connectionMethods = append(connectionMethods, connectionMethod{proxyAPI, ncs.config.InClusterClient})
 	return connectionMethods
 }
 
 // retrieveNodeData fetches summary and container data for the node
-func retrieveNodeData(nd nodeFetchData, nc *NodeClient, n v1.Node) error {
-	connectionMethods := connectionOptions(nc, n, nd)
+func retrieveNodeData(nd nodeFetchData, ncs NodeClientSource, n v1.Node) error {
+	connectionMethods := connectionOptions(ncs, n, nd)
 
 	// if we receive an error after the max number of retries when attempting to hit an endpoint that
 	// we had previously verified to work, we fail and assume the node is unreachable at this time
 	// ALEX NOTE: Removed the validation step. Considering reimplementing
 	for _, cm := range connectionMethods {
 		// ALEX TODO: Change the name of nc.name... probably
-		cm.client.CycleEndPoint(http.MethodGet, nc.name, cm.API.formatEndpoint(nc.endpoint))
+		cm.client.CycleEndPoint(http.MethodGet, ncs.name, cm.API.formatEndpoint(ncs.endpoint))
 	}
 
 	return nil
@@ -160,8 +164,8 @@ func isFargateNode(n v1.Node) bool {
 	return false
 }
 
-func getReadyNodes(nc *NodeClient) []*v1.Node {
-	var nodes = nc.cache.GetAllNodes()
+func getReadyNodes(ncs NodeClientSource) []*v1.Node {
+	var nodes = ncs.cache.GetAllNodes()
 	
 	var readyNodes []*v1.Node
 	for _, n := range nodes {
