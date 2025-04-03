@@ -93,15 +93,15 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 
 			data, err := retrieveNodeData(nd, ncs, currentNode)
 			if err != nil {
+				// Alex TODO: Is the failed node list even helpful for this situation?
 				m.Lock()
 				failedNodeList[currentNode.Name] = fmt.Errorf("node metrics retrieval problem occurred: %v", err)
 				m.Unlock()
 			} else {
+				m.Lock()
 				dataList = append(dataList, data)
+				m.Unlock()
 			}
-
-			// Alex Todo: Lock around the appending of the retrieveNode data to a result array
-
 			<-limiter
 			wg.Done()
 		}(*n)
