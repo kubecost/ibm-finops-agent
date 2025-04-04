@@ -278,7 +278,6 @@ func setupProxyAPI(clusterHostURL, nodeName string) proxyAPI {
 type KubeAgentConfig struct {
 	ClusterHostURL     string
 	ForceKubeProxy     bool
-	UseInClusterConfig bool
 	ConcurrentPollers  int
 	DirectNodeClient   Client
 	InClusterClient    Client
@@ -296,8 +295,7 @@ type Client struct {
 	retries    uint
 }
 
-func NewClient(HTTPClient http.Client, insecure bool, bearerToken, bearerTokenPath string, retries uint,
-	parseMetricData bool) Client {
+func NewClient(HTTPClient http.Client, retries uint) Client {
 	return Client{
 		HTTPClient: &HTTPClient,
 		retries:    retries,
