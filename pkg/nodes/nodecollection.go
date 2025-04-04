@@ -1,10 +1,10 @@
 package nodes
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"net/http"
@@ -38,6 +38,7 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config KubeAgentConfi
 	}
 }
 
+// Alex TODO: Implement cAdvisor marshaling
 func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) NodeClient {
 	return NodeClientSource{
 		config:   config,
@@ -47,11 +48,9 @@ func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) N
 	}
 }
 
-// Alex TODO: Should return a map of maps?
 func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 	var nodes []*v1.Node
-	failedNodeList := make(map[string]error)
-	var dataList []*stats.Summary
+	var statsList []*stats.Summary
 
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() (err error) {
 		nodes = getReadyNodes(ncs)
@@ -76,30 +75,23 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 		wg.Add(1)
 		go func(currentNode v1.Node) {
 			if currentNode.Spec.ProviderID == "" {
-				errMessage := "Node ProviderID is not set which may be because the node is running in a " +
-					"self managed environment, and this may cause inconsistent gathering of metrics data."
-				log.Printf(errMessage)
-				m.Lock()
-				failedNodeList[currentNode.Name] = errors.New("provider ID for node does not exist. " +
-					"If this condition persists it will cause inconsistent cluster allocation")
-				m.Unlock()
+				// errMessage := "Node ProviderID is not set which may be because the node is running in a " +
+				// 	"self managed environment, and this may cause inconsistent gathering of metrics data."
+				// log.Printf(errMessage)
+				// Alex TODO: Should this be a case which doesn't pull properly?
 			}
 
 			nd := nodeFetchData{
 				nodeName: currentNode.Name,
-				// prefix:            prefix, ALEX TODO: Pull this from the struct
 				ClusterHostURL: ncs.config.ClusterHostURL,
 			}
 
 			data, err := retrieveNodeData(nd, ncs, currentNode)
 			if err != nil {
-				// Alex TODO: Is the failed node list even helpful for this situation?
-				m.Lock()
-				failedNodeList[currentNode.Name] = fmt.Errorf("node metrics retrieval problem occurred: %v", err)
-				m.Unlock()
+				// Alex TODO: Throw warning
 			} else {
 				m.Lock()
-				dataList = append(dataList, data)
+				statsList = append(statsList, data)
 				m.Unlock()
 			}
 			<-limiter
@@ -111,19 +103,18 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 	wg.Wait()
 	// log.Debugln("All nodes data has been gathered, no longer waiting")
 
-	return dataList, nil
+	return statsList, nil
 }
 
 type nodeFetchData struct {
 	nodeName       string
-	prefix         string
 	ClusterHostURL string
 }
 
 // connectionOptions returns the connection methods that are allowed for this node based on config
 // settings and cluster composition
 func connectionOptions(ncs NodeClientSource, n v1.Node, nd nodeFetchData) []connectionMethod {
-	connectionMethods := make([]connectionMethod, 1)
+	connectionMethods := make([]connectionMethod, 0)
 	// The config shouldn't allow direct connection if Fargate nodes were
 	// found in the cluster at startup, but check again here to be safe. ALEX NOTE: Maybe this part about the double-check is no longer true
 	if !ncs.config.ForceKubeProxy && !isFargateNode(n) {
@@ -274,6 +265,22 @@ func setupProxyAPI(clusterHostURL, nodeName string) proxyAPI {
 	}
 }
 
+func NewKubeAgentConfig(clusterHostURL string, forceKubeProxy bool, concurrentPollers int, insecure bool) KubeAgentConfig {	
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: insecure,
+		},
+	}
+
+	return KubeAgentConfig{
+		ClusterHostURL: clusterHostURL,
+		ForceKubeProxy: forceKubeProxy,
+		ConcurrentPollers: concurrentPollers,
+		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0),
+		InClusterClient: NewClient(http.Client{Transport: transport}, 0),
+	}
+}
+
 // Alex TODO: Check if this should be split off into another section
 type KubeAgentConfig struct {
 	ClusterHostURL     string
@@ -283,15 +290,13 @@ type KubeAgentConfig struct {
 	InClusterClient    Client
 }
 
-func NewKubeAgentConfig() KubeAgentConfig {
-	return KubeAgentConfig{
-		ClusterHostURL: "test",
-	}
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
 }
 
 // Client defines an HTTP Client
 type Client struct {
-	HTTPClient *http.Client
+	HTTPClient HTTPClient
 	retries    uint
 }
 
@@ -304,7 +309,6 @@ func NewClient(HTTPClient http.Client, retries uint) Client {
 
 // Alex TODO: Rename this and check the ability of its cycling
 func (c *Client) CycleEndPoint(method string, sourceName string, URL string) (*stats.Summary, error) {
-
 	attempts := c.retries + 1
 
 	for i := uint(0); i < attempts; i++ {
@@ -344,16 +348,11 @@ func MakeRequest(c *Client, method string, URL string) (*stats.Summary, error) {
 		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Alex TODO: Get type of return from initial config
+	data := &stats.Summary{}
+	json.NewDecoder(resp.Body).Decode(data)
 	if err != nil {
-		// Alex TODO: Throw Error for reading
+		return nil, err
 	}
-
-	var data stats.Summary
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		// Alex TODO: Throw Error for unmarshalling
-	}
-
-	return &data, err
+	return data, nil
 }
