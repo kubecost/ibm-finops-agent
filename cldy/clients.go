@@ -31,7 +31,7 @@ const defaultTimeout = time.Second * 10
 const defaultRetries = 3
 const proxyAuthHeader = "Proxy-Authorization"
 
-const frontDoorLoginDescription = "performing login request to FrontDoor using keyAccess and keySecret"
+const frontDoorLoginDescription = "performing login request to FrontDoor using KeyAccess and KeySecret"
 const presignedURLDescription = "acquiring presigned URL from Cloudability with acquired Open-token"
 const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
 
@@ -52,6 +52,14 @@ type StorageService interface {
 	Upload(payload UploadPayload) error
 }
 
+type ClientService interface {
+	Do(r *http.Request, requestDescription string) (*http.Response, error)
+}
+
+func (ac ApptioClient) Do(r *http.Request, requestDescription string) (*http.Response, error) {
+	return ac.doWithRetry(r, requestDescription)
+}
+
 type UploadPayload struct {
 	ClusterUID   string `json:"clusterUID"`
 	FileName     string `json:"fileName"`
@@ -61,34 +69,34 @@ type UploadPayload struct {
 }
 
 type ApptioServiceImpl struct {
-	keyAccess        string
-	keySecret        string
-	envID            string
-	openToken        string
-	frontdoorURL     string
-	cloudabilityURL  string
+	KeyAccess        string
+	KeySecret        string
+	EnvID            string
+	OpenToken        string
+	FrontdoorURL     string
+	CloudabilityURL  string
 	validTil         time.Time
-	cldyUploadClient ApptioClient
+	CldyUploadClient ClientService
 }
 
-type cloudabilityClustersUploadResponse struct {
-	Result cloudabilityClustersUploadInfo `json:"result"`
+type CloudabilityClustersUploadResponse struct {
+	Result CloudabilityClustersUploadInfo `json:"result"`
 }
 
-type cloudabilityClustersUploadInfo struct {
+type CloudabilityClustersUploadInfo struct {
 	Location  string `json:"location"`
 	RequestID string `json:"requestId"`
 }
 
 func NewApptioSerivce(config ApptioConfig) StorageService {
 	return &ApptioServiceImpl{
-		keyAccess:        config.KeyAccess,
-		keySecret:        config.KeySecret,
-		envID:            config.EnvID,
-		openToken:        config.OpenToken,
-		cldyUploadClient: NewApptioClient(config),
-		frontdoorURL:     config.FrontdoorURL,
-		cloudabilityURL:  config.CloudabilityURL,
+		KeyAccess:        config.KeyAccess,
+		KeySecret:        config.KeySecret,
+		EnvID:            config.EnvID,
+		OpenToken:        config.OpenToken,
+		CldyUploadClient: NewApptioClient(config),
+		FrontdoorURL:     config.FrontdoorURL,
+		CloudabilityURL:  config.CloudabilityURL,
 	}
 }
 
@@ -159,8 +167,8 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 	var presignedURL string
 	var err error
 	// gather opentoken from Frontdoor on first run or if token expired
-	if s.openToken == "" || time.Now().After(s.validTil) {
-		s.openToken, err = s.login()
+	if s.OpenToken == "" || time.Now().After(s.validTil) {
+		s.OpenToken, err = s.login()
 		if err != nil {
 			return err
 		}
@@ -175,10 +183,10 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 }
 
 // login gathers the opentoken required to make requests to Cloudability by hitting Frontdoor's apikeylogin endpoint
-// using the keyAccess and keySecret credentials provided by the customer config
+// using the KeyAccess and KeySecret credentials provided by the customer config
 func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
-	url := fmt.Sprintf("%s/service/apikeylogin", s.frontdoorURL)
-	body, err := json.Marshal(map[string]interface{}{"keyAccess": s.keyAccess, "keySecret": s.keySecret})
+	url := fmt.Sprintf("%s/service/apikeylogin", s.FrontdoorURL)
+	body, err := json.Marshal(map[string]interface{}{"KeyAccess": s.KeyAccess, "KeySecret": s.KeySecret})
 	if err != nil {
 		return "",
 			fmt.Errorf("error in creating http request token string parameter for frontdoor service: %w", err)
@@ -192,7 +200,7 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 	request.Header.Add("Content-Type", "application/json")
 	request.Header.Add("Accept", "application/json")
 
-	resp, err := doWithRetry(s.cldyUploadClient.client, request, frontDoorLoginDescription)
+	resp, err := s.CldyUploadClient.Do(request, frontDoorLoginDescription)
 	if err != nil {
 		return "", fmt.Errorf("error connecting to frontdoor service: %w", err)
 	}
@@ -203,7 +211,7 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 			"code: %d", resp.StatusCode)
 	}
 
-	openToken = resp.Header.Get("apptio-opentoken")
+	openToken = resp.Header.Get("Apptio-Opentoken")
 	if openToken == "" {
 		return "", fmt.Errorf("empty open token returned by frontdoor service")
 	}
@@ -213,7 +221,7 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 // getUploadURL request to Cloudability to gather the presigned s3 URL that allows the agent to
 // upload to Apptio's S3 bucket
 func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL string, rErr error) {
-	url := fmt.Sprintf("%s/v3/internal/containers/clusters/upload", s.cloudabilityURL)
+	url := fmt.Sprintf("%s/v3/internal/containers/clusters/upload", s.CloudabilityURL)
 	body, err := json.Marshal(map[string]interface{}{
 		"clusterUID":   payload.ClusterUID,
 		"fileName":     payload.FileName,
@@ -232,10 +240,10 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 
 	request.Header.Add("Content-Type", "application/json")
 	request.Header.Add("Accept", "application/json")
-	request.Header.Add("apptio-opentoken", s.openToken)
-	request.Header.Add("apptio-environmentid", s.envID)
+	request.Header.Add("apptio-opentoken", s.OpenToken)
+	request.Header.Add("apptio-environmentid", s.EnvID)
 
-	resp, err := doWithRetry(s.cldyUploadClient.client, request, presignedURLDescription)
+	resp, err := s.CldyUploadClient.Do(request, presignedURLDescription)
 	if err != nil {
 		return "", fmt.Errorf("error connecting to cloudability: %w", err)
 	}
@@ -246,7 +254,7 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 			"code: %d", resp.StatusCode)
 	}
 
-	var result cloudabilityClustersUploadResponse
+	var result CloudabilityClustersUploadResponse
 	err = json.NewDecoder(resp.Body).Decode(&result)
 	if err != nil {
 		return "", fmt.Errorf("error decoding clusters/upload response %s", err.Error())
@@ -280,7 +288,7 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 	request.Header.Set(contentMD5, payload.UploadHash)
 	request.ContentLength = size
 
-	resp, err := doWithRetry(s.cldyUploadClient.client, request, s3UploadDescription)
+	resp, err := s.CldyUploadClient.Do(request, s3UploadDescription)
 	if err != nil || resp == nil {
 		return err
 	}
@@ -290,11 +298,10 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 	return nil
 }
 
-func doWithRetry(client *http.Client, req *http.Request, requestDescription string) (*http.Response, error) {
-
+func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
 	for i := 1; i < 4; i++ {
 		log.Infof("Attempt %d: %s", i, requestDescription)
-		resp, err := client.Do(req)
+		resp, err := ac.client.Do(req)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 			return resp, nil
 		}
@@ -304,7 +311,6 @@ func doWithRetry(client *http.Client, req *http.Request, requestDescription stri
 		if resp != nil {
 			log.Errorf("Request failed with status code %s", resp.Status)
 		}
-		// retry with backoff
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
