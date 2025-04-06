@@ -1,16 +1,10 @@
 package nodes
 
 import (
-	"crypto/tls"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
-	"strconv"
 	"sync"
-	"time"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	v1 "k8s.io/api/core/v1"
@@ -38,7 +32,7 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config KubeAgentConfi
 	}
 }
 
-// Alex TODO: Implement cAdvisor marshaling
+// Alex TODO: Implement cAdvisor data type return
 func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) NodeClient {
 	return NodeClientSource{
 		config:   config,
@@ -88,7 +82,7 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 
 			data, err := retrieveNodeData(nd, ncs, currentNode)
 			if err != nil {
-				// Alex TODO: Throw warning
+				// return fmt.Errorf("failed to retrieve data for all nodes")
 			} else {
 				m.Lock()
 				statsList = append(statsList, data)
@@ -115,8 +109,8 @@ type nodeFetchData struct {
 // settings and cluster composition
 func connectionOptions(ncs NodeClientSource, n v1.Node, nd nodeFetchData) []connectionMethod {
 	connectionMethods := make([]connectionMethod, 0)
-	// The config shouldn't allow direct connection if Fargate nodes were
-	// found in the cluster at startup, but check again here to be safe. ALEX NOTE: Maybe this part about the double-check is no longer true
+
+	// Do not allow direct connection to fargate nodes
 	if !ncs.config.ForceKubeProxy && !isFargateNode(n) {
 		directAPI, err := setupDirectNodeAPI(&n)
 		if err != nil {
@@ -134,25 +128,20 @@ func connectionOptions(ncs NodeClientSource, n v1.Node, nd nodeFetchData) []conn
 func retrieveNodeData(nd nodeFetchData, ncs NodeClientSource, n v1.Node) (*stats.Summary, error) {
 	connectionMethods := connectionOptions(ncs, n, nd)
 
-	// if we receive an error after the max number of retries when attempting to hit an endpoint that
-	// we had previously verified to work, we fail and assume the node is unreachable at this time
-	// ALEX NOTE: Removed the validation step. Considering reimplementing
+	// Fail after trying all connections the alloted number of retries
 	for _, cm := range connectionMethods {
-		// ALEX TODO: Change the name of nc.name... probably
-		data, err := cm.client.CycleEndPoint(http.MethodGet, ncs.name, cm.API.formatEndpoint(ncs.endpoint))
-		if err != nil {
-			// Alex TODO: Error message
-		} else {
+		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(ncs.endpoint))
+		// Alex Note (fix): Do not return error on failed attempt?
+		if err == nil {
 			return data, err
 		}
 	}
 
-	err := fmt.Errorf("problem getting node address:")
+	err := fmt.Errorf("problem getting node address: %v", ncs.endpoint)
 	return nil, err
 }
 
-// isFargateNode detects whether a node is a Fargate node, which affects
-// how the agent will connect to it
+// isFargateNode detects if it is a fargate node, disallowing direct connections
 func isFargateNode(n v1.Node) bool {
 	v := n.Labels["eks.amazonaws.com/compute-type"]
 	if v == "fargate" {
@@ -212,147 +201,4 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 		}
 	}
 	return "", 0, fmt.Errorf("Could not find internal IP address for node %s ", node.Name)
-}
-
-// Alex TODO: Check if this should be split off into another section
-type connectionMethod struct {
-	API    nodeAPI
-	client Client
-}
-
-type nodeAPI interface {
-	formatEndpoint(s string) string
-}
-
-type directNode struct {
-	ip   string
-	port int64
-}
-
-func (d directNode) formatEndpoint(s string) string {
-	return fmt.Sprintf("https://%s:%v/%s", d.ip, d.port, s)
-}
-
-// setupDirectNodeAPI retrieves node stats directly from the node api
-func setupDirectNodeAPI(n *v1.Node) (directNode, error) {
-	ip, port, err := NodeAddress(n)
-	if err != nil {
-		return directNode{}, fmt.Errorf("problem getting node address: %s", err)
-	}
-	return directNodeEndpoint(ip, port), nil
-}
-
-func directNodeEndpoint(ip string, port int32) directNode {
-	return directNode{
-		ip:   ip,
-		port: int64(port),
-	}
-}
-
-type proxyAPI struct {
-	clusterHostURL string
-	nodeName       string
-}
-
-func (p proxyAPI) formatEndpoint(s string) string {
-	return fmt.Sprintf("%s/api/v1/nodes/%s/proxy/%s", p.clusterHostURL, p.nodeName, s)
-}
-
-func setupProxyAPI(clusterHostURL, nodeName string) proxyAPI {
-	return proxyAPI{
-		clusterHostURL: clusterHostURL,
-		nodeName:       nodeName,
-	}
-}
-
-func NewKubeAgentConfig(clusterHostURL string, forceKubeProxy bool, concurrentPollers int, insecure bool) KubeAgentConfig {	
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: insecure,
-		},
-	}
-
-	return KubeAgentConfig{
-		ClusterHostURL: clusterHostURL,
-		ForceKubeProxy: forceKubeProxy,
-		ConcurrentPollers: concurrentPollers,
-		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0),
-		InClusterClient: NewClient(http.Client{Transport: transport}, 0),
-	}
-}
-
-// Alex TODO: Check if this should be split off into another section
-type KubeAgentConfig struct {
-	ClusterHostURL     string
-	ForceKubeProxy     bool
-	ConcurrentPollers  int
-	DirectNodeClient   Client
-	InClusterClient    Client
-}
-
-type HTTPClient interface {
-	Do(req *http.Request) (*http.Response, error)
-}
-
-// Client defines an HTTP Client
-type Client struct {
-	HTTPClient HTTPClient
-	retries    uint
-}
-
-func NewClient(HTTPClient http.Client, retries uint) Client {
-	return Client{
-		HTTPClient: &HTTPClient,
-		retries:    retries,
-	}
-}
-
-// Alex TODO: Rename this and check the ability of its cycling
-func (c *Client) CycleEndPoint(method string, sourceName string, URL string) (*stats.Summary, error) {
-	attempts := c.retries + 1
-
-	for i := uint(0); i < attempts; i++ {
-		if i > 0 {
-			time.Sleep(time.Duration(int64(math.Pow(2, float64(i)))) * time.Second)
-		}
-
-		data, err := MakeRequest(c, method, URL)
-		if err == nil {
-			return data, nil
-		}
-		// if verbose {
-		// 	log.Warnf("%v URL: %s -- retrying: %v", err, URL, i+1)
-		// }
-	}
-	// Alex TODO: The requests failed
-	err := fmt.Errorf("Request failed")
-	return nil, err
-}
-
-func MakeRequest(c *Client, method string, URL string) (*stats.Summary, error) {
-	request, err := http.NewRequest(method, URL, nil)
-	if err != nil {
-		// Alex TODO: Error generating request
-	}
-
-	resp, err := c.HTTPClient.Do(request)
-	if err != nil {
-		// Alex TODO: Fix this error
-		return nil, errors.New("unable to connect")
-	}
-
-	// Alex TODO: Safe close?
-	defer resp.Body.Close()
-
-	if !(resp.StatusCode >= 200 && resp.StatusCode <= 299) {
-		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))
-	}
-
-	// Alex TODO: Get type of return from initial config
-	data := &stats.Summary{}
-	json.NewDecoder(resp.Body).Decode(data)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
 }

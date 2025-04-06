@@ -119,13 +119,13 @@ func snapshotKubernetes(cluster clustercache.ClusterCache) (*KubernetesSnapshot,
 }
 
 func snapshotNodeStats( client nodes.NodeClient ) (*NodeStatsSummary, error) {
-	nodeStats, err := client.GetNodeData()
+	stats, err := client.GetNodeData()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate node stats snapshot: %w", err)
 	}
 
 	return &NodeStatsSummary{
-		Stats: nodeStats,
+		Stats: stats,
 	}, nil
 }
 

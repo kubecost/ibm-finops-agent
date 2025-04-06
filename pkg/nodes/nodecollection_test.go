@@ -31,6 +31,7 @@ func (m mockClusterCache) GetAllNodes() []*v1.Node {
 	return nodes
 }
 
+// Alex TODO: I suspect I have one too many layers of interfaces for this mockHTTPclient but I can't seem to make it work otherwise.
 type mockHTTPClient struct {
 }
 
@@ -119,7 +120,7 @@ func TestDownloadNodeData(t *testing.T) {
 		}
 
 		if stats == nil {
-			t.Error("No stats returned")
+			t.Error("Empty dataset")
 		}
 	})
 }
