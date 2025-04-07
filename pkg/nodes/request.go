@@ -1,7 +1,6 @@
 package nodes
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -13,31 +12,7 @@ import (
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
-func NewKubeAgentConfig(clusterHostURL string, forceKubeProxy bool, concurrentPollers int, insecure bool) KubeAgentConfig {	
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: insecure,
-		},
-	}
-
-	return KubeAgentConfig{
-		ClusterHostURL: clusterHostURL,
-		ForceKubeProxy: forceKubeProxy,
-		ConcurrentPollers: concurrentPollers,
-		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0),
-		InClusterClient: NewClient(http.Client{Transport: transport}, 0),
-	}
-}
-
-type KubeAgentConfig struct {
-	ClusterHostURL     string
-	ForceKubeProxy     bool
-	ConcurrentPollers  int
-	DirectNodeClient   Client
-	InClusterClient    Client
-}
-
-func (c *Client) AttemptEndPoint(method string, URL string) (*stats.Summary, error) {
+func (c *Client) AttemptEndPoint(method string, URL string) (interface{}, error) {
 	attempts := c.retries + 1
 
 	for i := uint(0); i < attempts; i++ {
@@ -54,7 +29,7 @@ func (c *Client) AttemptEndPoint(method string, URL string) (*stats.Summary, err
 	return nil, err
 }
 
-func makeRequest(c *Client, method string, URL string) (*stats.Summary, error) {
+func makeRequest(c *Client, method string, URL string) (interface{}, error) {
 	request, err := http.NewRequest(method, URL, nil)
 	if err != nil {
 		return nil, err
@@ -73,7 +48,7 @@ func makeRequest(c *Client, method string, URL string) (*stats.Summary, error) {
 
 	// Alex TODO: Get type of return from initial config. Reflecting presented some issues
 	data := &stats.Summary{}
-	json.NewDecoder(resp.Body).Decode(data)
+	json.NewDecoder(resp.Body).Decode(&data)
 	if err != nil {
 		return nil, err
 	}

@@ -13,7 +13,7 @@ import (
 )
 
 type NodeClient interface {
-	GetNodeData() ([]*stats.Summary, error)
+	GetNodeData() ([]interface{}, error)
 }
 
 type NodeClientSource struct {
@@ -32,7 +32,6 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config KubeAgentConfi
 	}
 }
 
-// Alex TODO: Implement cAdvisor data type return
 func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) NodeClient {
 	return NodeClientSource{
 		config:   config,
@@ -42,9 +41,9 @@ func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) N
 	}
 }
 
-func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
+func (ncs NodeClientSource) GetNodeData() ([]interface{}, error) {
 	var nodes []*v1.Node
-	var statsList []*stats.Summary
+	var statsList []interface{}
 
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() (err error) {
 		nodes = getReadyNodes(ncs)
@@ -53,8 +52,6 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cloudability metric agent is unable to get a list of nodes: %v", err)
 	}
-
-	// log.Debugln("Starting node collection loop")
 
 	var wg sync.WaitGroup
 	var m sync.Mutex
@@ -69,10 +66,8 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 		wg.Add(1)
 		go func(currentNode v1.Node) {
 			if currentNode.Spec.ProviderID == "" {
-				// errMessage := "Node ProviderID is not set which may be because the node is running in a " +
-				// 	"self managed environment, and this may cause inconsistent gathering of metrics data."
-				// log.Printf(errMessage)
-				// Alex TODO: Should this be a case which doesn't pull properly?
+				// Alex TODO: Log error
+				return
 			}
 
 			nd := nodeFetchData{
@@ -82,7 +77,7 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 
 			data, err := retrieveNodeData(nd, ncs, currentNode)
 			if err != nil {
-				// return fmt.Errorf("failed to retrieve data for all nodes")
+				
 			} else {
 				m.Lock()
 				statsList = append(statsList, data)
@@ -93,10 +88,7 @@ func (ncs NodeClientSource) GetNodeData() ([]*stats.Summary, error) {
 		}(*n)
 	}
 
-	// log.Debugln("Currently Waiting for all node data to be gathered")
 	wg.Wait()
-	// log.Debugln("All nodes data has been gathered, no longer waiting")
-
 	return statsList, nil
 }
 
@@ -114,7 +106,7 @@ func connectionOptions(ncs NodeClientSource, n v1.Node, nd nodeFetchData) []conn
 	if !ncs.config.ForceKubeProxy && !isFargateNode(n) {
 		directAPI, err := setupDirectNodeAPI(&n)
 		if err != nil {
-			// log.Debugf("Unable to attempt direct connection to node %s: %v", nd.nodeName, err)
+			// Alex TODO: Log error
 		} else {
 			connectionMethods = append(connectionMethods, connectionMethod{directAPI, ncs.config.DirectNodeClient})
 		}
@@ -125,13 +117,12 @@ func connectionOptions(ncs NodeClientSource, n v1.Node, nd nodeFetchData) []conn
 }
 
 // retrieveNodeData fetches summary and container data for the node
-func retrieveNodeData(nd nodeFetchData, ncs NodeClientSource, n v1.Node) (*stats.Summary, error) {
+func retrieveNodeData(nd nodeFetchData, ncs NodeClientSource, n v1.Node) (interface{}, error) {
 	connectionMethods := connectionOptions(ncs, n, nd)
 
 	// Fail after trying all connections the alloted number of retries
 	for _, cm := range connectionMethods {
 		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(ncs.endpoint))
-		// Alex Note (fix): Do not return error on failed attempt?
 		if err == nil {
 			return data, err
 		}
@@ -161,8 +152,6 @@ func getReadyNodes(ncs NodeClientSource) []*v1.Node {
 			v1.NodeReady)
 		if i >= 0 && nc.Type == v1.NodeReady {
 			readyNodes = append(readyNodes, n)
-		} else {
-			// log.Debugf("node, %s, is in a notready state. Node Condition: %+v", n.Name, nc)
 		}
 	}
 
@@ -201,4 +190,16 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 		}
 	}
 	return "", 0, fmt.Errorf("Could not find internal IP address for node %s ", node.Name)
+}
+
+func ConvertToStatsSummary(data []interface{}) []*stats.Summary {
+	var dataList []*stats.Summary
+	
+	for _, item := range data {
+		stats, ok := item.(*stats.Summary)
+		if ok {
+			dataList = append(dataList, stats)
+		}
+	}
+	return dataList
 }
