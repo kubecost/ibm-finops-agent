@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"testing"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	. "github.com/onsi/ginkgo/v2"
@@ -16,9 +17,14 @@ import (
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
+func TestUtils(t *testing.T) {
+	RegisterFailHandler(Fail)
 
-var _ = Describe("Node collection", func() {
-	Context("Raw node stats data", func() {
+	RunSpecs(t, "Node Collection Testing")
+}
+
+var _ = Describe("Raw node data", func() {
+	Context("Raw stats summary data", func() {
 		kac := NewKubeAgentConfig("https://localhost/", false, 10, false)
 		kac.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0))
 		kac.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0))
@@ -38,6 +44,7 @@ var _ = Describe("Node collection", func() {
 		})
 	})
 
+	// TOOD: Add in cAdvisor tests once cAdvisor data struct is implemented
 	Context("Raw CAdvisor data", func() {
 		kac := NewKubeAgentConfig("https://localhost/", false, 10, false)
 		kac.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0))
