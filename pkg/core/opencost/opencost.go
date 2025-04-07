@@ -11,34 +11,31 @@ import (
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/core/pkg/util/retry"
 
+	"github.com/opencost/opencost/pkg/config"
 	"github.com/opencost/opencost/pkg/costmodel"
 
 	"github.com/opencost/opencost/modules/prometheus-source/pkg/prom"
 
 	"github.com/opencost/opencost/pkg/cloud/provider"
-	"github.com/opencost/opencost/pkg/config"
-	"github.com/opencost/opencost/pkg/env"
 )
 
-func NewOpenCostDataSource(kubeClientset kubernetes.Interface, k8sCache cluster.ClusterCache) source.OpenCostDataSource {
+func NewOpenCostDataSource(kubeClientset kubernetes.Interface, k8sCache cluster.ClusterCache, conf *OpenCostConfig) source.OpenCostDataSource {
 	// Create ConfigFileManager for synchronization of shared configuration
 	confManager := config.NewConfigFileManager(&config.ConfigFileManagerOpts{
-		BucketStoreConfig: env.GetKubecostConfigBucket(),
-		LocalConfigPath:   "/",
+		LocalConfigPath:   conf.ConfigPath,
+		BucketStoreConfig: "",
 	})
 
-	//configPrefix := env.GetConfigPathWithDefault("/var/configs/")
+	clusterCache := cluster.NewOpenCostClusterCacheAdapter(k8sCache)
 
-	cloudProviderKey := env.GetCloudProviderAPIKey()
-	cloudProvider, err := provider.NewProvider(cluster.NewOpenCostClusterCacheAdapter(k8sCache), cloudProviderKey, confManager)
+	// NOTE: this cloud provider is purely an implementation used to provide cluster info (it does not actively pull pricing data).
+	cloudProvider, err := provider.NewProvider(clusterCache, conf.CloudProviderAPIKey, confManager)
 	if err != nil {
 		panic(err.Error())
 	}
 
 	// ClusterInfo Provider to provide the cluster map with local and remote cluster data
 	clusterInfoProvider := costmodel.NewLocalClusterInfoProvider(kubeClientset, cloudProvider)
-
-	// var nssg NodeStatsSummaryGetter = newGetter()
 
 	const maxRetries = 10
 	const retryInterval = 10 * time.Second
@@ -68,6 +65,12 @@ func NewOpenCostDataSource(kubeClientset kubernetes.Interface, k8sCache cluster.
 		log.Fatalf("Failed to create Prometheus data source: %s", fatalErr)
 		panic(fatalErr)
 	}
+
+	clusterMap := dataSource.ClusterMap()
+
+	costModel := costmodel.NewCostModel(dataSource, cloudProvider, clusterCache, clusterMap, dataSource.BatchDuration())
+	metricsEmitter := costmodel.NewCostModelMetricsEmitter(clusterCache, cloudProvider, clusterInfoProvider, costModel)
+	metricsEmitter.Start()
 
 	return dataSource
 }
