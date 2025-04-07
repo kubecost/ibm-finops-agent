@@ -46,13 +46,16 @@ func makeRequest(c *Client, method string, URL string) (interface{}, error) {
 		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))
 	}
 
-	// Alex TODO: Get type of return from initial config. Reflecting presented some issues
+	// Note: Type assertion was failing when decoding to an empty interface
 	data := &stats.Summary{}
-	json.NewDecoder(resp.Body).Decode(&data)
-	if err != nil {
-		return nil, err
+	err = json.NewDecoder(resp.Body).Decode(&data)
+	if err == nil {
+		return data, nil
 	}
-	return data, nil
+
+	// TODO: Implement cAdvisor decoding like above
+
+	return nil, fmt.Errorf("data schema did not fit any existing sources")
 }
 
 type HTTPClient interface {

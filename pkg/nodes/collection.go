@@ -27,7 +27,7 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config KubeAgentConfi
 	return NodeClientSource{
 		config:   config,
 		cache:    cache,
-		endpoint: "/stats/summary",
+		endpoint: "stats/summary",
 		name:     "statsSummary",
 	}
 }
@@ -36,7 +36,7 @@ func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) N
 	return NodeClientSource{
 		config:   config,
 		cache:    cache,
-		endpoint: "/metrics/cAdvisor",
+		endpoint: "metrics/cAdvisor",
 		name:     "cAdvisor",
 	}
 }
@@ -66,7 +66,9 @@ func (ncs NodeClientSource) GetNodeData() ([]interface{}, error) {
 		wg.Add(1)
 		go func(currentNode v1.Node) {
 			if currentNode.Spec.ProviderID == "" {
-				// Alex TODO: Log error
+				// errMessage := "node ProviderID is not set which may be because the node is running in a " +
+				// 	"self managed environment, and this may cause inconsistent gathering of metrics data."
+				// log.Printf(errMessage)
 				return
 			}
 
@@ -106,7 +108,7 @@ func connectionOptions(ncs NodeClientSource, n v1.Node, nd nodeFetchData) []conn
 	if !ncs.config.ForceKubeProxy && !isFargateNode(n) {
 		directAPI, err := setupDirectNodeAPI(&n)
 		if err != nil {
-			// Alex TODO: Log error
+			// log.Printf(err.Error())
 		} else {
 			connectionMethods = append(connectionMethods, connectionMethod{directAPI, ncs.config.DirectNodeClient})
 		}
@@ -195,6 +197,8 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 func ConvertToStatsSummary(data []interface{}) []*stats.Summary {
 	var dataList []*stats.Summary
 	
+	// Alex inquiry: Should this throw an error on a non-ok? It's already assuming that it's the right format
+	// because of the json decoding that's happening
 	for _, item := range data {
 		stats, ok := item.(*stats.Summary)
 		if ok {

@@ -124,7 +124,6 @@ func snapshotNodeStats( client nodes.NodeClient ) (*NodeStatsSummary, error) {
 		return nil, fmt.Errorf("failed to generate node stats snapshot: %w", err)
 	}
 
-	// Alex TODO: Have this return an error on incorrect casting type?
 	stats := nodes.ConvertToStatsSummary(data)
 
 	return &NodeStatsSummary{

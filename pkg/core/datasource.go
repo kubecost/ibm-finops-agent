@@ -51,7 +51,7 @@ func NewAgentDataSource() DataSource {
 
 	opencostSource := opencost.NewOpenCostDataSource(kubeClientset, k8sCache)
 
-	// Alex TODO: Return the config from somwhere
+	// Alex TODO: Return the config from an env file
 	config := nodes.NewKubeAgentConfig("", false, 10, false)
 	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, config)
 
