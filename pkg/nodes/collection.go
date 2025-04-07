@@ -73,13 +73,13 @@ func (ncs NodeClientSource) GetNodeData() ([]interface{}, error) {
 			}
 
 			nd := nodeFetchData{
-				nodeName: currentNode.Name,
+				nodeName:       currentNode.Name,
 				ClusterHostURL: ncs.config.ClusterHostURL,
 			}
 
 			data, err := retrieveNodeData(nd, ncs, currentNode)
 			if err != nil {
-				
+
 			} else {
 				m.Lock()
 				statsList = append(statsList, data)
@@ -196,13 +196,13 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 
 func ConvertToStatsSummary(data []interface{}) []*stats.Summary {
 	var dataList []*stats.Summary
-	
+
 	// Alex inquiry: Should this throw an error on a non-ok? It's already assuming that it's the right format
 	// because of the json decoding that's happening
 	for _, item := range data {
-		stats, ok := item.(*stats.Summary)
+		statsSum, ok := item.(*stats.Summary)
 		if ok {
-			dataList = append(dataList, stats)
+			dataList = append(dataList, statsSum)
 		}
 	}
 	return dataList
