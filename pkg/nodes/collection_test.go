@@ -26,7 +26,7 @@ func TestUtils(t *testing.T) {
 var _ = Describe("Raw node data", func() {
 	Context("Raw stats summary data", func() {
 		It("can be downloaded directly and converted into stats summary data", func() {
-			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false)
+			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, false)
 
 			rawData, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -38,7 +38,7 @@ var _ = Describe("Raw node data", func() {
 		})
 
 		It("can be downloaded through proxy and converted into stats summary data", func() {
-			summaryClient := setupTestNodeStatSummaryClient("https://localhost", true, 10, false)
+			summaryClient := setupTestNodeStatSummaryClient("https://localhost", true, 10, false, false)
 
 			rawData, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -48,15 +48,26 @@ var _ = Describe("Raw node data", func() {
 			Expect(len(statsSummary)).To(BeNumerically(">", 0))
 			Expect(statsSummary[0].Node.NodeName).Should(Equal("nodename2"))
 		})
+
+		It("returns nothing on failed http requests", func() {
+			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, true)
+
+			rawData, err := summaryClient.GetNodeData()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(rawData)).To(BeNumerically("==", 0))
+			
+			statsSummary := ConvertToStatsSummary(rawData)
+			Expect(len(statsSummary)).To(BeNumerically("==", 0))
+		})
 	})
 
 	// TOOD: Add in cAdvisor tests once cAdvisor data struct is implemented
 })
 
-func setupTestNodeStatSummaryClient(clusterHostUrl string, forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClient {
+func setupTestNodeStatSummaryClient(clusterHostUrl string, forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool) NodeClient {
 	kac := NewKubeAgentConfig(clusterHostUrl, forceKubeProxy, concurrentPollers, insecure)
-	kac.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0))
-	kac.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0))
+	kac.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
+	kac.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
 	
 	mockCache := NewMockClusterCache()
 	return NewNodeStatsSummaryClient(mockCache, kac)
@@ -91,15 +102,23 @@ func (m mockClusterCache) GetAllNodes() []*v1.Node {
 
 // Alex inquiry: I suspect I have one too many layers of interfaces for this mockHTTPclient but I can't seem to make it work otherwise.
 type mockHTTPClient struct {
+	FailRequests	bool
 }
 
-func NewHTTPMockClient(c Client) *mockHTTPClient {
-	return &mockHTTPClient{}
+func NewHTTPMockClient(c Client, failRequests bool) *mockHTTPClient {
+	return &mockHTTPClient{
+		FailRequests: failRequests,
+	}
 }
 
 func (m *mockHTTPClient) Do(request *http.Request) (*http.Response, error) {
 	data, _ := os.ReadFile("testdata/summary-nodename1.json")
 	data2, _ := os.ReadFile("testdata/summary-nodename2.json")
+
+	if m.FailRequests {
+		resp := &http.Response{StatusCode: 400, Header: http.Header{}}
+		return resp, nil
+	}
 
 	if strings.Contains(request.URL.Path, "stats/summary") {
 		if strings.Contains(request.URL.Host, "localhost") {

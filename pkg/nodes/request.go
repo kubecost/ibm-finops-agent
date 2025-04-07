@@ -40,7 +40,10 @@ func makeRequest(c *Client, method string, URL string) (interface{}, error) {
 		return nil, err
 	}
 
-	defer resp.Body.Close()
+	// In the instance where there is no body to the response
+	if resp.Body != nil {
+		defer resp.Body.Close()
+	}
 
 	if !(resp.StatusCode >= 200 && resp.StatusCode <= 299) {
 		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))
