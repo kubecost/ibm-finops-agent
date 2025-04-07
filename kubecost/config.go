@@ -14,6 +14,7 @@ type EmitterConfig struct {
 	KubecostNamespace   string // env.GetKubecostNamespace()
 	BucketConfigFile    string // env.GetExportBucketConfigFile()
 	ExportInterval      time.Duration
+	QueryResolution     time.Duration
 }
 
 // NewEmitterConfigFromEnv creates a new EmitterConfig from environment variables.
@@ -24,6 +25,7 @@ func NewEmitterConfigFromEnv() *EmitterConfig {
 		CloudProviderAPIKey: env.GetCloudProviderAPIKey(),
 		KubecostNamespace:   env.GetKubecostNamespace(), // this is used to receive configmap updates -- poorly named
 		BucketConfigFile:    env.GetExportBucketConfigFile(),
-		ExportInterval:      10 * time.Minute, // may want to make all pipelines configurable ,
+		ExportInterval:      10 * time.Minute, // may want to make all pipelines configurable
+		QueryResolution:     env.GetETLResolution(),
 	}
 }

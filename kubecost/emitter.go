@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/ibm/finops-agent/kubecost/adapters"
 	"github.com/ibm/finops-agent/pkg/emitter"
@@ -55,7 +54,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	}
 
 	// create our updateable adapter that will drive the opencost exporters
-	dataSource := adapters.NewOpenCostDataSourceAdapter(clusterInfo, clusterMap, clusterCache, metricsQuerier)
+	dataSource := adapters.NewOpenCostDataSourceAdapter(clusterInfo, clusterMap, clusterCache, metricsQuerier, ke.config.QueryResolution)
 
 	// FIXME: We need a solution for watching kubernetes configmap for the cost provider used to drive the
 	// FIXME: emitter. I don't believe we want to control these costs explicitly in the agent, but it needs
@@ -92,7 +91,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	log.Infof("Successfully created bucket storage")
 
 	pipelineControllers := exporter.NewPipelineExportControllers(ke.config.ClusterID, bucketStore, costModel)
-	pipelineControllers.Start(2 * time.Minute)
+	pipelineControllers.Start(ke.config.ExportInterval)
 
 	// initialize emitter's internal state
 	ke.cloudProvider = cloudProvider

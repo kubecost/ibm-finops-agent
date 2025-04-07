@@ -22,12 +22,14 @@ func NewOpenCostDataSourceAdapter(
 	mapAdapter *ClusterMapAdapter,
 	clusterAdapter *ClusterCacheAdapter,
 	metricsAdapter *MetricsQuerierAdapter,
+	resolution time.Duration,
 ) *OpenCostDataSourceAdapter {
 	return &OpenCostDataSourceAdapter{
 		infoAdapter:    infoAdapter,
 		mapAdapter:     mapAdapter,
 		clusterAdapter: clusterAdapter,
 		metricsAdapter: metricsAdapter,
+		resolution:     resolution,
 	}
 }
 
