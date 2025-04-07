@@ -17,13 +17,13 @@ type NodeClient interface {
 }
 
 type NodeClientSource struct {
-	config   KubeAgentConfig
+	config   NodeClientConfig
 	cache    cluster.ClusterCache
 	endpoint string
 	name     string
 }
 
-func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config KubeAgentConfig) NodeClient {
+func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig) NodeClient {
 	return NodeClientSource{
 		config:   config,
 		cache:    cache,
@@ -32,7 +32,7 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config KubeAgentConfi
 	}
 }
 
-func NewNodeCAdvisorClient(cache cluster.ClusterCache, config KubeAgentConfig) NodeClient {
+func NewNodeCAdvisorClient(cache cluster.ClusterCache, config NodeClientConfig) NodeClient {
 	return NodeClientSource{
 		config:   config,
 		cache:    cache,

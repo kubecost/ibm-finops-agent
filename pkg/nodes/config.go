@@ -5,14 +5,14 @@ import (
 	"net/http"
 )
 
-func NewKubeAgentConfig(clusterHostURL string, forceKubeProxy bool, concurrentPollers int, insecure bool) KubeAgentConfig {	
+func NewNodeClientConfig(clusterHostURL string, forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {	
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: insecure,
 		},
 	}
 
-	return KubeAgentConfig{
+	return NodeClientConfig{
 		ClusterHostURL: clusterHostURL,
 		ForceKubeProxy: forceKubeProxy,
 		ConcurrentPollers: concurrentPollers,
@@ -21,7 +21,7 @@ func NewKubeAgentConfig(clusterHostURL string, forceKubeProxy bool, concurrentPo
 	}
 }
 
-type KubeAgentConfig struct {
+type NodeClientConfig struct {
 	ClusterHostURL     string
 	ForceKubeProxy     bool
 	ConcurrentPollers  int

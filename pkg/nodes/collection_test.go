@@ -65,12 +65,12 @@ var _ = Describe("Raw node data", func() {
 })
 
 func setupTestNodeStatSummaryClient(clusterHostUrl string, forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool) NodeClient {
-	kac := NewKubeAgentConfig(clusterHostUrl, forceKubeProxy, concurrentPollers, insecure)
-	kac.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
-	kac.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
+	ncc := NewNodeClientConfig(clusterHostUrl, forceKubeProxy, concurrentPollers, insecure)
+	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
+	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
 	
 	mockCache := NewMockClusterCache()
-	return NewNodeStatsSummaryClient(mockCache, kac)
+	return NewNodeStatsSummaryClient(mockCache, ncc)
 }
 
 
