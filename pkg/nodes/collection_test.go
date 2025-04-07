@@ -104,7 +104,6 @@ func (m mockClusterCache) GetAllNodes() []*v1.Node {
 	return nodes
 }
 
-// Alex inquiry: I suspect I have one too many layers of interfaces for this mockHTTPclient but I can't seem to make it work otherwise.
 type mockHTTPClient struct {
 	FailRequests	bool
 }

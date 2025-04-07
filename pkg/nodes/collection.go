@@ -197,8 +197,6 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 func ConvertToStatsSummary(data []interface{}) ([]*stats.Summary, error) {
 	var dataList []*stats.Summary
 
-	// Alex inquiry: Should this throw an error on a non-ok? It's already assuming that it's the right format
-	// because of the json decoding that's happening
 	for _, item := range data {
 		statsSum, ok := item.(*stats.Summary)
 		if ok {
