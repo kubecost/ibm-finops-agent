@@ -124,7 +124,10 @@ func snapshotNodeStats( client nodes.NodeClient ) (*NodeStatsSummary, error) {
 		return nil, fmt.Errorf("failed to generate node stats snapshot: %w", err)
 	}
 
-	stats := nodes.ConvertToStatsSummary(data)
+	stats, err := nodes.ConvertToStatsSummary(data)
+	if err != nil {
+		return nil, err
+	}
 
 	return &NodeStatsSummary{
 		Stats: stats,

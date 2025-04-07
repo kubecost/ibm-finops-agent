@@ -194,7 +194,7 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 	return "", 0, fmt.Errorf("Could not find internal IP address for node %s ", node.Name)
 }
 
-func ConvertToStatsSummary(data []interface{}) []*stats.Summary {
+func ConvertToStatsSummary(data []interface{}) ([]*stats.Summary, error) {
 	var dataList []*stats.Summary
 
 	// Alex inquiry: Should this throw an error on a non-ok? It's already assuming that it's the right format
@@ -203,7 +203,9 @@ func ConvertToStatsSummary(data []interface{}) []*stats.Summary {
 		statsSum, ok := item.(*stats.Summary)
 		if ok {
 			dataList = append(dataList, statsSum)
+		} else {
+			return nil, fmt.Errorf("erorr converting data to stats summary")
 		}
 	}
-	return dataList
+	return dataList, nil
 }

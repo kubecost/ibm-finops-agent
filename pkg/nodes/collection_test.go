@@ -32,7 +32,8 @@ var _ = Describe("Raw node data", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(rawData)).To(BeNumerically(">", 0))
 			
-			statsSummary := ConvertToStatsSummary(rawData)
+			statsSummary, err := ConvertToStatsSummary(rawData)
+			Expect(err).ToNot(HaveOccurred())
 			Expect(len(statsSummary)).To(BeNumerically(">", 0))
 			Expect(statsSummary[0].Node.NodeName).Should(Equal("nodename1"))
 		})
@@ -44,7 +45,8 @@ var _ = Describe("Raw node data", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(rawData)).To(BeNumerically(">", 0))
 			
-			statsSummary := ConvertToStatsSummary(rawData)
+			statsSummary, err := ConvertToStatsSummary(rawData)
+			Expect(err).ToNot(HaveOccurred())
 			Expect(len(statsSummary)).To(BeNumerically(">", 0))
 			Expect(statsSummary[0].Node.NodeName).Should(Equal("nodename2"))
 		})
@@ -56,7 +58,9 @@ var _ = Describe("Raw node data", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(rawData)).To(BeNumerically("==", 0))
 			
-			statsSummary := ConvertToStatsSummary(rawData)
+			// Not striclty necessary
+			statsSummary, err := ConvertToStatsSummary(rawData)
+			Expect(err).ToNot(HaveOccurred())
 			Expect(len(statsSummary)).To(BeNumerically("==", 0))
 		})
 	})
