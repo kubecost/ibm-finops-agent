@@ -45,7 +45,7 @@ func (ncs NodeClientSource) GetNodeData() ([]interface{}, error) {
 	var statsList []interface{}
 
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() (err error) {
-		nodes = getReadyNodes(ncs)
+		nodes = ncs.getReadyNodes()
 		return
 	})
 	if err != nil {
@@ -76,7 +76,7 @@ func (ncs NodeClientSource) GetNodeData() ([]interface{}, error) {
 				ClusterHostURL: ncs.config.ClusterHostURL,
 			}
 
-			data, err := retrieveNodeData(nd, ncs, currentNode)
+			data, err := ncs.retrieveNodeData(nd, currentNode)
 			if err != nil {
 
 			} else {
@@ -100,7 +100,7 @@ type nodeFetchData struct {
 
 // connectionOptions returns the connection methods that are allowed for this node based on config
 // settings and cluster composition
-func connectionOptions(ncs NodeClientSource, n v1.Node, nd nodeFetchData) []connectionMethod {
+func (ncs NodeClientSource) connectionOptions(n v1.Node, nd nodeFetchData) []connectionMethod {
 	connectionMethods := make([]connectionMethod, 0)
 
 	// Do not allow direct connection to fargate nodes
@@ -118,8 +118,8 @@ func connectionOptions(ncs NodeClientSource, n v1.Node, nd nodeFetchData) []conn
 }
 
 // retrieveNodeData fetches summary and container data for the node
-func retrieveNodeData(nd nodeFetchData, ncs NodeClientSource, n v1.Node) (interface{}, error) {
-	connectionMethods := connectionOptions(ncs, n, nd)
+func (ncs NodeClientSource) retrieveNodeData(nd nodeFetchData, n v1.Node) (interface{}, error) {
+	connectionMethods := ncs.connectionOptions(n, nd)
 
 	// Fail after trying all connections the alloted number of retries
 	for _, cm := range connectionMethods {
@@ -144,7 +144,7 @@ func isFargateNode(n v1.Node) bool {
 }
 
 // getReadyNodes returns all nodes from a cache that have the ready status
-func getReadyNodes(ncs NodeClientSource) []*v1.Node {
+func (ncs NodeClientSource) getReadyNodes() []*v1.Node {
 	var nodes = ncs.cache.GetAllNodes()
 
 	var readyNodes []*v1.Node

@@ -74,7 +74,7 @@ var _ = Describe("Raw node data", func() {
 				"",
 			}
 
-			nodes := getReadyNodes(mockNcs)
+			nodes := mockNcs.getReadyNodes()
 			Expect(len(nodes)).To(BeNumerically("==", 4))
 			// Note: Nodes.jsonl isn't in any order
 			Expect(nodes[0].ObjectMeta.Name).Should(Equal("nodename4"))
