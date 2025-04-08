@@ -79,7 +79,6 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			// Stop(), and must reset our AtomicRunState to it's initial idle state
 			case <-de.runState.OnStop():
 				cancelRun()
-				de.runState.Reset()
 				return // exit go routine
 
 			// After our interval elapses, fall through
