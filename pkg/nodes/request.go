@@ -12,6 +12,7 @@ import (
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
+// AttemptEndPoint will hit a specified endpoint with as many retries as it is allotted.
 func (c *Client) AttemptEndPoint(method string, URL string) (interface{}, error) {
 	attempts := c.retries + 1
 
@@ -29,6 +30,8 @@ func (c *Client) AttemptEndPoint(method string, URL string) (interface{}, error)
 	return nil, err
 }
 
+// makeRequest will call out to an endpoint and attempt to decode the body into an existing
+// data type.
 func makeRequest(c *Client, method string, URL string) (interface{}, error) {
 	request, err := http.NewRequest(method, URL, nil)
 	if err != nil {
@@ -121,6 +124,7 @@ func (p proxyAPI) formatEndpoint(s string) string {
 	return fmt.Sprintf("%s/api/v1/nodes/%s/proxy/%s", p.clusterHostURL, p.nodeName, s)
 }
 
+// setupProxyAPI retrieves node stats through the proxy
 func setupProxyAPI(clusterHostURL, nodeName string) proxyAPI {
 	return proxyAPI{
 		clusterHostURL: clusterHostURL,
