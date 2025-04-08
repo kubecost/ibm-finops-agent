@@ -1,7 +1,11 @@
 package cldy
 
 import (
+	"crypto/md5"
+	"encoding/base64"
+	"io"
 	"os"
+	"path"
 	"sync"
 )
 
@@ -73,4 +77,19 @@ func newSet() *set {
 		data:  make(map[string]struct{}),
 		mutex: &sync.RWMutex{},
 	}
+}
+
+func getFileNameAndHash(filePath string) (string, string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", "", err
+	}
+	defer safeClose(file.Close, &err)
+
+	fileName := path.Base(filePath)
+	hash := md5.New()
+	if _, err = io.Copy(hash, file); err != nil {
+		return "", "", err
+	}
+	return fileName, base64.StdEncoding.EncodeToString(hash.Sum(nil)), nil
 }
