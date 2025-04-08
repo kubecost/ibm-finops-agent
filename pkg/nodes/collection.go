@@ -20,7 +20,6 @@ type NodeClientSource struct {
 	config   NodeClientConfig
 	cache    cluster.ClusterCache
 	endpoint string
-	name     string
 }
 
 func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig) NodeClient {
@@ -28,7 +27,6 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConf
 		config:   config,
 		cache:    cache,
 		endpoint: "stats/summary",
-		name:     "statsSummary",
 	}
 }
 
@@ -37,10 +35,11 @@ func NewNodeCAdvisorClient(cache cluster.ClusterCache, config NodeClientConfig) 
 		config:   config,
 		cache:    cache,
 		endpoint: "metrics/cAdvisor",
-		name:     "cAdvisor",
 	}
 }
 
+// GetNodeData creates a number of goroutines that attempt to access a specified endpoint and return the
+// corresponding stats data in slice of interfaces which can be converted into a stricter format.
 func (ncs NodeClientSource) GetNodeData() ([]interface{}, error) {
 	var nodes []*v1.Node
 	var statsList []interface{}
@@ -144,6 +143,7 @@ func isFargateNode(n v1.Node) bool {
 	return false
 }
 
+// getReadyNodes returns all nodes from a cache that have the ready status
 func getReadyNodes(ncs NodeClientSource) []*v1.Node {
 	var nodes = ncs.cache.GetAllNodes()
 
@@ -194,6 +194,7 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 	return "", 0, fmt.Errorf("Could not find internal IP address for node %s ", node.Name)
 }
 
+// ConvertToStatsSummary changes a slice of interfaces into a slice of stats summaries
 func ConvertToStatsSummary(data []interface{}) ([]*stats.Summary, error) {
 	var dataList []*stats.Summary
 

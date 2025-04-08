@@ -35,7 +35,7 @@ var _ = Describe("Raw node data", func() {
 			statsSummary, err := ConvertToStatsSummary(rawData)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(statsSummary)).To(BeNumerically(">", 0))
-			Expect(statsSummary[0].Node.NodeName).Should(Equal("nodename1"))
+			Expect(statsSummary[0].Node.NodeName).Should(Equal("directnode"))
 		})
 
 		It("can be downloaded through proxy and converted into stats summary data", func() {
@@ -48,7 +48,7 @@ var _ = Describe("Raw node data", func() {
 			statsSummary, err := ConvertToStatsSummary(rawData)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(statsSummary)).To(BeNumerically(">", 0))
-			Expect(statsSummary[0].Node.NodeName).Should(Equal("nodename2"))
+			Expect(statsSummary[0].Node.NodeName).Should(Equal("proxynode"))
 		})
 
 		It("returns nothing on failed http requests", func() {
@@ -62,6 +62,22 @@ var _ = Describe("Raw node data", func() {
 			statsSummary, err := ConvertToStatsSummary(rawData)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(statsSummary)).To(BeNumerically("==", 0))
+		})
+	})
+
+	Context("Get all nodes", func() {
+		It("can fetch all available nodes from cache", func() {
+			mockConfig := NewMockClusterCache()
+			mockNcs := NodeClientSource{
+				NodeClientConfig{},
+				mockConfig,
+				"",
+			}
+
+			nodes := getReadyNodes(mockNcs)
+			Expect(len(nodes)).To(BeNumerically("==", 4))
+			// Note: Nodes.jsonl isn't in any order
+			Expect(nodes[0].ObjectMeta.Name).Should(Equal("nodename4"))
 		})
 	})
 
@@ -115,8 +131,8 @@ func NewHTTPMockClient(c Client, failRequests bool) *mockHTTPClient {
 }
 
 func (m *mockHTTPClient) Do(request *http.Request) (*http.Response, error) {
-	data, _ := os.ReadFile("testdata/summary-nodename1.json")
-	data2, _ := os.ReadFile("testdata/summary-nodename2.json")
+	proxyData, _ := os.ReadFile("testdata/summary-proxynode.json")
+	directData, _ := os.ReadFile("testdata/summary-directnode.json")
 
 	if m.FailRequests {
 		resp := &http.Response{StatusCode: 400, Header: http.Header{}}
@@ -125,10 +141,10 @@ func (m *mockHTTPClient) Do(request *http.Request) (*http.Response, error) {
 
 	if strings.Contains(request.URL.Path, "stats/summary") {
 		if strings.Contains(request.URL.Host, "localhost") {
-			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(data2)), Header: http.Header{}}
+			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(proxyData)), Header: http.Header{}}
 			return resp, nil
 		} else {
-			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(data)), Header: http.Header{}}
+			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(directData)), Header: http.Header{}}
 			return resp, nil
 		}
 	}

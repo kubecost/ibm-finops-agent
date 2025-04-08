@@ -1,6 +1,6 @@
 {
  "node": {
-  "nodeName": "nodename2",
+  "nodeName": "proxynode",
   "systemContainers": [
    {
     "name": "runtime",
@@ -142,7 +142,7 @@
  "pods": [
   {
    "podRef": {
-    "name": "kube-proxy-nodename2",
+    "name": "kube-proxy-proxynode",
     "namespace": "kube-system",
     "uid": "c00a92a7382523e5e98ea086deac072c"
    },
