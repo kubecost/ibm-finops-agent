@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/opencost/opencost/core/pkg/log"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -167,7 +167,7 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 	var presignedURL string
 	var err error
 	// gather opentoken from Frontdoor on first run or if token expired
-	if s.OpenToken == "" || time.Now().After(s.validTil) {
+	if s.OpenToken == "" || time.Now().UTC().After(s.validTil) {
 		s.OpenToken, err = s.login()
 		if err != nil {
 			return err
@@ -186,7 +186,7 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 // using the KeyAccess and KeySecret credentials provided by the customer config
 func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 	url := fmt.Sprintf("%s/service/apikeylogin", s.FrontdoorURL)
-	body, err := json.Marshal(map[string]interface{}{"KeyAccess": s.KeyAccess, "KeySecret": s.KeySecret})
+	body, err := json.Marshal(map[string]string{"KeyAccess": s.KeyAccess, "KeySecret": s.KeySecret})
 	if err != nil {
 		return "",
 			fmt.Errorf("error in creating http request token string parameter for frontdoor service: %w", err)
@@ -215,6 +215,12 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 	if openToken == "" {
 		return "", fmt.Errorf("empty open token returned by frontdoor service")
 	}
+	validTill, err := strconv.ParseInt(resp.Header.Get("valid_till"), 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("error in parsing valid_till returned by frontdoor service: %w", err)
+	}
+	// add some buffer to prevent a failure during upload window
+	s.validTil = time.UnixMilli(validTill).Add(-10 * time.Minute)
 	return openToken, nil
 }
 
@@ -233,7 +239,7 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 			fmt.Errorf("error in marshaling http request parameters to cloudability: %w", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, url, io.NopCloser(bytes.NewBuffer(body)))
+	request, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
 		return "", fmt.Errorf("error in creating http request to cloudability: %w", err)
 	}
@@ -279,7 +285,7 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 	}
 	size := fi.Size()
 
-	request, err := http.NewRequest(http.MethodPut, uploadURL, io.NopCloser(fileToUpload))
+	request, err := http.NewRequest(http.MethodPut, uploadURL, fileToUpload)
 	if err != nil {
 		return err
 	}

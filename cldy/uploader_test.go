@@ -2,26 +2,36 @@ package cldy_test
 
 import (
 	"bytes"
+	"crypto/md5"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/ibm/finops-agent/cldy"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 var _ = Describe("Uploader", func() {
+	var tempDir string
+	BeforeEach(func() {
+		var err error
+		tempDir, err = os.MkdirTemp("", "")
+		Expect(err).ToNot(HaveOccurred())
+		err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+		Expect(err).ToNot(HaveOccurred())
+	})
+	AfterEach(func() {
+		err := os.RemoveAll(tempDir)
+		Expect(err).ToNot(HaveOccurred())
+	})
 	Context("TestBuildTar", func() {
 		It("should build Tar", func() {
-			err := os.CopyFS("temp_test_data", os.DirFS("testdata"))
-			Expect(err).ToNot(HaveOccurred())
-			tempDir, err := ioutil.TempDir("", "")
-			Expect(err).ToNot(HaveOccurred())
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
@@ -30,7 +40,7 @@ var _ = Describe("Uploader", func() {
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
 			uploader.SetClusterID("test_id")
-			uploader.AddSample("temp_test_data")
+			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			actualUploader := uploader.(*cldy.CldyUploader)
 			path, err := actualUploader.ConstructPayload()
 			Expect(err).ToNot(HaveOccurred())
@@ -41,10 +51,6 @@ var _ = Describe("Uploader", func() {
 	})
 	Context("TestTarCleanup", func() {
 		It("should cleanup Tar", func() {
-			tempDir, err := ioutil.TempDir("", "")
-			Expect(err).ToNot(HaveOccurred())
-			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
-			Expect(err).ToNot(HaveOccurred())
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
@@ -58,7 +64,6 @@ var _ = Describe("Uploader", func() {
 			actualUploader.StorageService = &mockService
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			time.Sleep(time.Second)
-			Expect(err).ToNot(HaveOccurred())
 			fileInfo, err := os.Stat(tempDir + "/upload")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
@@ -66,8 +71,6 @@ var _ = Describe("Uploader", func() {
 	})
 	Context("TestUpload", func() {
 		It("should upload", func() {
-			tempDir, err := ioutil.TempDir("", "")
-			Expect(err).ToNot(HaveOccurred())
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
@@ -86,11 +89,11 @@ var _ = Describe("Uploader", func() {
 				ClusterUID:   "bad-cluster",
 				FileName:     "temp_test_data",
 				AgentVersion: "1.0.0",
-				UploadHash:   "testing_hash",
-				FilePath:     tempDir + "/scratch/temp_test_data",
+				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
+				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
 			}
 			// upload with bad froontdoor credentials
-			err = actualUploader.StorageService.Upload(payload)
+			err := actualUploader.StorageService.Upload(payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("frontdoor service login call failed"))
 			service.KeyAccess = "good-key"
@@ -101,13 +104,79 @@ var _ = Describe("Uploader", func() {
 			// upload with successful login and successful url generation
 			payload.ClusterUID = "good-cluster"
 			err = actualUploader.StorageService.Upload(payload)
-			// Expect(err).ToNot(HaveOccurred())
-			// TODO fix the final unit test, currently need to update what file it attempts to open since it does not exist
+			Expect(err).ToNot(HaveOccurred())
+		})
+		It("should only login once", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: 250 * time.Millisecond,
+				ScratchDir:      tempDir,
+			}
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			uploader.SetClusterID("test_id")
+
+			actualUploader := uploader.(*cldy.CldyUploader)
+			mcs := mockClientService{}
+			service := cldy.ApptioServiceImpl{
+				CldyUploadClient: &mcs,
+				KeyAccess:        "good-key",
+			}
+			actualUploader.StorageService = &service
+
+			uploader.AddSample(tempDir + "/scratch/temp_test_data")
+			time.Sleep(500 * time.Millisecond)
+			Expect(mcs.countByPath["/service/apikeylogin"]).To(Equal(1))
+			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(1))
+			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(1))
+
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			uploader.AddSample(tempDir + "/scratch/temp_test_data")
+			time.Sleep(500 * time.Millisecond)
+			Expect(mcs.countByPath["/service/apikeylogin"]).To(Equal(1))
+			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(2))
+			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(2))
+		})
+
+		It("should log back in if required", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: 250 * time.Millisecond,
+				ScratchDir:      tempDir,
+			}
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			uploader.SetClusterID("test_id")
+
+			actualUploader := uploader.(*cldy.CldyUploader)
+			mcs := mockClientService{}
+			service := cldy.ApptioServiceImpl{
+				CldyUploadClient: &mcs,
+				KeyAccess:        "short-lived-token",
+			}
+			actualUploader.StorageService = &service
+
+			uploader.AddSample(tempDir + "/scratch/temp_test_data")
+			time.Sleep(500 * time.Millisecond)
+			Expect(mcs.countByPath["/service/apikeylogin"]).To(Equal(1))
+			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(1))
+			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(1))
+
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			uploader.AddSample(tempDir + "/scratch/temp_test_data")
+			time.Sleep(500 * time.Millisecond)
+			Expect(mcs.countByPath["/service/apikeylogin"]).To(Equal(2))
+			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(2))
+			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(2))
 		})
 	})
 })
 
-type mockClientService struct{}
+type mockClientService struct {
+	countByPath map[string]int
+}
 
 type mockfrontdoorRequestBody struct {
 	KeyAccess string `json:"KeyAccess"`
@@ -121,7 +190,11 @@ type mockGetURLRequestBody struct {
 	UploadHash   string `json:"UploadHash"`
 }
 
-func (mcs *mockClientService) Do(r *http.Request, _ string) (*http.Response, error) {
+func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response, err error) {
+	if mcs.countByPath == nil {
+		mcs.countByPath = map[string]int{}
+	}
+	mcs.countByPath[r.URL.Path] += 1
 	// request to login to Frontdoor
 	if strings.Contains(r.URL.Path, "apikeylogin") {
 		var body mockfrontdoorRequestBody
@@ -131,6 +204,11 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (*http.Response, err
 		} else {
 			resp := http.Response{StatusCode: 200, Body: r.Body, Header: http.Header{}}
 			resp.Header.Set("Apptio-Opentoken", "happytoken")
+			if body.KeyAccess == "short-lived-token" {
+				resp.Header.Set("valid_till", strconv.FormatInt(time.Now().UnixMilli(), 10))
+			} else {
+				resp.Header.Set("valid_till", strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10))
+			}
 			return &resp, nil
 		}
 	}
@@ -143,14 +221,30 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (*http.Response, err
 		} else {
 			responseBody, _ := json.Marshal(cldy.CloudabilityClustersUploadResponse{
 				Result: cldy.CloudabilityClustersUploadInfo{
-					Location: "good-location",
+					Location: "somewhere/valid-location",
 				}})
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(responseBody))}, nil
 		}
 	}
 	// request to upload data to S3
-	if r.Header.Get("Content-MD5") != "" {
-
+	if strings.Contains(r.URL.Path, "valid-location") {
+		hash := md5.New()
+		// cannot close body here as it will close the underlying file
+		if _, err = io.Copy(hash, r.Body); err != nil {
+			return &http.Response{}, fmt.Errorf("invalid body: %s", err.Error())
+		}
+		fileHash := base64.StdEncoding.EncodeToString(hash.Sum(nil))
+		if fileHash != r.Header.Get("Content-MD5") {
+			return &http.Response{}, fmt.Errorf("invalid hash: calculated %s, expected %s",
+				fileHash, r.Header.Get("Content-MD5"))
+		}
+		return &http.Response{StatusCode: 200, Body: r.Body, Header: http.Header{}}, nil
 	}
 	return &http.Response{}, fmt.Errorf("unknown request")
+}
+
+func safeClose(closer func() error, err *error) {
+	if closeErr := closer(); closeErr != nil && *err == nil {
+		*err = closeErr
+	}
 }
