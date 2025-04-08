@@ -10,9 +10,9 @@ import (
 )
 
 func Healthz(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(200)
 	w.Header().Set("Content-Length", "0")
 	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(200)
 }
 
 func NewHttpServer(h http.Handler, port int) *http.Server {
