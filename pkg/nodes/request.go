@@ -1,7 +1,6 @@
 package nodes
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -9,11 +8,10 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 // AttemptEndPoint will hit a specified endpoint with as many retries as it is allotted.
-func (c *Client) AttemptEndPoint(method string, URL string) (interface{}, error) {
+func (c *Client) AttemptEndPoint(method string, URL string) (*http.Response, error) {
 	attempts := c.retries + 1
 
 	for i := uint(0); i < attempts; i++ {
@@ -21,7 +19,7 @@ func (c *Client) AttemptEndPoint(method string, URL string) (interface{}, error)
 			time.Sleep(time.Duration(int64(math.Pow(2, float64(i)))) * time.Second)
 		}
 
-		data, err := makeRequest(c, method, URL)
+		data, err := c.makeRequest(method, URL)
 		if err == nil {
 			return data, nil
 		}
@@ -32,7 +30,7 @@ func (c *Client) AttemptEndPoint(method string, URL string) (interface{}, error)
 
 // makeRequest will call out to an endpoint and attempt to decode the body into an existing
 // data type.
-func makeRequest(c *Client, method string, URL string) (interface{}, error) {
+func (c *Client) makeRequest(method string, URL string) (*http.Response, error) {
 	request, err := http.NewRequest(method, URL, nil)
 	if err != nil {
 		return nil, err
@@ -43,25 +41,11 @@ func makeRequest(c *Client, method string, URL string) (interface{}, error) {
 		return nil, err
 	}
 
-	// In the instance where there is no body to the response
-	if resp.Body != nil {
-		defer resp.Body.Close()
-	}
-
 	if !(resp.StatusCode >= 200 && resp.StatusCode <= 299) {
 		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))
 	}
 
-	// Note: Type assertion was failing when decoding to an empty interface
-	data := &stats.Summary{}
-	err = json.NewDecoder(resp.Body).Decode(&data)
-	if err == nil {
-		return data, nil
-	}
-
-	// TODO: Implement cAdvisor decoding like above
-
-	return nil, fmt.Errorf("data schema did not fit any existing sources")
+	return resp, nil
 }
 
 type HTTPClient interface {

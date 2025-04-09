@@ -154,7 +154,7 @@ func (e *emptyDataSource) Cluster() cluster.ClusterCache {
 	return nil
 }
 
-func (e *emptyDataSource) StatsSummary() nodes.NodeClient {
+func (e *emptyDataSource) StatsSummary() nodes.StatSummaryClient {
 	return nil
 }
 

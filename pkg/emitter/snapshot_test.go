@@ -15,6 +15,7 @@ import (
 	stv1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 // NOTE: When the metrics caching is removed, this test can also be removed!
@@ -107,7 +108,7 @@ func (mds *MockDataSource) Metrics() source.MetricsQuerier {
 	return mds.MetricsQuerier
 }
 
-func (mds *MockDataSource) StatsSummary() nodes.NodeClient {
+func (mds *MockDataSource) StatsSummary() nodes.StatSummaryClient {
 	return mds.NodeStatsSummaryClient
 }
 
@@ -682,7 +683,7 @@ func (m *MockNodeClient) recordCall(method string) {
 }
 
 // Implementation of interface methods
-func (m *MockNodeClient) GetNodeData() ([]interface{}, error) {
+func (m *MockNodeClient) GetNodeData() ([]*stats.Summary, error) {
 	m.recordCall("GetNodeData")
 	return nil, nil
 }

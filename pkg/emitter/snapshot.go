@@ -118,19 +118,14 @@ func snapshotKubernetes(cluster clustercache.ClusterCache) (*KubernetesSnapshot,
 	}, nil
 }
 
-func snapshotNodeStats( client nodes.NodeClient ) (*NodeStatsSummary, error) {
+func snapshotNodeStats( client nodes.StatSummaryClient ) (*NodeStatsSummary, error) {
 	data, err := client.GetNodeData()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate node stats snapshot: %w", err)
 	}
 
-	stats, err := nodes.ConvertToStatsSummary(data)
-	if err != nil {
-		return nil, err
-	}
-
 	return &NodeStatsSummary{
-		Stats: stats,
+		Stats: data,
 	}, nil
 }
 
