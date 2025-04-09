@@ -7,7 +7,6 @@ import (
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/core/pkg/util/retry"
 
@@ -65,8 +64,8 @@ func NewOpenCostDataSource(kubeClientset kubernetes.Interface, k8sCache cluster.
 	)
 
 	if fatalErr != nil {
-		log.Fatalf("Failed to create Prometheus data source: %s", fatalErr)
-		panic(fatalErr)
+		//log.Fatalf("Failed to create Prometheus data source: %s", fatalErr)
+		//panic(fatalErr)
 	}
 
 	return dataSource
