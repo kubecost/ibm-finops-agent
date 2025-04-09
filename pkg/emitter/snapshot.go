@@ -7,8 +7,8 @@ import (
 	"github.com/hashicorp/go-multierror"
 	clustercache "github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
-	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 // SnapshotProvider is an interface that defines a prototype for generating `ClusterSnapshot` instances
@@ -51,7 +51,7 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 	var nodeStats *NodeStatsSummary
 	group.Go(func() error {
 		var err error
-		nodeStats, err = snapshotNodeStats( /* ds.NodeStatsSummaryClient() */ )
+		nodeStats, err = snapshotNodeStats( ds.StatsSummary() )
 		return err
 	})
 
@@ -118,10 +118,19 @@ func snapshotKubernetes(cluster clustercache.ClusterCache) (*KubernetesSnapshot,
 	}, nil
 }
 
-func snapshotNodeStats( /* client NodeStatsSummaryClient */ ) (*NodeStatsSummary, error) {
-	// TODO: Fetch NodeStatusSummary using the provided client
+func snapshotNodeStats( client nodes.NodeClient ) (*NodeStatsSummary, error) {
+	data, err := client.GetNodeData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate node stats snapshot: %w", err)
+	}
+
+	stats, err := nodes.ConvertToStatsSummary(data)
+	if err != nil {
+		return nil, err
+	}
+
 	return &NodeStatsSummary{
-		Stats: []stats.Summary{},
+		Stats: stats,
 	}, nil
 }
 

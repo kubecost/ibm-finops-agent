@@ -1,0 +1,173 @@
+package nodes
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/ibm/finops-agent/pkg/cluster"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	v1 "k8s.io/api/core/v1"
+)
+
+func TestUtils(t *testing.T) {
+	RegisterFailHandler(Fail)
+
+	RunSpecs(t, "Node Collection Testing")
+}
+
+var _ = Describe("Raw node data", func() {
+	Context("Raw stats summary data", func() {
+		It("can be downloaded directly and converted into stats summary data", func() {
+			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, false)
+
+			rawData, err := summaryClient.GetNodeData()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(rawData)).To(BeNumerically(">", 0))
+			
+			statsSummary, err := ConvertToStatsSummary(rawData)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(statsSummary)).To(BeNumerically(">", 0))
+			Expect(statsSummary[0].Node.NodeName).Should(Equal("directnode"))
+		})
+
+		It("can be downloaded through proxy and converted into stats summary data", func() {
+			summaryClient := setupTestNodeStatSummaryClient("https://localhost", true, 10, false, false)
+
+			rawData, err := summaryClient.GetNodeData()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(rawData)).To(BeNumerically(">", 0))
+			
+			statsSummary, err := ConvertToStatsSummary(rawData)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(statsSummary)).To(BeNumerically(">", 0))
+			Expect(statsSummary[0].Node.NodeName).Should(Equal("proxynode"))
+		})
+
+		It("returns nothing on failed http requests", func() {
+			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, true)
+
+			rawData, err := summaryClient.GetNodeData()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(rawData)).To(BeNumerically("==", 0))
+			
+			// Not striclty necessary
+			statsSummary, err := ConvertToStatsSummary(rawData)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(statsSummary)).To(BeNumerically("==", 0))
+		})
+	})
+
+	Context("Get all nodes", func() {
+		It("can fetch all available nodes from cache", func() {
+			mockConfig := NewMockClusterCache()
+			mockNcs := NodeClientSource{
+				NodeClientConfig{},
+				mockConfig,
+				"",
+			}
+
+			nodes := mockNcs.getReadyNodes()
+			Expect(len(nodes)).To(BeNumerically("==", 4))
+			// Note: Nodes.jsonl isn't in any order
+			Expect(nodes[0].ObjectMeta.Name).Should(Equal("nodename4"))
+		})
+	})
+
+	// TOOD: Add in cAdvisor tests once cAdvisor data struct is implemented
+})
+
+func setupTestNodeStatSummaryClient(clusterHostUrl string, forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool) NodeClient {
+	ncc := NewNodeClientConfig(clusterHostUrl, forceKubeProxy, concurrentPollers, insecure)
+	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
+	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
+	
+	mockCache := NewMockClusterCache()
+	return NewNodeStatsSummaryClient(mockCache, ncc)
+}
+
+
+// launchTLSTestServer takes a slice of http status codes (int) to return
+func launchTLSTestServer(responseCodes []int) *httptest.Server {
+	callCount := 0
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if callCount < len(responseCodes) {
+			w.WriteHeader(responseCodes[callCount])
+			callCount++
+		}
+	}))
+
+	return ts
+}
+
+type mockClusterCache struct {
+	cluster.ClusterCache
+}
+
+func NewMockClusterCache() (cluster.ClusterCache) {
+	return mockClusterCache{}
+}
+
+func (m mockClusterCache) GetAllNodes() []*v1.Node {
+	nodes, _ := loadNodes()
+	return nodes
+}
+
+type mockHTTPClient struct {
+	FailRequests	bool
+}
+
+func NewHTTPMockClient(c Client, failRequests bool) *mockHTTPClient {
+	return &mockHTTPClient{
+		FailRequests: failRequests,
+	}
+}
+
+func (m *mockHTTPClient) Do(request *http.Request) (*http.Response, error) {
+	proxyData, _ := os.ReadFile("testdata/summary-proxynode.json")
+	directData, _ := os.ReadFile("testdata/summary-directnode.json")
+
+	if m.FailRequests {
+		resp := &http.Response{StatusCode: 400, Header: http.Header{}}
+		return resp, nil
+	}
+
+	if strings.Contains(request.URL.Path, "stats/summary") {
+		if strings.Contains(request.URL.Host, "localhost") {
+			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(proxyData)), Header: http.Header{}}
+			return resp, nil
+		} else {
+			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(directData)), Header: http.Header{}}
+			return resp, nil
+		}
+	}
+
+	err := fmt.Errorf("no data returned")
+	return nil, err
+}
+
+func loadNodes() ([]*v1.Node, error) {
+	file, err := os.Open("testdata/nodes.jsonl")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	var nodes []*v1.Node
+	decoder := json.NewDecoder(file)
+	for decoder.More() {
+		var node v1.Node
+		err := decoder.Decode(&node)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, &node)
+	}
+	return nodes, nil
+}
