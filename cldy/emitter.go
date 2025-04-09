@@ -63,6 +63,12 @@ func (ce *Emitter) ID() emitter.EmitterID {
 	return emitter.CldyEmitterID
 }
 
+func (ce *Emitter) Init(snapshot *emitter.ClusterSnapshot) error {
+	// TODO: Implement any initialization logic needed for the emitter. This will run once on Start(),
+	// TODO: before any Emit() calls.
+	return nil
+}
+
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
 	log.Infof("emitting sample to Cldy %d", ce.sampleCt)
 	err := os.Mkdir(ce.nextSamplePath(), os.ModePerm)

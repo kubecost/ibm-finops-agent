@@ -108,6 +108,10 @@ func (ce *countingEmitter) ID() EmitterID {
 	return EmitterID(ce.name)
 }
 
+func (ce *countingEmitter) Init(snapshot *ClusterSnapshot) error {
+	return nil
+}
+
 func (ce *countingEmitter) Emit(ctx context.Context, snapshot *ClusterSnapshot) error {
 	val := ce.count.Add(1)
 	if ce.failOn > 0 && val%uint32(ce.failOn) == 0 {
@@ -124,6 +128,11 @@ type workSimulatingEmitter struct {
 func (wse *workSimulatingEmitter) ID() EmitterID {
 	return EmitterID("work-simulating-emitter")
 }
+
+func (wse *workSimulatingEmitter) Init(snapshot *ClusterSnapshot) error {
+	return nil
+}
+
 func (wse *workSimulatingEmitter) Emit(ctx context.Context, snapshot *ClusterSnapshot) error {
 	fmt.Println("Simulating work for emitter...")
 
@@ -145,6 +154,10 @@ func (e *emptySnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterSnapshot
 }
 
 type emptyDataSource struct{}
+
+func (e *emptyDataSource) OpenCostSource() source.OpenCostDataSource {
+	return nil
+}
 
 func (e *emptyDataSource) Metrics() source.MetricsQuerier {
 	return nil

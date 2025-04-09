@@ -16,6 +16,8 @@ require (
 	github.com/opencost/opencost v1.113.0
 	github.com/opencost/opencost/core v0.0.0-20241211165149-ee44b80e2fd0
 	github.com/opencost/opencost/modules/prometheus-source v0.0.0-00010101000000-000000000000
+	github.com/prometheus/client_golang v1.20.5
+	github.com/rs/cors v1.8.2
 	k8s.io/api v0.32.2
 	k8s.io/apimachinery v0.32.2
 	k8s.io/client-go v0.32.2
@@ -144,7 +146,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.18 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/prometheus/client_golang v1.20.5 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.63.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect

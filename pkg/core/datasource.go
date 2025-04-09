@@ -15,6 +15,9 @@ import (
 // NOTE: We can use this as an intermediate data source local to this project. We can defer pushing all the implementation down
 // NOTE: into OpenCost until we have a better understanding of the reusability of the opencost code, and/or what it's lacking.
 type DataSource interface {
+	// OpenCost Data Source
+	OpenCostSource() source.OpenCostDataSource
+
 	// Opencost Metrics Query API
 	Metrics() source.MetricsQuerier
 
@@ -49,7 +52,8 @@ func NewAgentDataSource() DataSource {
 
 	k8sCache.Start(context.Background().Done())
 
-	opencostSource := opencost.NewOpenCostDataSource(kubeClientset, k8sCache)
+	opencostConf := opencost.NewOpenCostConfigFromEnv()
+	opencostSource := opencost.NewOpenCostDataSource(kubeClientset, k8sCache, opencostConf)
 
 	// Alex TODO: Return the config from an env file
 	config := nodes.NewNodeClientConfig("", false, 10, false)
@@ -58,13 +62,17 @@ func NewAgentDataSource() DataSource {
 	// TODO: Initialization of any other data sources here
 
 	return &agentDataSource{
-		metrics:      opencostSource.Metrics(),
-		clusterCache: k8sCache,
 		nodeStatsSummaryClient: nodeStatsSummaryClient,
+		opencostSource:         opencostSource,
+		metrics:                opencostSource.Metrics(),
+		clusterCache:           k8sCache,
 	}
 }
 
 type agentDataSource struct {
+	// opencost data source
+	opencostSource source.OpenCostDataSource
+
 	// OpenCost Metrics Query API
 	metrics source.MetricsQuerier
 
@@ -73,8 +81,12 @@ type agentDataSource struct {
 
 	// Node Stats Summary Client
 	nodeStatsSummaryClient nodes.NodeClient
-	
+
 	// TODO: HTTP Server/Proxy for Turbo?
+}
+
+func (ads *agentDataSource) OpenCostSource() source.OpenCostDataSource {
+	return ads.opencostSource
 }
 
 func (ads *agentDataSource) Metrics() source.MetricsQuerier {
