@@ -35,7 +35,7 @@ func main() {
 				EnvID:           os.Getenv("CLDY_ENV_ID"),
 				Timeout:         time.Second * 30,
 				Retries:         1,
-				FrontdoorURL:    "https://frontdoor.apptio.com",
+				FrontdoorURL:    "https://frontdoor-stage.apptio.com",
 				CloudabilityURL: "https://api-s.cloudability.com",
 			},
 			UploadFrequency: time.Minute,
