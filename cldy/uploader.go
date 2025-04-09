@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"fmt"
+	"github.com/opencost/opencost/core/pkg/log"
 	"io"
 	"os"
 	"path/filepath"
@@ -71,18 +72,18 @@ func (ce *CldyUploader) uploadLoop() {
 		case <-ce.stop:
 			return
 		case <-ticker:
+			log.Infof("uploading %d samples to Cldy", ce.sampleSet.length())
 			if ce.sampleSet.length() == 0 {
 				continue
 			}
 			path, err := ce.ConstructPayload()
 			if err != nil {
-				// TODO: general error handling, maybe this can just be logged
-				panic("failed to construct cldy payload: " + err.Error())
+				log.Errorf("failed to construct: %s", err.Error())
 			}
 			ce.uploadSet.add(path)
 			err = ce.uploadSet.operateAndRemove(ce.uploadData)
 			if err != nil {
-				// TODO: logging
+				log.Errorf("failed to upload: %s", err.Error())
 			}
 		}
 	}

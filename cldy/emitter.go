@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/opencost/opencost/core/pkg/log"
 	"os"
 	"strconv"
 	"time"
@@ -62,6 +63,7 @@ func (ce *Emitter) ID() emitter.EmitterID {
 }
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
+	log.Infof("emitting sample to Cldy %d", ce.sampleCt)
 	err := os.Mkdir(ce.nextSamplePath(), os.ModePerm)
 	if err != nil {
 		return err
@@ -87,6 +89,7 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 
 	ce.Uploader.AddSample(ce.currentSamplePath())
 	ce.sampleCt++
+	log.Info("added sample to Cldy")
 	return nil
 }
 
