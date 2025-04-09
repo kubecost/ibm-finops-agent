@@ -7,6 +7,7 @@ import (
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core/opencost"
+	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/pkg/kubeconfig"
@@ -52,8 +53,14 @@ func NewAgentDataSource() DataSource {
 
 	k8sCache.Start(context.Background().Done())
 
-	opencostConf := opencost.NewOpenCostConfigFromEnv()
-	opencostSource := opencost.NewOpenCostDataSource(kubeClientset, k8sCache, opencostConf)
+	var opencostSource source.OpenCostDataSource
+	if env.IsOpenCostDataSourceEnabled() {
+		opencostConf := opencost.NewOpenCostConfigFromEnv()
+		opencostSource = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, opencostConf)
+	} else {
+		// fulfill the contract with a no-op opencost datasource
+		opencostSource = opencost.NewNoOpOpenCostDataSource()
+	}
 
 	// Alex TODO: Return the config from an env file
 	config := nodes.NewNodeClientConfig("", false, 10, false)

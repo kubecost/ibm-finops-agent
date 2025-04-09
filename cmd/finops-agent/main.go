@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/ibm/finops-agent/cldy"
+	"github.com/ibm/finops-agent/kubecost"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/http"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -42,37 +44,54 @@ func main() {
 
 	// Initialize/Bootstrap the Agent Data Source
 	dataSource := core.NewAgentDataSource()
+	var emitters []emitter.Emitter
 
-	// TODO: load emitters with data source
-	// kc := emitter.NewKubecostEmitter(dataSource)
-	tempDir, err := os.MkdirTemp("", "")
-	if err != nil {
-		fmt.Println("Error creating temp directory")
-	}
-	fmt.Println(tempDir)
-	cldyconfig := cldy.EmitterConfig{
-		UploaderConfig: cldy.UploaderConfig{
-			ApptioConfig: cldy.ApptioConfig{
-				KeyAccess:       os.Getenv("CLDY_KEY_ACCESS"),
-				KeySecret:       os.Getenv("CLDY_KEY_SECRET"),
-				EnvID:           os.Getenv("CLDY_ENV_ID"),
-				Timeout:         time.Second * 30,
-				Retries:         1,
-				FrontdoorURL:    "https://frontdoor-stage.apptio.com",
-				CloudabilityURL: "https://api-s.cloudability.com",
-			},
-			UploadFrequency: time.Minute,
-			ScratchDir:      tempDir,
-		},
-		EmitAsJson: true,
-	}
 	stop := make(chan struct{})
 	defer close(stop)
-	fmt.Println("Starting cldy emitter")
-	cldyEmitter := cldy.NewEmitter(cldyconfig, stop)
+
 	// turbo := emitter.NewTurboEmitter(dataSource)
+	if env.IsKubecostEmitterEnabled() {
+		emitters = append(emitters, kubecost.NewKubecostEmitter(kubecost.NewEmitterConfigFromEnv()))
+	}
+	if env.IsCloudyEmitterEnabled() {
+		tempDir, err := os.MkdirTemp("", "")
+		if err != nil {
+			fmt.Println("Error creating temp directory")
+		}
+		fmt.Println(tempDir)
+		cldyconfig := cldy.EmitterConfig{
+			UploaderConfig: cldy.UploaderConfig{
+				ApptioConfig: cldy.ApptioConfig{
+					KeyAccess:       os.Getenv("CLDY_KEY_ACCESS"),
+					KeySecret:       os.Getenv("CLDY_KEY_SECRET"),
+					EnvID:           os.Getenv("CLDY_ENV_ID"),
+					Timeout:         time.Second * 30,
+					Retries:         1,
+					FrontdoorURL:    "https://frontdoor-stage.apptio.com",
+					CloudabilityURL: "https://api-s.cloudability.com",
+				},
+				UploadFrequency: time.Minute,
+				ScratchDir:      tempDir,
+			},
+			EmitAsJson: true,
+		}
+		fmt.Println("Starting cldy emitter")
+		cldyEmitter := cldy.NewEmitter(cldyconfig, stop)
+		emitters = append(emitters, cldyEmitter)
+	}
+	if env.IsTurboEmitterEnabled() {
+		//emitters = append(emitters, emitter.NewTurboEmitter(dataSource))
+	}
+
+	// TODO: Uncomment once we have full support for all emitters.
+	/*
+		if len(emitters) == 0 {
+			panic("No emitters enabled!")
+		}
+	*/
+
 	snapshotProvider := emitter.NewConcurrentSnapshotProvider()
-	exporter := emitter.NewExporter(dataSource, snapshotProvider, cldyEmitter /*, turbo*/)
+	exporter := emitter.NewExporter(dataSource, snapshotProvider, emitters...)
 
 	if ok := exporter.Start(EmissionFrequency); !ok {
 		panic("Failed to start exporter")
