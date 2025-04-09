@@ -95,4 +95,4 @@ ENV TZ=UTC
 # ADD ./ibm-finops-agent/ubi9_eula.txt /licenses/ubi9_eula.txt
 COPY --from=build-env /go/bin/app /go/bin/app
 USER 1001
-ENTRYPOINT ["/go/bin/app/ibm-finops-agent"]
+ENTRYPOINT ["/go/bin/app"]
