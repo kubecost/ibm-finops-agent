@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/ibm/finops-agent/cldy"
 	"os"
 	"os/signal"
 	"syscall"
@@ -22,11 +23,33 @@ func main() {
 
 	// TODO: load emitters with data source
 	// kc := emitter.NewKubecostEmitter(dataSource)
-	// cldy := emitter.NewCloudyEmitter(dataSource)
+	tempDir, err := os.MkdirTemp("", "")
+	if err != nil {
+		fmt.Println("Error creating temp directory")
+	}
+	cldyconfig := cldy.EmitterConfig{
+		UploaderConfig: cldy.UploaderConfig{
+			ApptioConfig: cldy.ApptioConfig{
+				KeyAccess:       os.Getenv("CLDY_KEY_ACCESS"),
+				KeySecret:       os.Getenv("CLDY_KEY_SECRET"),
+				EnvID:           os.Getenv("CLDY_ENV_ID"),
+				Timeout:         time.Second * 30,
+				Retries:         1,
+				FrontdoorURL:    "https://frontdoor.apptio.com",
+				CloudabilityURL: "https://api-s.cloudability.com",
+			},
+			UploadFrequency: time.Minute,
+			ScratchDir:      tempDir,
+		},
+		EmitAsJson: true,
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	cldyEmitter := cldy.NewEmitter(cldyconfig, stop)
 	// turbo := emitter.NewTurboEmitter(dataSource)
 
 	snapshotProvider := emitter.NewConcurrentSnapshotProvider()
-	exporter := emitter.NewExporter(dataSource, snapshotProvider /*, kc, cldy, turbo*/)
+	exporter := emitter.NewExporter(dataSource, snapshotProvider, cldyEmitter)
 
 	if ok := exporter.Start(EmissionFrequency); !ok {
 		panic("Failed to start exporter")
