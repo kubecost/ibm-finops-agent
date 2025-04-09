@@ -186,7 +186,7 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 // using the KeyAccess and KeySecret credentials provided by the customer config
 func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 	url := fmt.Sprintf("%s/service/apikeylogin", s.FrontdoorURL)
-	body, err := json.Marshal(map[string]string{"KeyAccess": s.KeyAccess, "KeySecret": s.KeySecret})
+	body, err := json.Marshal(map[string]string{"keyAccess": s.KeyAccess, "keySecret": s.KeySecret})
 	if err != nil {
 		return "",
 			fmt.Errorf("error in creating http request token string parameter for frontdoor service: %w", err)
@@ -277,8 +277,6 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 	if err != nil {
 		return fmt.Errorf("error in opening file to upload: %w", err)
 	}
-	defer safeClose(fileToUpload.Close, &rErr)
-
 	fi, err := fileToUpload.Stat()
 	if err != nil {
 		return err
