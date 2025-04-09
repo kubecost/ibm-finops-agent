@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
+	"github.com/ibm/finops-agent/pkg/core/opencost"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/pkg/kubeconfig"
@@ -31,10 +32,10 @@ var (
 func NewAgentDataSource() DataSource {
 	// NOTE: (bolt) This just uses a fairly straight-forward kube client initialization. We should add specific proxy/auth
 	// NOTE: (bolt) requirements for the other data sources.
-	//kubeClientset, err := kubeconfig.LoadKubeClient("")
-	//if err != nil {
-	//	log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
-	//}
+	kubeClientset, err := kubeconfig.LoadKubeClient("")
+	if err != nil {
+		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
+	}
 
 	cfg, err := kubeconfig.LoadKubeconfig("")
 	if err != nil {
@@ -48,7 +49,7 @@ func NewAgentDataSource() DataSource {
 
 	k8sCache.Start(context.Background().Done())
 
-	//opencostSource := opencost.NewOpenCostDataSource(kubeClientset, k8sCache)
+	opencostSource := opencost.NewOpenCostDataSource(kubeClientset, k8sCache)
 
 	// Alex TODO: Return the config from an env file
 	config := nodes.NewNodeClientConfig("", false, 10, false)
@@ -57,8 +58,8 @@ func NewAgentDataSource() DataSource {
 	// TODO: Initialization of any other data sources here
 
 	return &agentDataSource{
-		//metrics:      opencostSource.Metrics(),
-		clusterCache:           k8sCache,
+		metrics:      opencostSource.Metrics(),
+		clusterCache: k8sCache,
 		nodeStatsSummaryClient: nodeStatsSummaryClient,
 	}
 }
@@ -72,7 +73,7 @@ type agentDataSource struct {
 
 	// Node Stats Summary Client
 	nodeStatsSummaryClient nodes.NodeClient
-
+	
 	// TODO: HTTP Server/Proxy for Turbo?
 }
 
