@@ -8,6 +8,7 @@ import (
 	clustercache "github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/nodes"
+	"github.com/opencost/opencost/core/pkg/clusters"
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
@@ -39,6 +40,14 @@ func NewConcurrentSnapshotProvider() SnapshotProvider {
 func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterSnapshot, error) {
 	var group multierror.Group
 
+	// Cluster Info Snapshot
+	var clusterInfo *clusters.ClusterInfo
+	group.Go(func() error {
+		var err error
+		clusterInfo, err = snapshotClusterInfo(ds.OpenCostSource().ClusterInfo())
+		return err
+	})
+
 	// Kubernetes Snapshot
 	var k8sSnapshot *KubernetesSnapshot
 	group.Go(func() error {
@@ -69,9 +78,10 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 	}
 
 	return &ClusterSnapshot{
-		Kubernetes: k8sSnapshot,
-		NodeStats:  nodeStats,
-		Metrics:    metricsSnapshot,
+		ClusterInfo: clusterInfo,
+		Kubernetes:  k8sSnapshot,
+		NodeStats:   nodeStats,
+		Metrics:     metricsSnapshot,
 	}, nil
 }
 
@@ -97,6 +107,16 @@ func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.Metri
 	csp.metricsSummary = metricsSummary
 
 	return metricsSummary, nil
+}
+
+func snapshotClusterInfo(infoProvider clusters.ClusterInfoProvider) (*clusters.ClusterInfo, error) {
+	clusterInfoMap := infoProvider.GetClusterInfo()
+	clusterInfo, err := clusters.MapToClusterInfo(clusterInfoMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cluster info: %w", err)
+	}
+
+	return clusterInfo, nil
 }
 
 func snapshotKubernetes(cluster clustercache.ClusterCache) (*KubernetesSnapshot, error) {
