@@ -27,6 +27,7 @@ func main() {
 	if err != nil {
 		fmt.Println("Error creating temp directory")
 	}
+	fmt.Println(tempDir)
 	cldyconfig := cldy.EmitterConfig{
 		UploaderConfig: cldy.UploaderConfig{
 			ApptioConfig: cldy.ApptioConfig{
@@ -45,6 +46,7 @@ func main() {
 	}
 	stop := make(chan struct{})
 	defer close(stop)
+	fmt.Println("Starting cldy emitter")
 	cldyEmitter := cldy.NewEmitter(cldyconfig, stop)
 	// turbo := emitter.NewTurboEmitter(dataSource)
 

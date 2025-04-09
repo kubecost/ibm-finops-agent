@@ -42,6 +42,7 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 	}
 	// TODO: evaluate whether or not to check scratch dir for completed samples
 	// TODO: cleanup old samples (> 72 hrs?)
+	fmt.Println("created cldy emitter")
 	return &Emitter{
 		config:          config,
 		Uploader:        NewCldyUploader(config.UploaderConfig, stop),
