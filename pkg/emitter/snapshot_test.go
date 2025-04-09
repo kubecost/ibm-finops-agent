@@ -6,6 +6,8 @@ import (
 	"unsafe"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
+	"github.com/julienschmidt/httprouter"
+	"github.com/opencost/opencost/core/pkg/clusters"
 	"github.com/opencost/opencost/core/pkg/source"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -83,6 +85,7 @@ func TestSnapshottingTemporaryCache(t *testing.T) {
 
 // MockDataSource contains mock implementations of the interfaces returned by the data source.
 type MockDataSource struct {
+	OCDataSource   *MockOpenCostDataSource
 	ClusterCache   *MockClusterCache
 	MetricsQuerier *MockMetricsQuerier
 }
@@ -90,10 +93,17 @@ type MockDataSource struct {
 // NewMockDataSource creates a new mock data source implementation with services that track
 // method calls only (empty responses).
 func NewMockDataSource() *MockDataSource {
+	ocDataSource := NewMockOpenCostDataSource()
+	metrics := ocDataSource.Metrics().(*MockMetricsQuerier)
 	return &MockDataSource{
+		OCDataSource:   ocDataSource,
 		ClusterCache:   NewMockClusterCache(),
-		MetricsQuerier: NewMockMetricsQuerier(),
+		MetricsQuerier: metrics,
 	}
+}
+
+func (mds *MockDataSource) OpenCostSource() source.OpenCostDataSource {
+	return mds.OCDataSource
 }
 
 func (mds *MockDataSource) Cluster() cluster.ClusterCache {
@@ -102,6 +112,60 @@ func (mds *MockDataSource) Cluster() cluster.ClusterCache {
 
 func (mds *MockDataSource) Metrics() source.MetricsQuerier {
 	return mds.MetricsQuerier
+}
+
+//--------------------------------------------------------------------------
+//  Mock OpenCostDataSource (cluster info provider)
+//--------------------------------------------------------------------------
+
+type MockClusterInfoProvider struct{}
+
+func (m *MockClusterInfoProvider) GetClusterInfo() map[string]string {
+	return map[string]string{
+		clusters.ClusterInfoIdKey: "mock-cluster-id",
+	}
+}
+
+// MockOpenCostDataSource
+type MockOpenCostDataSource struct {
+	MetricsQuerier      *MockMetricsQuerier
+	ClusterInfoProvider *MockClusterInfoProvider
+}
+
+func NewMockOpenCostDataSource() *MockOpenCostDataSource {
+	return &MockOpenCostDataSource{
+		MetricsQuerier:      NewMockMetricsQuerier(),
+		ClusterInfoProvider: &MockClusterInfoProvider{},
+	}
+}
+
+// RegisterEndPoints registers any custom endpoints that can be used for diagnostics or debug purposes.
+func (mocds *MockOpenCostDataSource) RegisterEndPoints(router *httprouter.Router) {
+	// No-op
+}
+
+// Metrics returns a MetricsQuerier that can be used to query historical metrics data from the data source.
+func (mocds *MockOpenCostDataSource) Metrics() source.MetricsQuerier {
+	return mocds.MetricsQuerier
+}
+
+// ClusterMap returns a mapping of cluster identifier to ClusterInfo for all known clusters (local only for
+// single cluster deployments).
+func (mocds *MockOpenCostDataSource) ClusterMap() clusters.ClusterMap {
+	return nil
+}
+
+// ClusterInfo returns the ClusterInfoProvider for the local cluster.
+func (mocds *MockOpenCostDataSource) ClusterInfo() clusters.ClusterInfoProvider {
+	return mocds.ClusterInfoProvider
+}
+
+func (mocds *MockOpenCostDataSource) BatchDuration() time.Duration {
+	return 24 * time.Hour
+}
+
+func (mocds *MockOpenCostDataSource) Resolution() time.Duration {
+	return 5 * time.Minute
 }
 
 //--------------------------------------------------------------------------

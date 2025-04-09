@@ -56,6 +56,21 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 	// spawn a new goroutine which will loop and wait the interval each iteration
 	go func() {
 		runContext, cancelRun := context.WithCancel(context.Background())
+		defer cancelRun()
+		defer de.runState.Reset()
+
+		// take a snapshot of the current cluster state
+		snapshot, err := de.snapshotProvider.SnapshotOf(de.ds)
+		if err != nil {
+			log.Errorf("failed to take snapshot for initialization phase: %v", err)
+			return
+		}
+
+		for _, emitter := range de.emitters {
+			if err := emitter.Init(snapshot); err != nil {
+				log.Errorf("failed to initialize emitter %s: %v", emitter.ID(), err)
+			}
+		}
 
 		for {
 			// use a select statement to receive whichever channel receives data first
@@ -64,7 +79,6 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			// Stop(), and must reset our AtomicRunState to it's initial idle state
 			case <-de.runState.OnStop():
 				cancelRun()
-				de.runState.Reset()
 				return // exit go routine
 
 			// After our interval elapses, fall through

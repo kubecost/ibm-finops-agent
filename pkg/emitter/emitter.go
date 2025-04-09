@@ -10,6 +10,7 @@ import (
 	stv1 "k8s.io/api/storage/v1"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 
+	"github.com/opencost/opencost/core/pkg/clusters"
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
@@ -121,9 +122,10 @@ type MetricsSnapshot struct {
 }
 
 type ClusterSnapshot struct {
-	Kubernetes *KubernetesSnapshot
-	NodeStats  *NodeStatsSummary
-	Metrics    *MetricsSummary
+	ClusterInfo *clusters.ClusterInfo
+	Kubernetes  *KubernetesSnapshot
+	NodeStats   *NodeStatsSummary
+	Metrics     *MetricsSummary
 }
 
 // Emitter is a contract for an implementation which is directly sent cluster data snapshots on
@@ -131,6 +133,10 @@ type ClusterSnapshot struct {
 type Emitter interface {
 	// ID returns the identifier of the emitter for identification purposes.
 	ID() EmitterID
+
+	// Init is called with a `ClusterSnapshot` to pre-populate any emitter data before receiving
+	// the regular interval snapshots from the exporter.
+	Init(*ClusterSnapshot) error
 
 	// Emits the `ClusterSnapshot` based on the emitter's implementation.
 	Emit(context.Context, *ClusterSnapshot) error
