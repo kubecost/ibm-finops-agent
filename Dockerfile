@@ -85,10 +85,10 @@ ENV CONTAINERIZED="true"
 # Add timezone data and set timezone to GMT
 ENV TZ=UTC
 
-# ADD ./ibm-finops-agent/configs/default.json /models/default.json
-# ADD ./ibm-finops-agent/configs/azure.json /models/azure.json
-# ADD ./ibm-finops-agent/configs/aws.json /models/aws.json
-# ADD ./ibm-finops-agent/configs/gcp.json /models/gcp.json
+ ADD ./ibm-finops-agent/configs/default.json /models/default.json
+ ADD ./ibm-finops-agent/configs/azure.json /models/azure.json
+ ADD ./ibm-finops-agent/configs/aws.json /models/aws.json
+ ADD ./ibm-finops-agent/configs/gcp.json /models/gcp.json
 # ADD ./ibm-finops-agent/configs/alibaba.json /models/alibaba.json
 # ADD ./ibm-finops-agent/assets/kubecost_logo@2x.jpg /assets/kubecost_logo@2x.jpg
 # ADD ./ibm-finops-agent/configs/carbonlookupdata.csv /static/carbonlookupdata.csv
