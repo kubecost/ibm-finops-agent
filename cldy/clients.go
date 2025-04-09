@@ -277,7 +277,6 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 	if err != nil {
 		return fmt.Errorf("error in opening file to upload: %w", err)
 	}
-	defer safeClose(fileToUpload.Close, &rErr)
 
 	fi, err := fileToUpload.Stat()
 	if err != nil {
