@@ -87,7 +87,7 @@ func TestSnapshottingTemporaryCache(t *testing.T) {
 type MockDataSource struct {
 	ClusterCache           *MockClusterCache
 	MetricsQuerier         *MockMetricsQuerier
-	NodeStatsSummaryClient *MockNodeClient
+	NodeStatsSummaryClient *MockStatsSummaryClient
 }
 
 // NewMockDataSource creates a new mock data source implementation with services that track
@@ -96,7 +96,7 @@ func NewMockDataSource() *MockDataSource {
 	return &MockDataSource{
 		ClusterCache:           NewMockClusterCache(),
 		MetricsQuerier:         NewMockMetricsQuerier(),
-		NodeStatsSummaryClient: NewMockNodeClient(),
+		NodeStatsSummaryClient: NewMockStatsSummaryClient(),
 	}
 }
 
@@ -661,29 +661,29 @@ func newEmptyResult[T any](decoder source.ResultDecoder[T]) *source.Future[T] {
 }
 
 //--------------------------------------------------------------------------
-//  Mock NodeClient
+//  Mock StatsSummaryClient
 //--------------------------------------------------------------------------
 
-// MockNodeClient is a mock implementation of the nodes.NodeClient interface
+// MockStatsSummaryClient is a mock implementation of the nodes.StatsSummaryClient interface
 // that records the number of times each method is called.
-type MockNodeClient struct {
+type MockStatsSummaryClient struct {
 	Calls map[string]int
 }
 
-// NewMockNodeClient creates a new mock metrics client
-func NewMockNodeClient() *MockNodeClient {
-	return &MockNodeClient{
+// NewMockStatsSummaryClient creates a new mock metrics client
+func NewMockStatsSummaryClient() *MockStatsSummaryClient {
+	return &MockStatsSummaryClient{
 		Calls: make(map[string]int),
 	}
 }
 
 // Helper to record method calls
-func (m *MockNodeClient) recordCall(method string) {
+func (m *MockStatsSummaryClient) recordCall(method string) {
 	m.Calls[method]++
 }
 
 // Implementation of interface methods
-func (m *MockNodeClient) GetNodeData() ([]*stats.Summary, error) {
+func (m *MockStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	m.recordCall("GetNodeData")
 	return nil, nil
 }
