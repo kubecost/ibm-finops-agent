@@ -69,7 +69,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	ce.ScratchPath = ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
 	err := createIfNotExists(ce.ScratchPath)
 	if err != nil {
-		panic("failed to create scratch directory: " + err.Error())
+		return fmt.Errorf("failed to create scratch directory: %s", err.Error())
 	}
 
 	err = os.Mkdir(ce.nextSamplePath(), os.ModePerm)
