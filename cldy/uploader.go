@@ -106,7 +106,7 @@ func (ce *CldyUploader) ConstructPayload() (path string, rerr error) {
 	if err != nil {
 		return "", err
 	}
-	err = createTGZ(tw, files...)
+	err = createTGZ(ce.clusterID, tw, files...)
 	if err != nil {
 		return "", err
 	}
@@ -144,7 +144,7 @@ func (ce *CldyUploader) uploadData(path string) error {
 // createTGZ takes a source and variable writers and walks 'source' writing each file
 // found to the tar writer; the purpose for accepting multiple writers is to allow
 // for multiple outputs
-func createTGZ(writer io.Writer, srcs ...*os.File) (rerr error) {
+func createTGZ(clusterID string, writer io.Writer, srcs ...*os.File) (rerr error) {
 	gzw, _ := gzip.NewWriterLevel(writer, flate.BestCompression)
 	defer safeClose(gzw.Close, &rerr)
 	tw := tar.NewWriter(gzw)
@@ -176,7 +176,7 @@ func createTGZ(writer io.Writer, srcs ...*os.File) (rerr error) {
 
 			// if not a directory update the name to correctly reflect the desired destination when untaring
 			if !fileInfo.Mode().IsDir() {
-				header.Name = filepath.Join(filepath.Base(src.Name()), strings.TrimPrefix(file, src.Name()))
+				header.Name = filepath.Join(filepath.Base(src.Name()), clusterID, strings.TrimPrefix(file, src.Name()))
 			}
 			// write the header
 			if err := tw.WriteHeader(header); err != nil {

@@ -5,13 +5,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"github.com/opencost/opencost/core/pkg/log"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/opencost/opencost/core/pkg/log"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -39,7 +39,6 @@ type EmitterConfig struct {
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 	// TODO: evaluate whether or not to check scratch dir for completed samples
 	// TODO: cleanup old samples (> 72 hrs?)
-	fmt.Println("created cldy emitter")
 	return &Emitter{
 		config:          config,
 		Uploader:        NewCldyUploader(config.UploaderConfig, stop),
@@ -70,7 +69,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	ce.ScratchPath = ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
 	err := createIfNotExists(ce.ScratchPath)
 	if err != nil {
-		panic("failed to create scratch directory: " + err.Error())
+		return fmt.Errorf("failed to create scratch directory: %s", err.Error())
 	}
 
 	err = os.Mkdir(ce.nextSamplePath(), os.ModePerm)
