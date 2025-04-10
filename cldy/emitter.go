@@ -28,6 +28,7 @@ type Emitter struct {
 	sampleCt        int
 	Uploader        Uploader
 	ClusterID       *string
+	ScratchPath     string
 }
 
 type EmitterConfig struct {
@@ -36,10 +37,6 @@ type EmitterConfig struct {
 }
 
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
-	err := createIfNotExists(config.ScratchDir + "/" + scratchPath)
-	if err != nil {
-		panic("failed to create scratch directory: " + err.Error())
-	}
 	// TODO: evaluate whether or not to check scratch dir for completed samples
 	// TODO: cleanup old samples (> 72 hrs?)
 	fmt.Println("created cldy emitter")
@@ -56,16 +53,37 @@ func createIfNotExists(path string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return os.Mkdir(path, os.ModePerm)
+	return os.MkdirAll(path, os.ModePerm)
 }
 
 func (ce *Emitter) ID() emitter.EmitterID {
 	return emitter.CldyEmitterID
 }
 
-func (ce *Emitter) Init(snapshot *emitter.ClusterSnapshot) error {
-	// TODO: Implement any initialization logic needed for the emitter. This will run once on Start(),
-	// TODO: before any Emit() calls.
+func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
+	log.Infof("Initializing cldy emitter")
+
+	clusterID := getClusterID(cs.Kubernetes.Namespaces)
+	ce.ClusterID = &clusterID
+	ce.Uploader.SetClusterID(clusterID)
+
+	ce.ScratchPath = ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
+	err := createIfNotExists(ce.ScratchPath)
+	if err != nil {
+		panic("failed to create scratch directory: " + err.Error())
+	}
+
+	err = os.Mkdir(ce.nextSamplePath(), os.ModePerm)
+	if err != nil {
+		return err
+	}
+
+	err = ce.writeStatsData(cs.NodeStats)
+	if err != nil {
+		return err
+	}
+
+	ce.sampleCt = 0
 	return nil
 }
 
@@ -75,19 +93,10 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 	if err != nil {
 		return err
 	}
-	if ce.ClusterID == nil {
-		clusterID := getClusterID(cs.Kubernetes.Namespaces)
-		ce.ClusterID = &clusterID
-		ce.Uploader.SetClusterID(clusterID)
-	}
 
 	err = ce.writeStatsData(cs.NodeStats)
 	if err != nil {
 		return err
-	}
-	if ce.sampleCt == initialSampleCt {
-		ce.sampleCt = 0
-		return nil
 	}
 	err = ce.writeMetadata(cs.Kubernetes)
 	if err != nil {
@@ -240,11 +249,11 @@ func (ce *Emitter) getSuffix() string {
 }
 
 func (ce *Emitter) currentSamplePath() string {
-	return ce.config.ScratchDir + "/" + scratchPath + "/" + ce.startTimePrefix + "_" + strconv.Itoa(ce.sampleCt) + "/"
+	return ce.ScratchPath + "/" + ce.startTimePrefix + "_" + strconv.Itoa(ce.sampleCt) + "/"
 }
 
 func (ce *Emitter) nextSamplePath() string {
-	return ce.config.ScratchDir + "/" + scratchPath + "/" + ce.startTimePrefix + "_" + strconv.Itoa(ce.sampleCt+1) + "/"
+	return ce.ScratchPath + "/" + ce.startTimePrefix + "_" + strconv.Itoa(ce.sampleCt+1) + "/"
 }
 
 func (ce *Emitter) marshalObject(object proto.Message) ([]byte, error) {

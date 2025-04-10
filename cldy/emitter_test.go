@@ -40,14 +40,11 @@ func TestLoadData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = cldyEmitter.Emit(context.TODO(), data)
+	err = cldyEmitter.Init(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if len(mockUpload.data) != 0 {
-		t.Fatalf("uploader data not empty: %v", mockUpload.data)
-	}
+	
 	err = cldyEmitter.Emit(context.TODO(), data)
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +112,7 @@ func TestLoadDataAsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = cldyEmitter.Emit(context.TODO(), data)
+	err = cldyEmitter.Init(data)
 	if err != nil {
 		t.Fatal(err)
 	}
