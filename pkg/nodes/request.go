@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -22,6 +23,8 @@ func (c *Client) AttemptEndPoint(method string, URL string) (*http.Response, err
 		data, err := c.makeRequest(method, URL)
 		if err == nil {
 			return data, nil
+		} else {
+			log.Printf("attempt failed: %s", err)
 		}
 	}
 	err := fmt.Errorf("requests to %v failed", URL)

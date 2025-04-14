@@ -109,10 +109,12 @@ func retrieveNodeData(nd nodeFetchData, n v1.Node, endpoint string, connectionMe
 		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(endpoint))
 		if err == nil {
 			return data, err
+		} else {
+			log.Printf("issue hitting endpoint: %s", err)
 		}
 	}
 
-	err := fmt.Errorf("problem getting node address: %v", endpoint)
+	err := fmt.Errorf("problem getting node address for: %v", endpoint)
 	return nil, err
 }
 
