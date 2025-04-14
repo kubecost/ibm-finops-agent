@@ -60,9 +60,9 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 		wg.Add(1)
 		go func(currentNode v1.Node) {
 			if currentNode.Spec.ProviderID == "" {
-				errMessage := "node ProviderID is not set which may be because the node is running in a " +
-					"self managed environment, and this may cause inconsistent gathering of metrics data."
-				log.Printf(errMessage)
+				// errMessage := "node ProviderID is not set which may be because the node is running in a " +
+				// 	"self managed environment, and this may cause inconsistent gathering of metrics data."
+				log.Printf("node providerID could be bad") // Alex Note: this is just because of a formatting issue
 				return
 			}
 
