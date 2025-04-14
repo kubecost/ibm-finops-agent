@@ -28,53 +28,40 @@ var _ = Describe("Raw node data", func() {
 		It("can be downloaded directly and converted into stats summary data", func() {
 			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, false)
 
-			rawData, err := summaryClient.GetNodeData()
+			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(rawData)).To(BeNumerically(">", 0))
-			
-			statsSummary, err := ConvertToStatsSummary(rawData)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(statsSummary)).To(BeNumerically(">", 0))
-			Expect(statsSummary[0].Node.NodeName).Should(Equal("directnode"))
+			Expect(len(data)).To(BeNumerically(">", 0))
+			Expect(data[0].Node.NodeName).Should(Equal("directnode"))
 		})
 
 		It("can be downloaded through proxy and converted into stats summary data", func() {
 			summaryClient := setupTestNodeStatSummaryClient("https://localhost", true, 10, false, false)
 
-			rawData, err := summaryClient.GetNodeData()
+			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(rawData)).To(BeNumerically(">", 0))
-			
-			statsSummary, err := ConvertToStatsSummary(rawData)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(statsSummary)).To(BeNumerically(">", 0))
-			Expect(statsSummary[0].Node.NodeName).Should(Equal("proxynode"))
+			Expect(len(data)).To(BeNumerically(">", 0))
+			Expect(data[0].Node.NodeName).Should(Equal("proxynode"))
 		})
 
 		It("returns nothing on failed http requests", func() {
 			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, true)
 
-			rawData, err := summaryClient.GetNodeData()
+			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(rawData)).To(BeNumerically("==", 0))
-			
-			// Not striclty necessary
-			statsSummary, err := ConvertToStatsSummary(rawData)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(statsSummary)).To(BeNumerically("==", 0))
+			Expect(len(data)).To(BeNumerically("==", 0))
 		})
 	})
 
 	Context("Get all nodes", func() {
 		It("can fetch all available nodes from cache", func() {
 			mockConfig := NewMockClusterCache()
-			mockNcs := NodeClientSource{
+			mockNcs := NodeStatsSummaryClient{
 				NodeClientConfig{},
 				mockConfig,
 				"",
 			}
 
-			nodes := mockNcs.getReadyNodes()
+			nodes := getReadyNodes(mockNcs.cache)
 			Expect(len(nodes)).To(BeNumerically("==", 4))
 			// Note: Nodes.jsonl isn't in any order
 			Expect(nodes[0].ObjectMeta.Name).Should(Equal("nodename4"))
@@ -84,7 +71,7 @@ var _ = Describe("Raw node data", func() {
 	// TOOD: Add in cAdvisor tests once cAdvisor data struct is implemented
 })
 
-func setupTestNodeStatSummaryClient(clusterHostUrl string, forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool) NodeClient {
+func setupTestNodeStatSummaryClient(clusterHostUrl string, forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool) NodeStatsSummaryClient {
 	ncc := NewNodeClientConfig(clusterHostUrl, forceKubeProxy, concurrentPollers, insecure)
 	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
 	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
@@ -92,7 +79,6 @@ func setupTestNodeStatSummaryClient(clusterHostUrl string, forceKubeProxy bool, 
 	mockCache := NewMockClusterCache()
 	return NewNodeStatsSummaryClient(mockCache, ncc)
 }
-
 
 // launchTLSTestServer takes a slice of http status codes (int) to return
 func launchTLSTestServer(responseCodes []int) *httptest.Server {
@@ -120,6 +106,7 @@ func (m mockClusterCache) GetAllNodes() []*v1.Node {
 	return nodes
 }
 
+// Note: mockHTTPClient mocks statSummary data specifically, but can be changed later
 type mockHTTPClient struct {
 	FailRequests	bool
 }

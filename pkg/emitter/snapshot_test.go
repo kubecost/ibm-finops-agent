@@ -17,6 +17,7 @@ import (
 	stv1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 // NOTE: When the metrics caching is removed, this test can also be removed!
@@ -86,10 +87,10 @@ func TestSnapshottingTemporaryCache(t *testing.T) {
 
 // MockDataSource contains mock implementations of the interfaces returned by the data source.
 type MockDataSource struct {
-	ClusterCache           *MockClusterCache
-	MetricsQuerier         *MockMetricsQuerier
-	NodeStatsSummaryClient *MockNodeClient
-	OCDataSource           *MockOpenCostDataSource
+	OCDataSource   *MockOpenCostDataSource
+	ClusterCache   *MockClusterCache
+	MetricsQuerier *MockMetricsQuerier
+	NodeStatsSummaryClient *MockStatsSummaryClient
 }
 
 // NewMockDataSource creates a new mock data source implementation with services that track
@@ -98,10 +99,10 @@ func NewMockDataSource() *MockDataSource {
 	ocDataSource := NewMockOpenCostDataSource()
 	metrics := ocDataSource.Metrics().(*MockMetricsQuerier)
 	return &MockDataSource{
-		NodeStatsSummaryClient: NewMockNodeClient(),
-		OCDataSource:           ocDataSource,
-		ClusterCache:           NewMockClusterCache(),
-		MetricsQuerier:         metrics,
+		OCDataSource:   ocDataSource,
+		ClusterCache:   NewMockClusterCache(),
+		MetricsQuerier: metrics,
+		NodeStatsSummaryClient: NewMockStatsSummaryClient(),
 	}
 }
 
@@ -117,7 +118,7 @@ func (mds *MockDataSource) Metrics() source.MetricsQuerier {
 	return mds.MetricsQuerier
 }
 
-func (mds *MockDataSource) StatsSummary() nodes.NodeClient {
+func (mds *MockDataSource) StatsSummary() nodes.StatSummaryClient {
 	return mds.NodeStatsSummaryClient
 }
 
@@ -724,29 +725,29 @@ func newEmptyResult[T any](decoder source.ResultDecoder[T]) *source.Future[T] {
 }
 
 //--------------------------------------------------------------------------
-//  Mock NodeClient
+//  Mock StatsSummaryClient
 //--------------------------------------------------------------------------
 
-// MockNodeClient is a mock implementation of the nodes.NodeClient interface
+// MockStatsSummaryClient is a mock implementation of the nodes.StatsSummaryClient interface
 // that records the number of times each method is called.
-type MockNodeClient struct {
+type MockStatsSummaryClient struct {
 	Calls map[string]int
 }
 
-// NewMockNodeClient creates a new mock metrics client
-func NewMockNodeClient() *MockNodeClient {
-	return &MockNodeClient{
+// NewMockStatsSummaryClient creates a new mock metrics client
+func NewMockStatsSummaryClient() *MockStatsSummaryClient {
+	return &MockStatsSummaryClient{
 		Calls: make(map[string]int),
 	}
 }
 
 // Helper to record method calls
-func (m *MockNodeClient) recordCall(method string) {
+func (m *MockStatsSummaryClient) recordCall(method string) {
 	m.Calls[method]++
 }
 
 // Implementation of interface methods
-func (m *MockNodeClient) GetNodeData() ([]interface{}, error) {
+func (m *MockStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	m.recordCall("GetNodeData")
 	return nil, nil
 }

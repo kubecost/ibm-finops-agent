@@ -26,7 +26,7 @@ type DataSource interface {
 	Cluster() cluster.ClusterCache
 
 	// Node Stats Summary Client
-	StatsSummary() nodes.NodeClient
+	StatsSummary() nodes.StatSummaryClient
 }
 
 var (
@@ -62,17 +62,17 @@ func NewAgentDataSource() DataSource {
 		opencostSource = opencost.NewNoOpOpenCostDataSource()
 	}
 
-	// Alex TODO: Return the config from an env file
+	// TODO: (alex) Return the config from an env file
 	config := nodes.NewNodeClientConfig("", false, 10, false)
 	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, config)
 
 	// TODO: Initialization of any other data sources here
 
 	return &agentDataSource{
+		opencostSource: opencostSource,
+		metrics:        opencostSource.Metrics(),
+		clusterCache:   k8sCache,
 		nodeStatsSummaryClient: nodeStatsSummaryClient,
-		opencostSource:         opencostSource,
-		metrics:                opencostSource.Metrics(),
-		clusterCache:           k8sCache,
 	}
 }
 
@@ -87,8 +87,8 @@ type agentDataSource struct {
 	clusterCache cluster.ClusterCache
 
 	// Node Stats Summary Client
-	nodeStatsSummaryClient nodes.NodeClient
-
+	nodeStatsSummaryClient nodes.StatSummaryClient
+	
 	// TODO: HTTP Server/Proxy for Turbo?
 }
 
@@ -104,6 +104,6 @@ func (ads *agentDataSource) Cluster() cluster.ClusterCache {
 	return ads.clusterCache
 }
 
-func (ads *agentDataSource) StatsSummary() nodes.NodeClient {
+func (ads *agentDataSource) StatsSummary() nodes.StatSummaryClient {
 	return ads.nodeStatsSummaryClient
 }

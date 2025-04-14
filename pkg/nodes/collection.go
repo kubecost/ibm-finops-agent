@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,40 +13,41 @@ import (
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
-type NodeClient interface {
-	GetNodeData() ([]interface{}, error)
+type StatSummaryClient interface {
+	GetNodeData() ([]*stats.Summary, error)
 }
 
-type NodeClientSource struct {
+type NodeStatsSummaryClient struct {
 	config   NodeClientConfig
 	cache    cluster.ClusterCache
 	endpoint string
 }
 
-func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig) NodeClient {
-	return NodeClientSource{
+func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig) NodeStatsSummaryClient {
+	return NodeStatsSummaryClient{
 		config:   config,
 		cache:    cache,
 		endpoint: "stats/summary",
 	}
 }
 
-func NewNodeCAdvisorClient(cache cluster.ClusterCache, config NodeClientConfig) NodeClient {
-	return NodeClientSource{
-		config:   config,
-		cache:    cache,
-		endpoint: "metrics/cAdvisor",
-	}
-}
+// Note: Stubbed out cAdvisor client
+// func NewNodeCAdvisorClient(cache cluster.ClusterCache, config NodeClientConfig) NodeClient {
+// 	return NewNodeCAdvisorClient{
+// 		config:   config,
+// 		cache:    cache,
+// 		endpoint: "metrics/cAdvisor",
+// 	}
+// }
 
 // GetNodeData creates a number of goroutines that attempt to access a specified endpoint and return the
 // corresponding stats data in slice of interfaces which can be converted into a stricter format.
-func (ncs NodeClientSource) GetNodeData() ([]interface{}, error) {
+func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	var nodes []*v1.Node
-	var statsList []interface{}
+	var statsList []*stats.Summary
 
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() (err error) {
-		nodes = ncs.getReadyNodes()
+		nodes = getReadyNodes(nssc.cache)
 		return
 	})
 	if err != nil {
@@ -56,7 +58,7 @@ func (ncs NodeClientSource) GetNodeData() ([]interface{}, error) {
 	var m sync.Mutex
 
 	// creates a max number of concurrent goroutines that are allowed
-	limiter := make(chan struct{}, ncs.config.ConcurrentPollers)
+	limiter := make(chan struct{}, nssc.config.ConcurrentPollers)
 
 	for _, n := range nodes {
 		// block if channel is full (limiting number of goroutines)
@@ -73,16 +75,23 @@ func (ncs NodeClientSource) GetNodeData() ([]interface{}, error) {
 
 			nd := nodeFetchData{
 				nodeName:       currentNode.Name,
-				ClusterHostURL: ncs.config.ClusterHostURL,
+				ClusterHostURL: nssc.config.ClusterHostURL,
 			}
+			connectionMethods := nssc.config.connectionOptions(currentNode, nd)
 
-			data, err := ncs.retrieveNodeData(nd, currentNode)
+			resp, err := retrieveNodeData(nd, currentNode, nssc.endpoint, connectionMethods)
+			if resp != nil { defer resp.Body.Close() }
 			if err != nil {
-
+				// Error retrieving data
 			} else {
-				m.Lock()
-				statsList = append(statsList, data)
-				m.Unlock()
+				data, err := nodeResponseToStatSummary(resp)
+				if err != nil {
+					// Error converting data
+				} else {
+					m.Lock()
+					statsList = append(statsList, data)
+					m.Unlock()
+				}
 			}
 			<-limiter
 			wg.Done()
@@ -93,43 +102,25 @@ func (ncs NodeClientSource) GetNodeData() ([]interface{}, error) {
 	return statsList, nil
 }
 
+// Note: These functions are client-independent and can be reused within another function
+// for a different datasource using the same config
 type nodeFetchData struct {
 	nodeName       string
 	ClusterHostURL string
 }
 
-// connectionOptions returns the connection methods that are allowed for this node based on config
-// settings and cluster composition
-func (ncs NodeClientSource) connectionOptions(n v1.Node, nd nodeFetchData) []connectionMethod {
-	connectionMethods := make([]connectionMethod, 0)
-
-	// Do not allow direct connection to fargate nodes
-	if !ncs.config.ForceKubeProxy && !isFargateNode(n) {
-		directAPI, err := setupDirectNodeAPI(&n)
-		if err != nil {
-			// log.Printf(err.Error())
-		} else {
-			connectionMethods = append(connectionMethods, connectionMethod{directAPI, ncs.config.DirectNodeClient})
-		}
-	}
-	proxyAPI := setupProxyAPI(ncs.config.ClusterHostURL, nd.nodeName)
-	connectionMethods = append(connectionMethods, connectionMethod{proxyAPI, ncs.config.InClusterClient})
-	return connectionMethods
-}
-
 // retrieveNodeData fetches summary and container data for the node
-func (ncs NodeClientSource) retrieveNodeData(nd nodeFetchData, n v1.Node) (interface{}, error) {
-	connectionMethods := ncs.connectionOptions(n, nd)
+func retrieveNodeData(nd nodeFetchData, n v1.Node, endpoint string, connectionMethods []connectionMethod) (*http.Response, error) {
 
 	// Fail after trying all connections the alloted number of retries
 	for _, cm := range connectionMethods {
-		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(ncs.endpoint))
+		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(endpoint))
 		if err == nil {
 			return data, err
 		}
 	}
 
-	err := fmt.Errorf("problem getting node address: %v", ncs.endpoint)
+	err := fmt.Errorf("problem getting node address: %v", endpoint)
 	return nil, err
 }
 
@@ -144,8 +135,8 @@ func isFargateNode(n v1.Node) bool {
 }
 
 // getReadyNodes returns all nodes from a cache that have the ready status
-func (ncs NodeClientSource) getReadyNodes() []*v1.Node {
-	var nodes = ncs.cache.GetAllNodes()
+func getReadyNodes(cache cluster.ClusterCache) []*v1.Node {
+	var nodes = cache.GetAllNodes()
 
 	var readyNodes []*v1.Node
 	for _, n := range nodes {
@@ -194,17 +185,12 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 	return "", 0, fmt.Errorf("Could not find internal IP address for node %s ", node.Name)
 }
 
-// ConvertToStatsSummary changes a slice of interfaces into a slice of stats summaries
-func ConvertToStatsSummary(data []interface{}) ([]*stats.Summary, error) {
-	var dataList []*stats.Summary
-
-	for _, item := range data {
-		statsSum, ok := item.(*stats.Summary)
-		if ok {
-			dataList = append(dataList, statsSum)
-		} else {
-			return nil, fmt.Errorf("erorr converting data to stats summary")
-		}
+func nodeResponseToStatSummary(resp *http.Response) (*stats.Summary, error) {
+	data := &stats.Summary{}
+	err := json.NewDecoder(resp.Body).Decode(&data)
+	if err == nil {
+		return data, nil
 	}
-	return dataList, nil
+
+	return nil, nil
 }
