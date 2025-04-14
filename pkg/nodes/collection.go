@@ -149,6 +149,7 @@ func getReadyNodes(cache cluster.ClusterCache) []*v1.Node {
 	}
 
 	if len(readyNodes) == 0 {
+		log.Printf("no ready nodes found")
 		return nil
 	}
 
