@@ -9,7 +9,6 @@ import (
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/util/retry"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
@@ -45,14 +44,8 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConf
 func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	var nodes []*v1.Node
 	var statsList []*stats.Summary
-
-	err := retry.RetryOnConflict(retry.DefaultBackoff, func() (err error) {
-		nodes = getReadyNodes(nssc.cache)
-		return
-	})
-	if err != nil {
-		return nil, fmt.Errorf("cloudability metric agent is unable to get a list of nodes: %v", err)
-	}
+	
+	nodes = getReadyNodes(nssc.cache)
 
 	var wg sync.WaitGroup
 	var m sync.Mutex
@@ -67,9 +60,9 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 		wg.Add(1)
 		go func(currentNode v1.Node) {
 			if currentNode.Spec.ProviderID == "" {
-				// errMessage := "node ProviderID is not set which may be because the node is running in a " +
-				// 	"self managed environment, and this may cause inconsistent gathering of metrics data."
-				// log.Printf(errMessage)
+				errMessage := "node ProviderID is not set which may be because the node is running in a " +
+					"self managed environment, and this may cause inconsistent gathering of metrics data."
+				log.Printf(errMessage)
 				return
 			}
 
@@ -80,13 +73,12 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 			connectionMethods := nssc.config.connectionOptions(currentNode, nd)
 
 			resp, err := retrieveNodeData(nd, currentNode, nssc.endpoint, connectionMethods)
-			if resp != nil { defer resp.Body.Close() }
 			if err != nil {
-				// Error retrieving data
+				log.Printf("error retrieving node data: %s", err)
 			} else {
 				data, err := nodeResponseToStatSummary(resp)
 				if err != nil {
-					// Error converting data
+					log.Printf("error converting node data: %s", err)
 				} else {
 					m.Lock()
 					statsList = append(statsList, data)
@@ -149,6 +141,7 @@ func getReadyNodes(cache cluster.ClusterCache) []*v1.Node {
 	}
 
 	if len(readyNodes) == 0 {
+		log.Printf("no ready nodes were found")
 		return nil
 	}
 
@@ -192,5 +185,5 @@ func nodeResponseToStatSummary(resp *http.Response) (*stats.Summary, error) {
 		return data, nil
 	}
 
-	return nil, nil
+	return nil, err
 }
