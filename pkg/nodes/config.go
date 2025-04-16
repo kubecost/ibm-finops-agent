@@ -7,7 +7,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-func NewNodeClientConfig(clusterHostURL string, forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {	
+func NewNodeClientConfig(clusterHostURL string, forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: insecure,

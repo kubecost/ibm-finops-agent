@@ -54,15 +54,22 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	limiter := make(chan struct{}, nssc.config.ConcurrentPollers)
 
 	for _, n := range nodes {
+		if n == nil {
+			continue
+		}
+
 		// block if channel is full (limiting number of goroutines)
 		limiter <- struct{}{}
 
 		wg.Add(1)
 		go func(currentNode v1.Node) {
+			defer func() {
+				<-limiter
+				wg.Done()
+			}()
+
 			if currentNode.Spec.ProviderID == "" {
-				errMessage := "node ProviderID is not set which may be because the node is running in a " +
-					"self managed environment, and this may cause inconsistent gathering of metrics data."
-				log.Printf(errMessage)
+				log.Printf("node ProviderID not set, skipping collection for %s", currentNode.Name)
 				return
 			}
 
@@ -85,8 +92,6 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 					m.Unlock()
 				}
 			}
-			<-limiter
-			wg.Done()
 		}(*n)
 	}
 
@@ -132,10 +137,8 @@ func getReadyNodes(cache cluster.ClusterCache) []*v1.Node {
 
 	var readyNodes []*v1.Node
 	for _, n := range nodes {
-		i, nc := getNodeCondition(
-			&n.Status,
-			v1.NodeReady)
-		if i >= 0 && nc.Type == v1.NodeReady {
+		nc := getNodeCondition(&n.Status, v1.NodeReady)
+		if nc != nil && nc.Type == v1.NodeReady {
 			readyNodes = append(readyNodes, n)
 		}
 	}
@@ -152,19 +155,17 @@ func getReadyNodes(cache cluster.ClusterCache) []*v1.Node {
 	return readyNodes
 }
 
-// getNodeCondition extracts the provided condition from the given status and returns that.
-// Returns nil and -1 if the condition is not present, and the index of the located condition.
-// Based on https://github.com/kubernetes/kubernetes/blob/v1.17.3/pkg/controller/util/node/controller_utils.go#L286
-func getNodeCondition(status *v1.NodeStatus, conditionType v1.NodeConditionType) (int, *v1.NodeCondition) {
+// getNodeCondition extracts the provided condition from the given status and returns that, nil if not present.
+func getNodeCondition(status *v1.NodeStatus, conditionType v1.NodeConditionType) (*v1.NodeCondition) {
 	if status == nil {
-		return -1, nil
+		return nil
 	}
 	for i := range status.Conditions {
 		if status.Conditions[i].Type == conditionType {
-			return i, &status.Conditions[i]
+			return &status.Conditions[i]
 		}
 	}
-	return -1, nil
+	return nil
 }
 
 // NodeAddress returns the internal IP address and kubelet port of a given node
