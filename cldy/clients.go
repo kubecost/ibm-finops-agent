@@ -6,13 +6,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/opencost/opencost/core/pkg/log"
 	"math"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/opencost/opencost/core/pkg/log"
 )
 
 const usFrontdoorURL = "https://frontdoor.apptio.com"
@@ -35,17 +36,6 @@ const frontDoorLoginDescription = "performing login request to FrontDoor using K
 const presignedURLDescription = "acquiring presigned URL from Cloudability with acquired Open-token"
 const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
 
-type customerRegion int
-
-const (
-	nativeUS customerRegion = iota
-	hybridEU
-	hybridAU
-	hybridME
-	nativeEU
-	nativeAU
-	nativeME
-)
 
 // StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob
 type StorageService interface {
@@ -89,14 +79,16 @@ type CloudabilityClustersUploadInfo struct {
 }
 
 func NewApptioSerivce(config ApptioConfig) StorageService {
+	frontdoorURL, cloudabilityURL := getURLsFromRegion(config.Region)
+
 	return &ApptioServiceImpl{
 		KeyAccess:        config.KeyAccess,
 		KeySecret:        config.KeySecret,
 		EnvID:            config.EnvID,
 		OpenToken:        config.OpenToken,
 		CldyUploadClient: NewApptioClient(config),
-		FrontdoorURL:     config.FrontdoorURL,
-		CloudabilityURL:  config.CloudabilityURL,
+		FrontdoorURL:     frontdoorURL,
+		CloudabilityURL:  cloudabilityURL,
 	}
 }
 
@@ -119,7 +111,7 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 	}
 
 	// configure outbound proxy
-	if len(config.ProxyURL.Host) > 0 {
+	if config.ProxyURL != nil {
 		ConnectHeader := http.Header{}
 
 		if config.ProxyAuth != "" {
@@ -128,7 +120,7 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		}
 
 		netTransport = &http.Transport{
-			Proxy:               http.ProxyURL(&config.ProxyURL),
+			Proxy:               http.ProxyURL(config.ProxyURL),
 			ProxyConnectHeader:  ConnectHeader,
 			TLSHandshakeTimeout: config.Timeout,
 			TLSClientConfig: &tls.Config{
@@ -156,11 +148,10 @@ type ApptioConfig struct {
 	CustomerType    string
 	Timeout         time.Duration
 	Retries         int
-	ProxyURL        url.URL
+	ProxyURL        *url.URL
 	ProxyAuth       string
 	ProxyInsecure   bool
-	FrontdoorURL    string
-	CloudabilityURL string
+	Region			string
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -320,4 +311,28 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
+}
+
+// Converts region to urls in (FrontdoorURL, CloudabilityURL) format.
+// All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
+func getURLsFromRegion(region string) (string, string) {
+	switch region {
+	case "us", "us-west-2": // us-west-2 is for old agent migrations
+		return usFrontdoorURL, usCloudabilityURL
+	case "eu", "eu-central-1": // eu-central-1 is for old agent migrations
+		return euFrontdoorURL, euCloudabilityURL
+	case "au":
+		return auFrontdoorURL, auCloudabilityURL
+	case "me", "me-central-1": // me-central-1 is for old agent migrations
+		return meFrontdoorURL, meCloudabilityURL
+	case "hybrid-eu":
+		return euFrontdoorURL, usCloudabilityURL
+	case "hybrid-au":
+		return auFrontdoorURL, usCloudabilityURL
+	case "hybrid-me":
+		return meFrontdoorURL, usCloudabilityURL
+	default:
+		log.Infof("customer region is invalid. Defaulting to US region.")
+		return usFrontdoorURL, usCloudabilityURL
+	}
 }

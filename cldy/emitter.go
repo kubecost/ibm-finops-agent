@@ -5,12 +5,16 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log"
+	url "net/url"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/ibm/finops-agent/pkg/emitter"
+
+	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -32,6 +36,57 @@ type Emitter struct {
 type EmitterConfig struct {
 	UploaderConfig
 	EmitAsJson bool
+}
+
+func NewEmitterConfigFromEnv() EmitterConfig {
+	viper.SetEnvPrefix("CLOUDABILITY")
+	viper.AutomaticEnv()
+
+	// Set defaults
+	viper.SetDefault("HTTPS_CLIENT_TIMEOUT", 60) // Note for readme: In seconds
+	viper.SetDefault("UPLOAD_RETRY_COUNT", 5)
+	viper.SetDefault("UPLOAD_REGION", "us")
+	viper.SetDefault("UPLOAD_FREQUENCY", 1) // Note for readme: In minutes
+	viper.SetDefault("SCRATCH_DIR", "")
+	viper.SetDefault("EMIT_AS_JSON", true)
+
+	// Check existence of required fields
+	keyAccess := viper.GetString("KEY_ACCESS")
+	if keyAccess == "" {
+		log.Fatalf("CLOUDABILITY_KEY_ACCESS is required")
+	}
+	keySecret := viper.GetString("KEY_SECRET")
+	if keySecret == "" {
+		log.Fatalf("CLOUDABILITY_KEY_SECRET is required")
+	}
+	envID := viper.GetString("ENV_ID")
+	if envID == "" {
+		log.Fatalf("CLOUDABILITY_ENV_ID is required")
+	}
+
+	url, err := url.Parse(viper.GetString("OUTBOUND_PROXY"))
+	if err != nil {
+		fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
+	}
+
+	return EmitterConfig{
+		UploaderConfig: UploaderConfig{
+			ApptioConfig: ApptioConfig{
+				KeyAccess:     viper.GetString("KEY_ACCESS"),
+				KeySecret:     viper.GetString("KEY_SECRET"),
+				EnvID:         viper.GetString("ENV_ID"),
+				Timeout:       time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
+				Retries:       viper.GetInt("UPLOAD_RETRY_COUNT"),
+				ProxyURL:      url,
+				ProxyAuth:     viper.GetString("OUTBOUND_PROXY_AUTH"),
+				ProxyInsecure: viper.GetBool("OUTBOUND_PROXY_INSECURE"),
+				Region:        viper.GetString("UPLOAD_REGION"),
+			},
+			UploadFrequency: time.Minute * time.Duration(viper.GetInt("UPLOAD_FREQUENCY")),
+			ScratchDir:      viper.GetString("SCRATCH_DIR"),
+		},
+		EmitAsJson: viper.GetBool("EMIT_AS_JSON"),
+	}
 }
 
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
