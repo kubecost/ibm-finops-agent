@@ -63,7 +63,7 @@ func NewAgentDataSource() DataSource {
 	}
 
 	// TODO: (alex) Return the config from an env file
-	config := nodes.NewNodeClientConfig(false, 10, false)
+	config := nodes.NewNodeClientConfig(true, 10, false)
 	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, config)
 
 	// TODO: Initialization of any other data sources here
