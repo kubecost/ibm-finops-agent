@@ -39,6 +39,10 @@ func (c *Client) makeRequest(method string, URL string) (*http.Response, error) 
 		return nil, err
 	}
 
+	if c.bearerToken != "" {
+		request.Header.Add("Authorization", "bearer " + c.bearerToken)
+	}
+
 	resp, err := c.HTTPClient.Do(request)
 	if err != nil {
 		return nil, err
@@ -59,12 +63,14 @@ type HTTPClient interface {
 type Client struct {
 	HTTPClient HTTPClient
 	retries    uint
+	bearerToken string
 }
 
-func NewClient(HTTPClient http.Client, retries uint) Client {
+func NewClient(HTTPClient http.Client, retries uint, bearerToken string) Client {
 	return Client{
 		HTTPClient: &HTTPClient,
 		retries:    retries,
+		bearerToken: bearerToken,
 	}
 }
 

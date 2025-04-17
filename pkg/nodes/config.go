@@ -8,9 +8,13 @@ import (
 	"os"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/rest"
 )
 
-func NewNodeClientConfig(clusterHostURL string, forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {	
+func NewNodeClientConfig(forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {	
+	// Just ignoring the insecure part right now
+	var clusterHostURL string
+	var bearerToken string
 
 	var transport *http.Transport
 	if insecure {
@@ -20,6 +24,14 @@ func NewNodeClientConfig(clusterHostURL string, forceKubeProxy bool, concurrentP
 			},
 		}
 	} else {
+		inClusterConfig, err := rest.InClusterConfig()
+		if err != nil {
+			log.Fatalf("Error generating in cluster client")
+		}
+
+		clusterHostURL = inClusterConfig.Host
+		bearerToken = inClusterConfig.BearerToken
+		
 		pemData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 		if err != nil {
 			log.Fatalf("Could not load CA certificate: %v", err)
@@ -38,8 +50,8 @@ func NewNodeClientConfig(clusterHostURL string, forceKubeProxy bool, concurrentP
 		ClusterHostURL: clusterHostURL,
 		ForceKubeProxy: forceKubeProxy,
 		ConcurrentPollers: concurrentPollers,
-		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0),
-		InClusterClient: NewClient(http.Client{Transport: transport}, 0),
+		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0, bearerToken),
+		InClusterClient: NewClient(http.Client{Transport: transport}, 0, bearerToken),
 	}
 }
 
