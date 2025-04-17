@@ -8,30 +8,17 @@ import (
 	"os"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/rest"
 )
 
-func NewNodeClientConfig(forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {	
-	// Just ignoring the insecure part right now
-	var clusterHostURL string
-	var bearerToken string
-
+func NewNodeClientConfig(forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {
 	var transport *http.Transport
 	if insecure {
 		transport = &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
+				InsecureSkipVerify: insecure,
 			},
 		}
 	} else {
-		inClusterConfig, err := rest.InClusterConfig()
-		if err != nil {
-			log.Fatalf("Error generating in cluster client")
-		}
-
-		clusterHostURL = inClusterConfig.Host
-		bearerToken = inClusterConfig.BearerToken
-		
 		pemData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 		if err != nil {
 			log.Fatalf("Could not load CA certificate: %v", err)
@@ -45,18 +32,16 @@ func NewNodeClientConfig(forceKubeProxy bool, concurrentPollers int, insecure bo
 		}
 		transport = &http.Transport{TLSClientConfig: tlsConfig}
 	}
-	
+
 	return NodeClientConfig{
-		ClusterHostURL: clusterHostURL,
 		ForceKubeProxy: forceKubeProxy,
 		ConcurrentPollers: concurrentPollers,
-		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0, bearerToken),
-		InClusterClient: NewClient(http.Client{Transport: transport}, 0, bearerToken),
+		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0),
+		InClusterClient: NewClient(http.Client{Transport: transport}, 0),
 	}
 }
 
 type NodeClientConfig struct {
-	ClusterHostURL     string
 	ForceKubeProxy     bool
 	ConcurrentPollers  int
 	DirectNodeClient   Client
@@ -72,12 +57,12 @@ func (nac NodeClientConfig) connectionOptions(n v1.Node, nd nodeFetchData) []con
 	if !nac.ForceKubeProxy && !isFargateNode(n) {
 		directAPI, err := setupDirectNodeAPI(&n)
 		if err != nil {
-			// log.Printf(err.Error())
+			log.Printf("error reaching direct node api %s", err)
 		} else {
 			connectionMethods = append(connectionMethods, connectionMethod{directAPI, nac.DirectNodeClient})
 		}
 	}
-	proxyAPI := setupProxyAPI(nac.ClusterHostURL, nd.nodeName)
+	proxyAPI := setupProxyAPI(nd.ClusterHostURL, nd.nodeName)
 	connectionMethods = append(connectionMethods, connectionMethod{proxyAPI, nac.InClusterClient})
 	return connectionMethods
 }

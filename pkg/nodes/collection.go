@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/rest"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
@@ -17,16 +19,20 @@ type StatSummaryClient interface {
 }
 
 type NodeStatsSummaryClient struct {
-	config   NodeClientConfig
-	cache    cluster.ClusterCache
-	endpoint string
+	config   		NodeClientConfig
+	cache    		cluster.ClusterCache
+	endpoint 		string
+	clusterHostUrl 	string 
+	bearerTokenFile string
 }
 
-func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig) NodeStatsSummaryClient {
+func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig, inClusterConfig *rest.Config) NodeStatsSummaryClient {
 	return NodeStatsSummaryClient{
 		config:   config,
 		cache:    cache,
 		endpoint: "stats/summary",
+		clusterHostUrl: inClusterConfig.Host,
+		bearerTokenFile: inClusterConfig.BearerTokenFile,
 	}
 }
 
@@ -44,6 +50,11 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConf
 func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	var nodes []*v1.Node
 	var statsList []*stats.Summary
+
+	bearerToken, err := nssc.getBearerToken()
+	if err != nil {
+		return nil, err
+	}
 	
 	nodes = getReadyNodes(nssc.cache)
 
@@ -54,25 +65,32 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	limiter := make(chan struct{}, nssc.config.ConcurrentPollers)
 
 	for _, n := range nodes {
+		if n == nil {
+			continue
+		}
+
 		// block if channel is full (limiting number of goroutines)
 		limiter <- struct{}{}
 
 		wg.Add(1)
 		go func(currentNode v1.Node) {
+			defer func() {
+				<-limiter
+				wg.Done()
+			}()
+
 			if currentNode.Spec.ProviderID == "" {
-				// errMessage := "node ProviderID is not set which may be because the node is running in a " +
-				// 	"self managed environment, and this may cause inconsistent gathering of metrics data."
-				log.Printf("node providerID could be bad") // Alex Note: this is just because of a formatting issue
+				log.Printf("node ProviderID not set, skipping collection for %s", currentNode.Name)
 				return
 			}
 
 			nd := nodeFetchData{
 				nodeName:       currentNode.Name,
-				ClusterHostURL: nssc.config.ClusterHostURL,
+				ClusterHostURL: nssc.clusterHostUrl,
 			}
 			connectionMethods := nssc.config.connectionOptions(currentNode, nd)
 
-			resp, err := retrieveNodeData(nd, currentNode, nssc.endpoint, connectionMethods)
+			resp, err := retrieveNodeData(nd, currentNode, nssc.endpoint, connectionMethods, bearerToken)
 			if err != nil {
 				log.Printf("error retrieving node data: %s", err)
 			} else {
@@ -85,8 +103,6 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 					m.Unlock()
 				}
 			}
-			<-limiter
-			wg.Done()
 		}(*n)
 	}
 
@@ -102,19 +118,17 @@ type nodeFetchData struct {
 }
 
 // retrieveNodeData fetches summary and container data for the node
-func retrieveNodeData(nd nodeFetchData, n v1.Node, endpoint string, connectionMethods []connectionMethod) (*http.Response, error) {
+func retrieveNodeData(nd nodeFetchData, n v1.Node, endpoint string, connectionMethods []connectionMethod, bearerToken string) (*http.Response, error) {
 
 	// Fail after trying all connections the alloted number of retries
 	for _, cm := range connectionMethods {
-		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(endpoint))
+		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(endpoint), bearerToken)
 		if err == nil {
 			return data, err
-		} else {
-			log.Printf("issue hitting endpoint: %s", err)
 		}
 	}
 
-	err := fmt.Errorf("problem getting node address for: %v", endpoint)
+	err := fmt.Errorf("problem getting node address: %v", endpoint)
 	return nil, err
 }
 
@@ -134,10 +148,8 @@ func getReadyNodes(cache cluster.ClusterCache) []*v1.Node {
 
 	var readyNodes []*v1.Node
 	for _, n := range nodes {
-		i, nc := getNodeCondition(
-			&n.Status,
-			v1.NodeReady)
-		if i >= 0 && nc.Type == v1.NodeReady {
+		nc := getNodeCondition(&n.Status, v1.NodeReady)
+		if nc != nil && nc.Type == v1.NodeReady {
 			readyNodes = append(readyNodes, n)
 		}
 	}
@@ -154,19 +166,17 @@ func getReadyNodes(cache cluster.ClusterCache) []*v1.Node {
 	return readyNodes
 }
 
-// getNodeCondition extracts the provided condition from the given status and returns that.
-// Returns nil and -1 if the condition is not present, and the index of the located condition.
-// Based on https://github.com/kubernetes/kubernetes/blob/v1.17.3/pkg/controller/util/node/controller_utils.go#L286
-func getNodeCondition(status *v1.NodeStatus, conditionType v1.NodeConditionType) (int, *v1.NodeCondition) {
+// getNodeCondition extracts the provided condition from the given status and returns that, nil if not present.
+func getNodeCondition(status *v1.NodeStatus, conditionType v1.NodeConditionType) (*v1.NodeCondition) {
 	if status == nil {
-		return -1, nil
+		return nil
 	}
 	for i := range status.Conditions {
 		if status.Conditions[i].Type == conditionType {
-			return i, &status.Conditions[i]
+			return &status.Conditions[i]
 		}
 	}
-	return -1, nil
+	return nil
 }
 
 // NodeAddress returns the internal IP address and kubelet port of a given node
@@ -188,4 +198,13 @@ func nodeResponseToStatSummary(resp *http.Response) (*stats.Summary, error) {
 	}
 
 	return nil, err
+}
+
+// getBearerToken reads the service account token
+func (nssc NodeStatsSummaryClient) getBearerToken() (string, error) {
+	token, err := os.ReadFile(nssc.bearerTokenFile)
+	if err != nil {
+		return "", fmt.Errorf("could not read bearer token from file")
+	}
+	return string(token), nil
 }

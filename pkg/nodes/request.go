@@ -2,7 +2,6 @@ package nodes
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -12,7 +11,7 @@ import (
 )
 
 // AttemptEndPoint will hit a specified endpoint with as many retries as it is allotted.
-func (c *Client) AttemptEndPoint(method string, URL string) (*http.Response, error) {
+func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) (*http.Response, error) {
 	attempts := c.retries + 1
 
 	for i := uint(0); i < attempts; i++ {
@@ -20,11 +19,9 @@ func (c *Client) AttemptEndPoint(method string, URL string) (*http.Response, err
 			time.Sleep(time.Duration(int64(math.Pow(2, float64(i)))) * time.Second)
 		}
 
-		data, err := c.makeRequest(method, URL)
+		data, err := c.makeRequest(method, URL, bearerToken)
 		if err == nil {
 			return data, nil
-		} else {
-			log.Printf("attempt failed: %s", err)
 		}
 	}
 	err := fmt.Errorf("requests to %v failed", URL)
@@ -33,14 +30,14 @@ func (c *Client) AttemptEndPoint(method string, URL string) (*http.Response, err
 
 // makeRequest will call out to an endpoint and attempt to decode the body into an existing
 // data type.
-func (c *Client) makeRequest(method string, URL string) (*http.Response, error) {
+func (c *Client) makeRequest(method string, URL string, bearerToken string) (*http.Response, error) {
 	request, err := http.NewRequest(method, URL, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	if c.bearerToken != "" {
-		request.Header.Add("Authorization", "bearer " + c.bearerToken)
+	if bearerToken != "" {
+		request.Header.Add("Authorization", "bearer " + bearerToken)
 	}
 
 	resp, err := c.HTTPClient.Do(request)
@@ -63,14 +60,12 @@ type HTTPClient interface {
 type Client struct {
 	HTTPClient HTTPClient
 	retries    uint
-	bearerToken string
 }
 
-func NewClient(HTTPClient http.Client, retries uint, bearerToken string) Client {
+func NewClient(HTTPClient http.Client, retries uint) Client {
 	return Client{
 		HTTPClient: &HTTPClient,
 		retries:    retries,
-		bearerToken: bearerToken,
 	}
 }
 
