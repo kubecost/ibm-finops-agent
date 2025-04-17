@@ -15,6 +15,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/rest"
 )
 
 func TestUtils(t *testing.T) {
@@ -24,9 +25,19 @@ func TestUtils(t *testing.T) {
 }
 
 var _ = Describe("Raw node data", func() {
+	var tempBearerFile string
+	BeforeEach(func() {
+		file, err := os.CreateTemp("", "")
+		Expect(err).ToNot(HaveOccurred())
+		tempBearerFile = file.Name()
+	})
+	AfterEach(func() {
+		err := os.RemoveAll(tempBearerFile)
+		Expect(err).ToNot(HaveOccurred())
+	})
 	Context("Raw stats summary data", func() {
 		It("can be downloaded directly and converted into stats summary data", func() {
-			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, false)
+			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, false, tempBearerFile)
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -35,7 +46,7 @@ var _ = Describe("Raw node data", func() {
 		})
 
 		It("can be downloaded through proxy and converted into stats summary data", func() {
-			summaryClient := setupTestNodeStatSummaryClient("https://localhost", true, 10, false, false)
+			summaryClient := setupTestNodeStatSummaryClient("https://localhost", true, 10, false, false, tempBearerFile)
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -44,7 +55,7 @@ var _ = Describe("Raw node data", func() {
 		})
 
 		It("returns nothing on failed http requests", func() {
-			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, true)
+			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, true, tempBearerFile)
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -59,6 +70,7 @@ var _ = Describe("Raw node data", func() {
 				NodeClientConfig{},
 				mockConfig,
 				"",
+				"",
 			}
 
 			nodes := getReadyNodes(mockNcs.cache)
@@ -71,13 +83,16 @@ var _ = Describe("Raw node data", func() {
 	// TOOD: Add in cAdvisor tests once cAdvisor data struct is implemented
 })
 
-func setupTestNodeStatSummaryClient(clusterHostUrl string, forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool) NodeStatsSummaryClient {
+func setupTestNodeStatSummaryClient(clusterHostUrl string, forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool, tempBearerFile string) NodeStatsSummaryClient {
 	ncc := NewNodeClientConfig(clusterHostUrl, forceKubeProxy, concurrentPollers, insecure)
 	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
 	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
 	
 	mockCache := NewMockClusterCache()
-	return NewNodeStatsSummaryClient(mockCache, ncc)
+	mockInClusterConfig := &rest.Config{
+		BearerTokenFile: tempBearerFile,
+	}
+	return NewNodeStatsSummaryClient(mockCache, ncc, mockInClusterConfig)
 }
 
 // launchTLSTestServer takes a slice of http status codes (int) to return

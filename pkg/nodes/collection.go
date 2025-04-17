@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/rest"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
@@ -20,13 +22,15 @@ type NodeStatsSummaryClient struct {
 	config   NodeClientConfig
 	cache    cluster.ClusterCache
 	endpoint string
+	bearerTokenFile string
 }
 
-func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig) NodeStatsSummaryClient {
+func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig, inClusterConfig *rest.Config) NodeStatsSummaryClient {
 	return NodeStatsSummaryClient{
 		config:   config,
 		cache:    cache,
 		endpoint: "stats/summary",
+		bearerTokenFile: inClusterConfig.BearerTokenFile,
 	}
 }
 
@@ -44,6 +48,11 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConf
 func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	var nodes []*v1.Node
 	var statsList []*stats.Summary
+
+	bearerToken, err := nssc.getBearerToken()
+	if err != nil {
+		return nil, err
+	}
 	
 	nodes = getReadyNodes(nssc.cache)
 
@@ -79,7 +88,7 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 			}
 			connectionMethods := nssc.config.connectionOptions(currentNode, nd)
 
-			resp, err := retrieveNodeData(nd, currentNode, nssc.endpoint, connectionMethods)
+			resp, err := retrieveNodeData(nd, currentNode, nssc.endpoint, connectionMethods, bearerToken)
 			if err != nil {
 				log.Printf("error retrieving node data: %s", err)
 			} else {
@@ -107,11 +116,11 @@ type nodeFetchData struct {
 }
 
 // retrieveNodeData fetches summary and container data for the node
-func retrieveNodeData(nd nodeFetchData, n v1.Node, endpoint string, connectionMethods []connectionMethod) (*http.Response, error) {
+func retrieveNodeData(nd nodeFetchData, n v1.Node, endpoint string, connectionMethods []connectionMethod, bearerToken string) (*http.Response, error) {
 
 	// Fail after trying all connections the alloted number of retries
 	for _, cm := range connectionMethods {
-		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(endpoint))
+		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(endpoint), bearerToken)
 		if err == nil {
 			return data, err
 		}
@@ -187,4 +196,13 @@ func nodeResponseToStatSummary(resp *http.Response) (*stats.Summary, error) {
 	}
 
 	return nil, err
+}
+
+// getBearerToken reads the service account token
+func (nssc NodeStatsSummaryClient) getBearerToken() (string, error) {
+	token, err := os.ReadFile(nssc.bearerTokenFile)
+	if err != nil {
+		return "", fmt.Errorf("could not read bearer token from file")
+	}
+	return string(token), nil
 }
