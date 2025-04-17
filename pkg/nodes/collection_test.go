@@ -36,7 +36,7 @@ var _ = Describe("Raw node data", func() {
 	})
 	Context("Raw stats summary data", func() {
 		It("can be downloaded directly and converted into stats summary data", func() {
-			summaryClient := setupTestNodeStatSummaryClient(false, 10, false, false, tempBearerFile, "")
+			summaryClient := setupTestNodeStatSummaryClient(false, 10, true, false, tempBearerFile, "")
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -45,7 +45,7 @@ var _ = Describe("Raw node data", func() {
 		})
 
 		It("can be downloaded through proxy and converted into stats summary data", func() {
-			summaryClient := setupTestNodeStatSummaryClient(true, 10, false, false, tempBearerFile, "https://localhost:8080")
+			summaryClient := setupTestNodeStatSummaryClient(true, 10, true, false, tempBearerFile, "https://localhost:8080")
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -54,7 +54,7 @@ var _ = Describe("Raw node data", func() {
 		})
 
 		It("returns nothing on failed http requests", func() {
-			summaryClient := setupTestNodeStatSummaryClient(false, 10, false, true, tempBearerFile, "")
+			summaryClient := setupTestNodeStatSummaryClient(false, 10, true, true, tempBearerFile, "")
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
