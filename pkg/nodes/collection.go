@@ -19,9 +19,10 @@ type StatSummaryClient interface {
 }
 
 type NodeStatsSummaryClient struct {
-	config   NodeClientConfig
-	cache    cluster.ClusterCache
-	endpoint string
+	config   		NodeClientConfig
+	cache    		cluster.ClusterCache
+	endpoint 		string
+	clusterHostUrl 	string 
 	bearerTokenFile string
 }
 
@@ -30,6 +31,7 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConf
 		config:   config,
 		cache:    cache,
 		endpoint: "stats/summary",
+		clusterHostUrl: inClusterConfig.Host,
 		bearerTokenFile: inClusterConfig.BearerTokenFile,
 	}
 }
@@ -84,7 +86,7 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 
 			nd := nodeFetchData{
 				nodeName:       currentNode.Name,
-				ClusterHostURL: nssc.config.ClusterHostURL,
+				ClusterHostURL: nssc.clusterHostUrl,
 			}
 			connectionMethods := nssc.config.connectionOptions(currentNode, nd)
 

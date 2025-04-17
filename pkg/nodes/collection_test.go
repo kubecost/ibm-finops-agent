@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -37,7 +36,7 @@ var _ = Describe("Raw node data", func() {
 	})
 	Context("Raw stats summary data", func() {
 		It("can be downloaded directly and converted into stats summary data", func() {
-			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, false, tempBearerFile)
+			summaryClient := setupTestNodeStatSummaryClient(false, 10, false, false, tempBearerFile, "")
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -46,7 +45,7 @@ var _ = Describe("Raw node data", func() {
 		})
 
 		It("can be downloaded through proxy and converted into stats summary data", func() {
-			summaryClient := setupTestNodeStatSummaryClient("https://localhost", true, 10, false, false, tempBearerFile)
+			summaryClient := setupTestNodeStatSummaryClient(true, 10, false, false, tempBearerFile, "https://localhost:8080")
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -55,7 +54,7 @@ var _ = Describe("Raw node data", func() {
 		})
 
 		It("returns nothing on failed http requests", func() {
-			summaryClient := setupTestNodeStatSummaryClient("https://localhost", false, 10, false, true, tempBearerFile)
+			summaryClient := setupTestNodeStatSummaryClient(false, 10, false, true, tempBearerFile, "")
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -71,6 +70,7 @@ var _ = Describe("Raw node data", func() {
 				mockConfig,
 				"",
 				"",
+				"",
 			}
 
 			nodes := getReadyNodes(mockNcs.cache)
@@ -83,29 +83,17 @@ var _ = Describe("Raw node data", func() {
 	// TOOD: Add in cAdvisor tests once cAdvisor data struct is implemented
 })
 
-func setupTestNodeStatSummaryClient(clusterHostUrl string, forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool, tempBearerFile string) NodeStatsSummaryClient {
-	ncc := NewNodeClientConfig(clusterHostUrl, forceKubeProxy, concurrentPollers, insecure)
+func setupTestNodeStatSummaryClient(forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool, tempBearerFile string, mockClusterHostURL string) NodeStatsSummaryClient {
+	ncc := NewNodeClientConfig(forceKubeProxy, concurrentPollers, insecure)
 	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
 	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
 	
 	mockCache := NewMockClusterCache()
 	mockInClusterConfig := &rest.Config{
 		BearerTokenFile: tempBearerFile,
+		Host: mockClusterHostURL,
 	}
 	return NewNodeStatsSummaryClient(mockCache, ncc, mockInClusterConfig)
-}
-
-// launchTLSTestServer takes a slice of http status codes (int) to return
-func launchTLSTestServer(responseCodes []int) *httptest.Server {
-	callCount := 0
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if callCount < len(responseCodes) {
-			w.WriteHeader(responseCodes[callCount])
-			callCount++
-		}
-	}))
-
-	return ts
 }
 
 type mockClusterCache struct {

@@ -7,7 +7,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-func NewNodeClientConfig(clusterHostURL string, forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {
+func NewNodeClientConfig(forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: insecure,
@@ -15,7 +15,6 @@ func NewNodeClientConfig(clusterHostURL string, forceKubeProxy bool, concurrentP
 	}
 
 	return NodeClientConfig{
-		ClusterHostURL: clusterHostURL,
 		ForceKubeProxy: forceKubeProxy,
 		ConcurrentPollers: concurrentPollers,
 		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0),
@@ -24,7 +23,6 @@ func NewNodeClientConfig(clusterHostURL string, forceKubeProxy bool, concurrentP
 }
 
 type NodeClientConfig struct {
-	ClusterHostURL     string
 	ForceKubeProxy     bool
 	ConcurrentPollers  int
 	DirectNodeClient   Client
@@ -45,7 +43,7 @@ func (nac NodeClientConfig) connectionOptions(n v1.Node, nd nodeFetchData) []con
 			connectionMethods = append(connectionMethods, connectionMethod{directAPI, nac.DirectNodeClient})
 		}
 	}
-	proxyAPI := setupProxyAPI(nac.ClusterHostURL, nd.nodeName)
+	proxyAPI := setupProxyAPI(nd.ClusterHostURL, nd.nodeName)
 	connectionMethods = append(connectionMethods, connectionMethod{proxyAPI, nac.InClusterClient})
 	return connectionMethods
 }

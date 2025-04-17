@@ -60,7 +60,7 @@ func NewAgentDataSource() DataSource {
 	if err != nil {
 		log.Fatalf("error retrieving in cluster config: %s", err)
 	}
-	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodes.NewNodeClientConfig("", false, 10, false), inClusterConfig)
+	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodes.NewNodeClientConfig(false, 10, false), inClusterConfig)
 
 	// TODO: Initialization of any other data sources here
 
