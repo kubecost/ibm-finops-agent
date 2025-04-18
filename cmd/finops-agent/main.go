@@ -11,6 +11,7 @@ import (
 	"github.com/ibm/finops-agent/kubecost"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/http"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -41,14 +42,27 @@ func main() {
 
 	// Initialize/Bootstrap the Agent Data Source
 	dataSource := core.NewAgentDataSource()
+	var emitters []emitter.Emitter
 
-	// TODO: load emitters with data source
-	kc := kubecost.NewKubecostEmitter(kubecost.NewEmitterConfigFromEnv())
-	// cldy := emitter.NewCloudyEmitter(dataSource)
-	// turbo := emitter.NewTurboEmitter(dataSource)
+	if env.IsKubecostEmitterEnabled() {
+		emitters = append(emitters, kubecost.NewKubecostEmitter(kubecost.NewEmitterConfigFromEnv()))
+	}
+	if env.IsCloudyEmitterEnabled() {
+		//emitters = append(emitters, emitter.NewCloudyEmitter(dataSource))
+	}
+	if env.IsTurboEmitterEnabled() {
+		//emitters = append(emitters, emitter.NewTurboEmitter(dataSource))
+	}
+
+	// TODO: Uncomment once we have full support for all emitters.
+	/*
+		if len(emitters) == 0 {
+			panic("No emitters enabled!")
+		}
+	*/
 
 	snapshotProvider := emitter.NewConcurrentSnapshotProvider()
-	exporter := emitter.NewExporter(dataSource, snapshotProvider, kc /*, cldy, turbo*/)
+	exporter := emitter.NewExporter(dataSource, snapshotProvider, emitters...)
 
 	if ok := exporter.Start(EmissionFrequency); !ok {
 		panic("Failed to start exporter")

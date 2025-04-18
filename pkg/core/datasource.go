@@ -7,8 +7,11 @@ import (
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core/opencost"
+	"github.com/ibm/finops-agent/pkg/env"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/pkg/kubeconfig"
+	"k8s.io/client-go/rest"
 )
 
 // NOTE: We can use this as an intermediate data source local to this project. We can defer pushing all the implementation down
@@ -22,6 +25,9 @@ type DataSource interface {
 
 	// Kubernetes Cluster Informers
 	Cluster() cluster.ClusterCache
+
+	// Node Stats Summary Client
+	StatsSummary() nodes.StatSummaryClient
 }
 
 var (
@@ -48,8 +54,20 @@ func NewAgentDataSource() DataSource {
 
 	k8sCache.Start(context.Background().Done())
 
-	opencostConf := opencost.NewOpenCostConfigFromEnv()
-	opencostSource := opencost.NewOpenCostDataSource(kubeClientset, k8sCache, opencostConf)
+	var opencostSource source.OpenCostDataSource
+	if env.IsOpenCostDataSourceEnabled() {
+		opencostConf := opencost.NewOpenCostConfigFromEnv()
+		opencostSource = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, opencostConf)
+	} else {
+		// fulfill the contract with a no-op opencost datasource
+		opencostSource = opencost.NewNoOpOpenCostDataSource()
+	}
+
+	inClusterConfig, err := rest.InClusterConfig()
+	if err != nil {
+		log.Fatalf("error retrieving in cluster config: %s", err)
+	}
+	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodes.NewNodeClientConfig(false, 10, false), inClusterConfig)
 
 	// TODO: Initialization of any other data sources here
 
@@ -57,6 +75,7 @@ func NewAgentDataSource() DataSource {
 		opencostSource: opencostSource,
 		metrics:        opencostSource.Metrics(),
 		clusterCache:   k8sCache,
+		nodeStatsSummaryClient: nodeStatsSummaryClient,
 	}
 }
 
@@ -70,7 +89,9 @@ type agentDataSource struct {
 	// Kubernetes Cluster Informers
 	clusterCache cluster.ClusterCache
 
-	// TODO: Node Stats Summary Client
+	// Node Stats Summary Client
+	nodeStatsSummaryClient nodes.StatSummaryClient
+	
 	// TODO: HTTP Server/Proxy for Turbo?
 }
 
@@ -84,4 +105,8 @@ func (ads *agentDataSource) Metrics() source.MetricsQuerier {
 
 func (ads *agentDataSource) Cluster() cluster.ClusterCache {
 	return ads.clusterCache
+}
+
+func (ads *agentDataSource) StatsSummary() nodes.StatSummaryClient {
+	return ads.nodeStatsSummaryClient
 }

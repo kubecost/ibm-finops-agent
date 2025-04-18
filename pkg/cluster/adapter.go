@@ -1,7 +1,7 @@
 package cluster
 
 import (
-	"github.com/opencost/opencost/pkg/clustercache"
+	"github.com/opencost/opencost/core/pkg/clustercache"
 )
 
 type OpenCostClusterCacheAdapter struct {

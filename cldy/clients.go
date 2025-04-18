@@ -69,8 +69,7 @@ type UploadPayload struct {
 }
 
 type ApptioServiceImpl struct {
-	KeyAccess        string
-	KeySecret        string
+	SecretManager    SecretManager
 	EnvID            string
 	OpenToken        string
 	FrontdoorURL     string
@@ -90,8 +89,7 @@ type CloudabilityClustersUploadInfo struct {
 
 func NewApptioSerivce(config ApptioConfig) StorageService {
 	return &ApptioServiceImpl{
-		KeyAccess:        config.KeyAccess,
-		KeySecret:        config.KeySecret,
+		SecretManager:    config.SecretManager,
 		EnvID:            config.EnvID,
 		OpenToken:        config.OpenToken,
 		CldyUploadClient: NewApptioClient(config),
@@ -149,8 +147,7 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 }
 
 type ApptioConfig struct {
-	KeyAccess       string
-	KeySecret       string
+	SecretManager   SecretManager
 	EnvID           string
 	OpenToken       string
 	CustomerType    string
@@ -186,7 +183,13 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 // using the KeyAccess and KeySecret credentials provided by the customer config
 func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 	url := fmt.Sprintf("%s/service/apikeylogin", s.FrontdoorURL)
-	body, err := json.Marshal(map[string]string{"keyAccess": s.KeyAccess, "keySecret": s.KeySecret})
+	body, err := s.SecretManager.GetSecret()
+	// remove secret from memory
+	defer func() {
+		for i := range body {
+			body[i] = 0
+		}
+	}()
 	if err != nil {
 		return "",
 			fmt.Errorf("error in creating http request token string parameter for frontdoor service: %w", err)
@@ -318,4 +321,26 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
+}
+
+// SecretManager is an abstraction that allows for an api key to not be held in memory
+type SecretManager interface {
+	GetSecret() ([]byte, error)
+}
+
+// keyValueSecretManager is a simple implementation of SecretManager which likely triggers CWE-244
+type keyValueSecretManager struct {
+	keyAccess string
+	keySecret string
+}
+
+func NewKeyValueSecretManager(keyAccess string, keySecret string) SecretManager {
+	return &keyValueSecretManager{
+		keyAccess: keyAccess,
+		keySecret: keySecret,
+	}
+}
+
+func (s *keyValueSecretManager) GetSecret() ([]byte, error) {
+	return json.Marshal(map[string]string{"keyAccess": s.keyAccess, "keySecret": s.keySecret})
 }

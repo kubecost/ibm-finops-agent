@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/ibm/finops-agent/pkg/emitter"
-	"github.com/opencost/opencost/pkg/clustercache"
+	"github.com/opencost/opencost/core/pkg/clustercache"
 )
 
 // ClusterCacheAdapter is an adapter for the OpenCost cluster cache interface. It is used to provide

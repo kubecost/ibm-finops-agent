@@ -91,7 +91,7 @@ func (ce *CldyUploader) uploadLoop() {
 func (ce *CldyUploader) ConstructPayload() (path string, rerr error) {
 	files := make([]*os.File, 0)
 	for _, samplePath := range ce.sampleSet.contents() {
-		file, err := os.Open(samplePath)
+		file, err := os.Open(SafePath(samplePath))
 		if err != nil {
 			return "", err
 		}
@@ -99,7 +99,14 @@ func (ce *CldyUploader) ConstructPayload() (path string, rerr error) {
 	}
 	defer safeCloseFiles(files, &rerr)
 
-	path = ce.uploadPathDir + "/" + ce.clusterID + "_" + time.Now().Format("2006-01-02-15-04-05") + ".tgz"
+	path = SafePath(
+		ce.uploadPathDir,
+		fmt.Sprintf(
+			"%s_%s.tgz",
+			ce.clusterID,
+			time.Now().Format("2006-01-02-15-04-05"),
+		),
+	)
 	tw, err := os.Create(path)
 	defer safeClose(tw.Close, &rerr)
 	if err != nil {
