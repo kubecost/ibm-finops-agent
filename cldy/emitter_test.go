@@ -443,8 +443,8 @@ func loadStatefulSets() ([]*appsv1.StatefulSet, error) {
 	return objects, nil
 }
 
-func loadStats() ([]stats.Summary, error) {
-	var data []stats.Summary
+func loadStats() ([]*stats.Summary, error) {
+	var data []*stats.Summary
 	for i := 1; i <= 4; i++ {
 		file, err := os.Open(fmt.Sprintf("testdata/summary-nodename%d.json", i))
 		if err != nil {
@@ -452,8 +452,8 @@ func loadStats() ([]stats.Summary, error) {
 		}
 		defer file.Close()
 		decoder := json.NewDecoder(file)
-		obj := stats.Summary{}
-		err = decoder.Decode(&obj)
+		obj := &stats.Summary{}
+		err = decoder.Decode(obj)
 		if err != nil {
 			return data, err
 		}

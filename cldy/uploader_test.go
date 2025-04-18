@@ -82,7 +82,7 @@ var _ = Describe("Uploader", func() {
 			actualUploader := uploader.(*cldy.CldyUploader)
 			service := cldy.ApptioServiceImpl{
 				CldyUploadClient: &mockClientService{},
-				KeyAccess:        "bad-key",
+				SecretManager:    cldy.NewKeyValueSecretManager("bad-key", ""),
 			}
 			actualUploader.StorageService = &service
 			payload := cldy.UploadPayload{
@@ -96,7 +96,7 @@ var _ = Describe("Uploader", func() {
 			err := actualUploader.StorageService.Upload(payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("frontdoor service login call failed"))
-			service.KeyAccess = "good-key"
+			service.SecretManager = cldy.NewKeyValueSecretManager("good-key", "")
 			// upload with good key but bad clusterUID
 			err = actualUploader.StorageService.Upload(payload)
 			Expect(err).To(HaveOccurred())
@@ -120,7 +120,7 @@ var _ = Describe("Uploader", func() {
 			mcs := mockClientService{}
 			service := cldy.ApptioServiceImpl{
 				CldyUploadClient: &mcs,
-				KeyAccess:        "good-key",
+				SecretManager:    cldy.NewKeyValueSecretManager("good-key", ""),
 			}
 			actualUploader.StorageService = &service
 
@@ -153,7 +153,7 @@ var _ = Describe("Uploader", func() {
 			mcs := mockClientService{}
 			service := cldy.ApptioServiceImpl{
 				CldyUploadClient: &mcs,
-				KeyAccess:        "short-lived-token",
+				SecretManager:    cldy.NewKeyValueSecretManager("short-lived-token", ""),
 			}
 			actualUploader.StorageService = &service
 
