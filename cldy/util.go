@@ -96,6 +96,7 @@ func getFileNameAndHash(filePath string) (string, string, error) {
 	return fileName, base64.StdEncoding.EncodeToString(hash.Sum(nil)), nil
 }
 
+// SafePath joins elements and creates a path that prevents file traversal while maintaining trailing separators
 func SafePath(elements ...string) string {
 	path := strings.Join(elements, string(filepath.Separator))
 	path = strings.Replace(path, "..", "", -1)

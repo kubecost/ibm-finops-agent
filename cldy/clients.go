@@ -184,6 +184,12 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 	url := fmt.Sprintf("%s/service/apikeylogin", s.FrontdoorURL)
 	body, err := s.SecretManager.GetSecret()
+	// remove secret from memory
+	defer func() {
+		for i := range body {
+			body[i] = 0
+		}
+	}()
 	if err != nil {
 		return "",
 			fmt.Errorf("error in creating http request token string parameter for frontdoor service: %w", err)
