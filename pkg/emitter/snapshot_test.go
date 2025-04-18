@@ -6,6 +6,7 @@ import (
 	"unsafe"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/clusters"
 	"github.com/opencost/opencost/core/pkg/source"
@@ -16,6 +17,7 @@ import (
 	stv1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 // NOTE: When the metrics caching is removed, this test can also be removed!
@@ -88,6 +90,7 @@ type MockDataSource struct {
 	OCDataSource   *MockOpenCostDataSource
 	ClusterCache   *MockClusterCache
 	MetricsQuerier *MockMetricsQuerier
+	NodeStatsSummaryClient *MockStatsSummaryClient
 }
 
 // NewMockDataSource creates a new mock data source implementation with services that track
@@ -99,6 +102,7 @@ func NewMockDataSource() *MockDataSource {
 		OCDataSource:   ocDataSource,
 		ClusterCache:   NewMockClusterCache(),
 		MetricsQuerier: metrics,
+		NodeStatsSummaryClient: NewMockStatsSummaryClient(),
 	}
 }
 
@@ -112,6 +116,10 @@ func (mds *MockDataSource) Cluster() cluster.ClusterCache {
 
 func (mds *MockDataSource) Metrics() source.MetricsQuerier {
 	return mds.MetricsQuerier
+}
+
+func (mds *MockDataSource) StatsSummary() nodes.StatSummaryClient {
+	return mds.NodeStatsSummaryClient
 }
 
 //--------------------------------------------------------------------------
@@ -714,4 +722,32 @@ func newEmptyResult[T any](decoder source.ResultDecoder[T]) *source.Future[T] {
 	}()
 
 	return source.NewFuture(decoder, ch)
+}
+
+//--------------------------------------------------------------------------
+//  Mock StatsSummaryClient
+//--------------------------------------------------------------------------
+
+// MockStatsSummaryClient is a mock implementation of the nodes.StatsSummaryClient interface
+// that records the number of times each method is called.
+type MockStatsSummaryClient struct {
+	Calls map[string]int
+}
+
+// NewMockStatsSummaryClient creates a new mock metrics client
+func NewMockStatsSummaryClient() *MockStatsSummaryClient {
+	return &MockStatsSummaryClient{
+		Calls: make(map[string]int),
+	}
+}
+
+// Helper to record method calls
+func (m *MockStatsSummaryClient) recordCall(method string) {
+	m.Calls[method]++
+}
+
+// Implementation of interface methods
+func (m *MockStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
+	m.recordCall("GetNodeData")
+	return nil, nil
 }

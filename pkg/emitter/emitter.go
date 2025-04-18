@@ -34,7 +34,7 @@ type KubernetesSnapshot struct {
 
 // NodeStatsSummary contains summary data sets
 type NodeStatsSummary struct {
-	Stats []stats.Summary
+	Stats []*stats.Summary
 }
 
 // MetricsSummary contains the metrics results from opencost data source queries.
