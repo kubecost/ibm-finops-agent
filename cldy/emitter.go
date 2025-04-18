@@ -71,8 +71,6 @@ func NewEmitterConfigFromEnv() EmitterConfig {
 	return EmitterConfig{
 		UploaderConfig: UploaderConfig{
 			ApptioConfig: ApptioConfig{
-				KeyAccess:     viper.GetString("KEY_ACCESS"),
-				KeySecret:     viper.GetString("KEY_SECRET"),
 				EnvID:         viper.GetString("ENV_ID"),
 				Timeout:       time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
 				Retries:       viper.GetInt("UPLOAD_RETRY_COUNT"),
