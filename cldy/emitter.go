@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"log"
 	url "net/url"
 	"os"
 	"time"
@@ -49,21 +48,7 @@ func NewEmitterConfigFromEnv() EmitterConfig {
 	viper.SetDefault("SCRATCH_DIR", "")
 	viper.SetDefault("EMIT_AS_JSON", true)
 
-	// Check existence of required fields
-	keyAccess := viper.GetString("KEY_ACCESS")
-	if keyAccess == "" {
-		log.Fatalf("CLOUDABILITY_KEY_ACCESS is required")
-	}
-	keySecret := viper.GetString("KEY_SECRET")
-	if keySecret == "" {
-		log.Fatalf("CLOUDABILITY_KEY_SECRET is required")
-	}
-	envID := viper.GetString("ENV_ID")
-	if envID == "" {
-		log.Fatalf("CLOUDABILITY_ENV_ID is required")
-	}
-
-	url, err := url.Parse(viper.GetString("OUTBOUND_PROXY"))
+	outboundProxyUrl, err := url.Parse(viper.GetString("OUTBOUND_PROXY"))
 	if err != nil {
 		fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
 	}
@@ -74,7 +59,7 @@ func NewEmitterConfigFromEnv() EmitterConfig {
 				EnvID:         viper.GetString("ENV_ID"),
 				Timeout:       time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
 				Retries:       viper.GetInt("UPLOAD_RETRY_COUNT"),
-				ProxyURL:      url,
+				ProxyURL:      outboundProxyUrl,
 				ProxyAuth:     viper.GetString("OUTBOUND_PROXY_AUTH"),
 				ProxyInsecure: viper.GetBool("OUTBOUND_PROXY_INSECURE"),
 				Region:        viper.GetString("UPLOAD_REGION"),
