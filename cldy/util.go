@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -92,4 +94,14 @@ func getFileNameAndHash(filePath string) (string, string, error) {
 		return "", "", err
 	}
 	return fileName, base64.StdEncoding.EncodeToString(hash.Sum(nil)), nil
+}
+
+func SafePath(elements ...string) string {
+	path := strings.Join(elements, string(filepath.Separator))
+	path = strings.Replace(path, "..", "", -1)
+	path = filepath.Clean(path)
+	if len(elements) != 0 && strings.HasSuffix(elements[len(elements)-1], string(filepath.Separator)) {
+		return path + string(filepath.Separator)
+	}
+	return path
 }
