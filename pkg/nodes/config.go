@@ -15,7 +15,7 @@ func NewNodeClientConfig(forceKubeProxy bool, concurrentPollers int, insecure bo
 	if insecure {
 		transport = &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: insecure,
+				InsecureSkipVerify: true,
 			},
 		}
 	} else {
