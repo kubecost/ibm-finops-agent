@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"testing"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	. "github.com/onsi/ginkgo/v2"
@@ -14,16 +13,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 )
-
-func TestUtils(t *testing.T) {
-	RegisterFailHandler(Fail)
-	SetTestEnvironmentVariables(t)
-	RunSpecs(t, "Node Collection Testing")
-}
-
-func SetTestEnvironmentVariables(t *testing.T) {
-	t.Setenv("INSECURE", "true")
-}
 
 var _ = Describe("Raw node data", func() {
 	var tempBearerFile string
