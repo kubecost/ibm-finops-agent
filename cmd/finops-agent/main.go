@@ -58,6 +58,7 @@ func main() {
 		cldyconfig := cldy.NewEmitterConfigFromEnv()
 		cldyconfig.UploaderConfig.ApptioConfig.EnvID = os.Getenv("CLDY_ENV_ID")
 		cldyconfig.UploaderConfig.ApptioConfig.SecretManager = cldy.NewKeyValueSecretManager(os.Getenv("CLDY_KEY_ACCESS"), os.Getenv("CLDY_KEY_SECRET"))
+		cldyconfig.UploaderConfig.ApptioConfig.Region = "stage"
 		fmt.Println("Starting cldy emitter")
 		cldyEmitter := cldy.NewEmitter(cldyconfig, stop)
 		emitters = append(emitters, cldyEmitter)
