@@ -68,6 +68,7 @@ func main() {
 					Retries:         1,
 					FrontdoorURL:    "https://frontdoor-stage.apptio.com",
 					CloudabilityURL: "https://api-s.cloudability.com",
+					SecretManager: cldy.NewKeyValueSecretManager(os.Getenv("CLDY_KEY_ACCESS"), os.Getenv("CLDY_KEY_SECRET")),
 				},
 				UploadFrequency: time.Minute,
 				ScratchDir:      tempDir,
