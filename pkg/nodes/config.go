@@ -7,11 +7,21 @@ import (
 	"os"
 
 	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/spf13/cast"
+	"github.com/spf13/viper"
 
 	v1 "k8s.io/api/core/v1"
 )
 
-func NewNodeClientConfig(forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {
+func NewNodeClientConfig() NodeClientConfig {
+	viper.AutomaticEnv()
+	forceKubeProxy := getEnvValueOrDefault("FORCE_KUBE_PROXY", false, cast.ToBool)
+	insecure := getEnvValueOrDefault("INSECURE", false, cast.ToBool)
+	concurrentPollers := getEnvValueOrDefault("NUMBER_OF_CONCURRENT_NODE_POLLERS", 100, cast.ToInt)
+	if concurrentPollers <= 0 {
+		log.Errorf("number of concurrent pollers is either zero or misconfigured")
+	}
+
 	var transport *http.Transport
 	if insecure {
 		transport = &http.Transport{
@@ -66,4 +76,24 @@ func (nac NodeClientConfig) connectionOptions(n v1.Node, nd nodeFetchData) []con
 	proxyAPI := setupProxyAPI(nd.ClusterHostURL, nd.nodeName)
 	connectionMethods = append(connectionMethods, connectionMethod{proxyAPI, nac.InClusterClient})
 	return connectionMethods
+}
+
+// getEnvValueOrDefault attempts to read the environment variable raw and then with the CLOUDABILITY_ prefix,
+// converting it to the relevant type if found
+func getEnvValueOrDefault[T any](envVariable string, defaultValue T, convert func(interface{}) T) T {
+	const prefix = "CLOUDABILITY_"
+	var envValue interface{}
+
+	// Attempt without prefix first
+	envValue = viper.Get(envVariable)
+	if envValue == nil {
+		// Attempt with prefix
+		envValue = viper.Get(prefix + envVariable)
+		if envValue == nil {
+			// Set to default value
+			envValue = defaultValue
+		} 
+	}
+
+	return convert(envValue)
 }
