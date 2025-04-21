@@ -148,7 +148,7 @@ type ApptioConfig struct {
 	ProxyURL        *url.URL
 	ProxyAuth       string
 	ProxyInsecure   bool
-	Region			string
+	Region          string
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {

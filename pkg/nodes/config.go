@@ -82,7 +82,7 @@ func (nac NodeClientConfig) connectionOptions(n v1.Node, nd nodeFetchData) []con
 // converting it to the relevant type if found
 func getEnvValueOrDefault[T any](envVariable string, defaultValue T, convert func(interface{}) T) T {
 	const prefix = "CLOUDABILITY_"
-    var envValue interface{}
+	var envValue interface{}
 
     // Attempt without prefix first
     envValue = viper.Get(envVariable)
