@@ -332,6 +332,8 @@ func getURLsFromRegion(region string) (string, string) {
 		return auFrontdoorURL, usCloudabilityURL
 	case "hybrid-me":
 		return meFrontdoorURL, usCloudabilityURL
+	case "stage":
+		return "https://frontdoor-stage.apptio.com", "https://api-s.cloudability.com"
 	default:
 		log.Infof("customer region is invalid. Defaulting to US region.")
 		return usFrontdoorURL, usCloudabilityURL
