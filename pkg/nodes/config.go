@@ -84,16 +84,16 @@ func getEnvValueOrDefault[T any](envVariable string, defaultValue T, convert fun
 	const prefix = "CLOUDABILITY_"
 	var envValue interface{}
 
-    // Attempt without prefix first
-    envValue = viper.Get(envVariable)
-    if envValue == nil {
-        // Attempt with prefix
-        envValue = viper.Get(prefix + envVariable)
-        if envValue == nil {
-            // Set to default value
-            envValue = defaultValue
-        } 
-    }
+	// Attempt without prefix first
+	envValue = viper.Get(envVariable)
+	if envValue == nil {
+		// Attempt with prefix
+		envValue = viper.Get(prefix + envVariable)
+		if envValue == nil {
+			// Set to default value
+			envValue = defaultValue
+		} 
+	}
 
-    return convert(envValue)
+	return convert(envValue)
 }
