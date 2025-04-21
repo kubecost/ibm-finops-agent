@@ -24,8 +24,7 @@ func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) 
 			return data, nil
 		}
 	}
-	err := fmt.Errorf("requests to %v failed", URL)
-	return nil, err
+	return nil, fmt.Errorf("requests to %v failed", URL)
 }
 
 // makeRequest will call out to an endpoint and attempt to decode the body into an existing

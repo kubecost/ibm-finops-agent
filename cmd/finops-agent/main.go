@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/ibm/finops-agent/cldy"
-	"github.com/ibm/finops-agent/kubecost"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/ibm/finops-agent/cldy"
+	"github.com/ibm/finops-agent/kubecost"
 
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/emitter"
@@ -62,8 +63,6 @@ func main() {
 		cldyconfig := cldy.EmitterConfig{
 			UploaderConfig: cldy.UploaderConfig{
 				ApptioConfig: cldy.ApptioConfig{
-					KeyAccess:       os.Getenv("CLDY_KEY_ACCESS"),
-					KeySecret:       os.Getenv("CLDY_KEY_SECRET"),
 					EnvID:           os.Getenv("CLDY_ENV_ID"),
 					Timeout:         time.Second * 30,
 					Retries:         1,

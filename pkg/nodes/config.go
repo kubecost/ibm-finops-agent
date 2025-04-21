@@ -3,9 +3,10 @@ package nodes
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"log"
 	"net/http"
 	"os"
+
+	"github.com/opencost/opencost/core/pkg/log"
 
 	v1 "k8s.io/api/core/v1"
 )
@@ -15,7 +16,7 @@ func NewNodeClientConfig(forceKubeProxy bool, concurrentPollers int, insecure bo
 	if insecure {
 		transport = &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: insecure,
+				InsecureSkipVerify: true,
 			},
 		}
 	} else {
@@ -57,7 +58,7 @@ func (nac NodeClientConfig) connectionOptions(n v1.Node, nd nodeFetchData) []con
 	if !nac.ForceKubeProxy && !isFargateNode(n) {
 		directAPI, err := setupDirectNodeAPI(&n)
 		if err != nil {
-			log.Printf("error reaching direct node api %s", err)
+			log.Warnf("error reaching direct node api %s", err)
 		} else {
 			connectionMethods = append(connectionMethods, connectionMethod{directAPI, nac.DirectNodeClient})
 		}

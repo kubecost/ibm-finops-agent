@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -23,12 +22,12 @@ const scratchPath = "scratch"
 const uploadPath = "upload"
 
 type Emitter struct {
-	config          EmitterConfig
-	startTimePrefix string
-	sampleCt        int
-	Uploader        Uploader
-	ClusterID       *string
-	ScratchPath     string
+	config      EmitterConfig
+	startTime   time.Time
+	sampleCt    int
+	Uploader    Uploader
+	ClusterID   *string
+  ScratchPath string
 }
 
 type EmitterConfig struct {
@@ -40,10 +39,10 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 	// TODO: evaluate whether or not to check scratch dir for completed samples
 	// TODO: cleanup old samples (> 72 hrs?)
 	return &Emitter{
-		config:          config,
-		Uploader:        NewCldyUploader(config.UploaderConfig, stop),
-		sampleCt:        initialSampleCt,
-		startTimePrefix: strconv.Itoa(int(time.Now().UTC().UnixMilli())),
+		config:    config,
+		Uploader:  NewCldyUploader(config.UploaderConfig, stop),
+		sampleCt:  initialSampleCt,
+		startTime: time.Now().UTC(),
 	}
 }
 
@@ -248,11 +247,11 @@ func (ce *Emitter) getSuffix() string {
 }
 
 func (ce *Emitter) currentSamplePath() string {
-	return ce.ScratchPath + "/" + ce.startTimePrefix + "_" + strconv.Itoa(ce.sampleCt) + "/"
+	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", ce.startTime.UnixMilli(), ce.sampleCt))
 }
 
 func (ce *Emitter) nextSamplePath() string {
-	return ce.ScratchPath + "/" + ce.startTimePrefix + "_" + strconv.Itoa(ce.sampleCt+1) + "/"
+	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", ce.startTime.UnixMilli(), ce.sampleCt+1))
 }
 
 func (ce *Emitter) marshalObject(object proto.Message) ([]byte, error) {

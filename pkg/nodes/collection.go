@@ -3,12 +3,12 @@ package nodes
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"sync"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
+	"github.com/opencost/opencost/core/pkg/log"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
@@ -80,7 +80,7 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 			}()
 
 			if currentNode.Spec.ProviderID == "" {
-				log.Printf("node ProviderID not set, skipping collection for %s", currentNode.Name)
+				log.Warnf("node ProviderID not set, skipping collection for %s", currentNode.Name)
 				return
 			}
 
@@ -92,11 +92,11 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 
 			resp, err := retrieveNodeData(nd, currentNode, nssc.endpoint, connectionMethods, bearerToken)
 			if err != nil {
-				log.Printf("error retrieving node data: %s", err)
+				log.Warnf("error retrieving node data: %s", err)
 			} else {
 				data, err := nodeResponseToStatSummary(resp)
 				if err != nil {
-					log.Printf("error converting node data: %s", err)
+					log.Warnf("error converting node data: %s", err)
 				} else {
 					m.Lock()
 					statsList = append(statsList, data)
@@ -128,15 +128,14 @@ func retrieveNodeData(nd nodeFetchData, n v1.Node, endpoint string, connectionMe
 		}
 	}
 
-	err := fmt.Errorf("problem getting node address: %v", endpoint)
-	return nil, err
+	return nil, fmt.Errorf("problem getting node address: %v", endpoint)
 }
 
 // isFargateNode detects if it is a fargate node, disallowing direct connections
 func isFargateNode(n v1.Node) bool {
 	v := n.Labels["eks.amazonaws.com/compute-type"]
 	if v == "fargate" {
-		log.Printf("Fargate node found: %s", n.Name)
+		log.Warnf("Fargate node found: %s", n.Name)
 		return true
 	}
 	return false
@@ -155,12 +154,14 @@ func getReadyNodes(cache cluster.ClusterCache) []*v1.Node {
 	}
 
 	if len(readyNodes) == 0 {
-		log.Printf("no ready nodes were found")
+		log.Warnf("no ready nodes were found")
 		return nil
 	}
 
-	if len(readyNodes) != len(nodes) {
-		log.Printf("some nodes were in a not ready state when retrieving nodes")
+	numReadyNodes := len(readyNodes)
+	numTotalNodes := len(nodes)
+	if numReadyNodes != numTotalNodes {
+		log.Warnf("%v out of %v were in a not ready state when retrieving nodes", numTotalNodes - numReadyNodes, numTotalNodes)
 	}
 
 	return readyNodes
