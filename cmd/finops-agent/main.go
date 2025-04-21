@@ -55,10 +55,20 @@ func main() {
 		emitters = append(emitters, kubecost.NewKubecostEmitter(kubecost.NewEmitterConfigFromEnv()))
 	}
 	if env.IsCloudyEmitterEnabled() {
-		cldyconfig := cldy.NewEmitterConfigFromEnv()
-		cldyconfig.UploaderConfig.ApptioConfig.EnvID = os.Getenv("CLDY_ENV_ID")
-		cldyconfig.UploaderConfig.ApptioConfig.SecretManager = cldy.NewKeyValueSecretManager(os.Getenv("CLDY_KEY_ACCESS"), os.Getenv("CLDY_KEY_SECRET"))
-		cldyconfig.UploaderConfig.ApptioConfig.Region = "stage"
+		cldyconfig := cldy.EmitterConfig{
+			UploaderConfig: cldy.UploaderConfig{
+				ApptioConfig: cldy.ApptioConfig{
+					EnvID:           os.Getenv("CLDY_ENV_ID"),
+					Timeout:         time.Second * 30,
+					Retries:         1,
+					Region:			 "stage",
+					SecretManager: cldy.NewKeyValueSecretManager(os.Getenv("CLDY_KEY_ACCESS"), os.Getenv("CLDY_KEY_SECRET")),
+				},
+				UploadFrequency: time.Minute,
+				ScratchDir:      "",
+			},
+			EmitAsJson: true,
+		}
 		fmt.Println("Starting cldy emitter")
 		cldyEmitter := cldy.NewEmitter(cldyconfig, stop)
 		emitters = append(emitters, cldyEmitter)
