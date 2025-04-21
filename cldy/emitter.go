@@ -45,6 +45,7 @@ func NewEmitterConfigFromEnv() EmitterConfig {
 	// Set defaults
 	viper.SetDefault("HTTPS_CLIENT_TIMEOUT", 60) // Note for readme: In seconds
 	viper.SetDefault("UPLOAD_RETRY_COUNT", 5)
+	viper.SetDefault("OUTBOUND_PROXY_INSECURE", false)
 	viper.SetDefault("UPLOAD_REGION", "us")
 	viper.SetDefault("UPLOAD_FREQUENCY", 1) // Note for readme: In minutes
 	viper.SetDefault("SCRATCH_DIR", "")
