@@ -7,7 +7,7 @@ replace (
 	github.com/opencost/opencost/modules/prometheus-source => ../opencost/modules/prometheus-source
 )
 
-go 1.24.0
+go 1.24.2
 
 require (
 	github.com/gogo/protobuf v1.3.2
