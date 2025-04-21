@@ -271,8 +271,6 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 	if err != nil {
 		return fmt.Errorf("error in opening file to upload: %w", err)
 	}
-	defer safeClose(fileToUpload.Close, &rErr)
-
 	fi, err := fileToUpload.Stat()
 	if err != nil {
 		return err
@@ -359,5 +357,5 @@ func NewKeyValueSecretManager(keyAccess string, keySecret string) SecretManager 
 }
 
 func (s *keyValueSecretManager) GetSecret() ([]byte, error) {
-	return json.Marshal(map[string]string{"KeyAccess": s.keyAccess, "KeySecret": s.keySecret})
+	return json.Marshal(map[string]string{"keyAccess": s.keyAccess, "keySecret": s.keySecret})
 }
