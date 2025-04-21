@@ -21,7 +21,6 @@ require (
 	github.com/prometheus/client_golang v1.20.5
 	github.com/rs/cors v1.8.2
 	github.com/rs/zerolog v1.26.1
-	github.com/spf13/cast v1.3.1
 	github.com/spf13/viper v1.8.1
 	k8s.io/api v0.32.3
 	k8s.io/apimachinery v0.32.3
@@ -54,6 +53,7 @@ require (
 	github.com/Azure/go-autorest/logger v0.2.1 // indirect
 	github.com/Azure/go-autorest/tracing v0.6.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.3.3 // indirect
+	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/aliyun/alibaba-cloud-sdk-go v1.62.3 // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
 	github.com/aws/aws-sdk-go v1.50.8 // indirect
@@ -157,6 +157,7 @@ require (
 	github.com/shopspring/decimal v0.0.0-20180709203117-cd690d0c9e24 // indirect
 	github.com/sony/gobreaker v0.5.0 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
+	github.com/spf13/cast v1.3.1 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
