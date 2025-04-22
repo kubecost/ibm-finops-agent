@@ -68,24 +68,26 @@ func NewNodeClientConfig() (NodeClientConfig, error) {
 				RootCAs: caCertPool,
 			}
 			transport = &http.Transport{TLSClientConfig: tlsConfig}
-		}	
+		}
 	}
 
 	return NodeClientConfig{
-		ForceKubeProxy: forceKubeProxy,
+		ClusterName:       clusterName,
+		ForceKubeProxy:    forceKubeProxy,
 		ConcurrentPollers: concurrentPollers,
-		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0),
-		InClusterClient: NewClient(http.Client{Transport: transport}, 0),
+		DirectNodeClient:  NewClient(http.Client{Transport: transport}, 0),
+		InClusterClient:   NewClient(http.Client{Transport: transport}, 0),
 	}, nil
 }
 
 type NodeClientConfig struct {
-	ForceKubeProxy     bool
-	ConcurrentPollers  int
-	DirectNodeClient   Client
-	InClusterClient    Client
-	CertFile           string
-	KeyFile            string
+	ClusterName       string
+	ForceKubeProxy    bool
+	ConcurrentPollers int
+	DirectNodeClient  Client
+	InClusterClient   Client
+	CertFile          string
+	KeyFile           string
 }
 
 // connectionOptions returns the connection methods that are allowed for this node based on config
@@ -121,7 +123,7 @@ func getEnvValueOrDefault[T any](envVariable string, defaultValue T, convert fun
 		if envValue == nil {
 			// Set to default value
 			envValue = defaultValue
-		} 
+		}
 	}
 
 	return convert(envValue)

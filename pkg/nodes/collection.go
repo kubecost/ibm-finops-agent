@@ -19,19 +19,19 @@ type StatSummaryClient interface {
 }
 
 type NodeStatsSummaryClient struct {
-	config   		NodeClientConfig
-	cache    		cluster.ClusterCache
-	endpoint 		string
-	clusterHostUrl 	string 
+	config          NodeClientConfig
+	cache           cluster.ClusterCache
+	endpoint        string
+	clusterHostUrl  string
 	bearerTokenFile string
 }
 
 func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig, inClusterConfig *rest.Config) NodeStatsSummaryClient {
 	return NodeStatsSummaryClient{
-		config:   config,
-		cache:    cache,
-		endpoint: "stats/summary",
-		clusterHostUrl: inClusterConfig.Host,
+		config:          config,
+		cache:           cache,
+		endpoint:        "stats/summary",
+		clusterHostUrl:  inClusterConfig.Host,
 		bearerTokenFile: inClusterConfig.BearerTokenFile,
 	}
 }
@@ -161,14 +161,14 @@ func getReadyNodes(cache cluster.ClusterCache) []*v1.Node {
 	numReadyNodes := len(readyNodes)
 	numTotalNodes := len(nodes)
 	if numReadyNodes != numTotalNodes {
-		log.Warnf("%v out of %v were in a not ready state when retrieving nodes", numTotalNodes - numReadyNodes, numTotalNodes)
+		log.Warnf("%v out of %v were in a not ready state when retrieving nodes", numTotalNodes-numReadyNodes, numTotalNodes)
 	}
 
 	return readyNodes
 }
 
 // getNodeCondition extracts the provided condition from the given status and returns that, nil if not present.
-func getNodeCondition(status *v1.NodeStatus, conditionType v1.NodeConditionType) (*v1.NodeCondition) {
+func getNodeCondition(status *v1.NodeStatus, conditionType v1.NodeConditionType) *v1.NodeCondition {
 	if status == nil {
 		return nil
 	}
