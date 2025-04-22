@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/ibm/finops-agent/kubecost/adapters"
 	"github.com/ibm/finops-agent/pkg/emitter"
@@ -90,7 +91,21 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 
 	log.Infof("Successfully created bucket storage")
 
-	pipelineControllers := exporter.NewPipelineExportControllers(ke.config.ClusterID, bucketStore, costModel)
+	pipelineConfig := exporter.DefaultPipelinesExportConfig()
+	if ke.config.EmitAllocationMinuteResolution {
+		pipelineConfig.AllocationPiplineResolutions = append(
+			pipelineConfig.AllocationPiplineResolutions,
+			10*time.Minute,
+		)
+	}
+	if ke.config.EmitAssetMinuteResolution {
+		pipelineConfig.AssetPipelineResolutons = append(
+			pipelineConfig.AssetPipelineResolutons,
+			10*time.Minute,
+		)
+	}
+
+	pipelineControllers := exporter.NewPipelineExportControllers(ke.config.ClusterID, bucketStore, costModel, pipelineConfig)
 	pipelineControllers.Start(ke.config.ExportInterval)
 
 	// initialize emitter's internal state

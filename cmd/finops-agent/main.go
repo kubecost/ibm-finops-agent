@@ -61,7 +61,7 @@ func main() {
 		}
 	*/
 
-	snapshotProvider := emitter.NewConcurrentSnapshotProvider()
+	snapshotProvider := emitter.NewConcurrentSnapshotProvider(emitter.NewSnapshotConfigFromEnv())
 	exporter := emitter.NewExporter(dataSource, snapshotProvider, emitters...)
 
 	if ok := exporter.Start(EmissionFrequency); !ok {

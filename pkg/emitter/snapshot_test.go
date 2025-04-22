@@ -31,7 +31,7 @@ func TestSnapshottingTemporaryCache(t *testing.T) {
 	}()
 
 	ds := NewMockDataSource()
-	snapshotProvider := NewConcurrentSnapshotProvider()
+	snapshotProvider := NewConcurrentSnapshotProvider(DefaultSnapshotConfig())
 
 	snapshot, err := snapshotProvider.SnapshotOf(ds)
 	if err != nil {
@@ -87,9 +87,9 @@ func TestSnapshottingTemporaryCache(t *testing.T) {
 
 // MockDataSource contains mock implementations of the interfaces returned by the data source.
 type MockDataSource struct {
-	OCDataSource   *MockOpenCostDataSource
-	ClusterCache   *MockClusterCache
-	MetricsQuerier *MockMetricsQuerier
+	OCDataSource           *MockOpenCostDataSource
+	ClusterCache           *MockClusterCache
+	MetricsQuerier         *MockMetricsQuerier
 	NodeStatsSummaryClient *MockStatsSummaryClient
 }
 
@@ -99,9 +99,9 @@ func NewMockDataSource() *MockDataSource {
 	ocDataSource := NewMockOpenCostDataSource()
 	metrics := ocDataSource.Metrics().(*MockMetricsQuerier)
 	return &MockDataSource{
-		OCDataSource:   ocDataSource,
-		ClusterCache:   NewMockClusterCache(),
-		MetricsQuerier: metrics,
+		OCDataSource:           ocDataSource,
+		ClusterCache:           NewMockClusterCache(),
+		MetricsQuerier:         metrics,
 		NodeStatsSummaryClient: NewMockStatsSummaryClient(),
 	}
 }
