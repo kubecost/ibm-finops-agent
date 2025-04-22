@@ -18,6 +18,9 @@ func NewNodeClientConfig() NodeClientConfig {
 	forceKubeProxy := getEnvValueOrDefault("FORCE_KUBE_PROXY", false, cast.ToBool)
 	insecure := getEnvValueOrDefault("INSECURE", false, cast.ToBool)
 	concurrentPollers := getEnvValueOrDefault("NUMBER_OF_CONCURRENT_NODE_POLLERS", 100, cast.ToInt)
+	certFile := viper.GetString("CERT_FILE")
+	keyFile := viper.GetString("KEY_FILE")
+
 	if concurrentPollers <= 0 {
 		log.Errorf("number of concurrent pollers is either zero or misconfigured")
 	}
@@ -38,10 +41,27 @@ func NewNodeClientConfig() NodeClientConfig {
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(pemData)
 
-		tlsConfig := &tls.Config{
-			RootCAs: caCertPool,
-		}
-		transport = &http.Transport{TLSClientConfig: tlsConfig}
+		var tlsConfig *tls.Config
+
+		if certFile != "" && keyFile != "" {
+			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+
+			if err != nil {
+				log.Fatalf("Unable to load cert: %s key: %s error: %v", certFile, keyFile, err)
+			}
+
+			tlsConfig = &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				RootCAs:      caCertPool,
+			}
+
+			transport = &http.Transport{TLSClientConfig: tlsConfig}
+		} else {
+			tlsConfig := &tls.Config{
+				RootCAs: caCertPool,
+			}
+			transport = &http.Transport{TLSClientConfig: tlsConfig}
+		}	
 	}
 
 	return NodeClientConfig{
@@ -57,6 +77,8 @@ type NodeClientConfig struct {
 	ConcurrentPollers  int
 	DirectNodeClient   Client
 	InClusterClient    Client
+	CertFile           string
+	KeyFile            string
 }
 
 // connectionOptions returns the connection methods that are allowed for this node based on config

@@ -30,16 +30,20 @@ type Emitter struct {
 	sampleCt    int
 	Uploader    Uploader
 	ClusterID   *string
-  ScratchPath string
+	ScratchPath string
 }
 
 type EmitterConfig struct {
 	UploaderConfig
 	EmitAsJson bool
+	ParseMetricData bool
 }
 
-func NewEmitterConfigFromEnv() EmitterConfig {
+const UPLOAD_FREQUENCY = 10
+
+func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetEnvPrefix("CLOUDABILITY")
+	defer viper.SetEnvPrefix("")
 	viper.AutomaticEnv()
 
 	// Set defaults
@@ -47,13 +51,13 @@ func NewEmitterConfigFromEnv() EmitterConfig {
 	viper.SetDefault("UPLOAD_RETRY_COUNT", 5)
 	viper.SetDefault("OUTBOUND_PROXY_INSECURE", false)
 	viper.SetDefault("UPLOAD_REGION", "us")
-	viper.SetDefault("UPLOAD_FREQUENCY", 1) // Note for readme: In minutes
-	viper.SetDefault("SCRATCH_DIR", "")
+	viper.SetDefault("SCRATCH_DIR", "/tmp")
 	viper.SetDefault("EMIT_AS_JSON", true)
+	viper.SetDefault("PARSE_METRIC_DATA", false)
 
 	outboundProxyUrl, err := url.Parse(viper.GetString("OUTBOUND_PROXY"))
 	if err != nil {
-		fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
+		return EmitterConfig{}, fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
 	}
 
 	return EmitterConfig{
@@ -66,12 +70,14 @@ func NewEmitterConfigFromEnv() EmitterConfig {
 				ProxyAuth:     viper.GetString("OUTBOUND_PROXY_AUTH"),
 				ProxyInsecure: viper.GetBool("OUTBOUND_PROXY_INSECURE"),
 				Region:        viper.GetString("UPLOAD_REGION"),
+				CustomS3UploadBucket: viper.GetString("CUSTOM_S3_UPLOAD_BUCKET"),
 			},
-			UploadFrequency: time.Minute * time.Duration(viper.GetInt("UPLOAD_FREQUENCY")),
+			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),
 		},
 		EmitAsJson: viper.GetBool("EMIT_AS_JSON"),
-	}
+		ParseMetricData: viper.GetBool("PARSE_METRIC_DATA"),
+	}, nil
 }
 
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {

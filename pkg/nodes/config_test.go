@@ -7,7 +7,14 @@ import (
 )
 
 var _ = Describe("Node config", func() {
+	BeforeEach(func() {
+		t := GinkgoT()
+		t.Setenv("CLOUDABILITY_NUMBER_OF_CONCURRENT_NODE_POLLERS", "17")
+		t.Setenv("INSECURE", "true")
+		t.Setenv("CLOUDABILITY_INSECURE", "false")
+	})
 	It("should return proper values for dual-CLDY environment variables", func() {
+
 		nodeClientConfig := NewNodeClientConfig()
 
 		// Variable not set, should default

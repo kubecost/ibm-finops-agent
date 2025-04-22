@@ -36,7 +36,6 @@ const frontDoorLoginDescription = "performing login request to FrontDoor using K
 const presignedURLDescription = "acquiring presigned URL from Cloudability with acquired Open-token"
 const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
 
-
 // StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob
 type StorageService interface {
 	Upload(payload UploadPayload) error
@@ -139,16 +138,17 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 }
 
 type ApptioConfig struct {
-	SecretManager   SecretManager
-	EnvID           string
-	OpenToken       string
-	CustomerType    string
-	Timeout         time.Duration
-	Retries         int
-	ProxyURL        *url.URL
-	ProxyAuth       string
-	ProxyInsecure   bool
-	Region          string
+	SecretManager        SecretManager
+	EnvID                string
+	OpenToken            string
+	CustomerType         string
+	Timeout              time.Duration
+	Retries              int
+	ProxyURL             *url.URL
+	ProxyAuth            string
+	ProxyInsecure        bool
+	Region               string
+	CustomS3UploadBucket string
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -322,7 +322,7 @@ func getURLsFromRegion(region string) (string, string) {
 		return usFrontdoorURL, usCloudabilityURL
 	case "eu", "eu-central-1": // eu-central-1 is for old agent migrations
 		return euFrontdoorURL, euCloudabilityURL
-	case "au":
+	case "au", "ap-southeast-2":
 		return auFrontdoorURL, auCloudabilityURL
 	case "me", "me-central-1": // me-central-1 is for old agent migrations
 		return meFrontdoorURL, meCloudabilityURL
@@ -333,7 +333,7 @@ func getURLsFromRegion(region string) (string, string) {
 	case "hybrid-me":
 		return meFrontdoorURL, usCloudabilityURL
 	default:
-		log.Infof("customer region is invalid. Defaulting to US region.")
+		log.Warnf("customer region is invalid. Defaulting to US region.")
 		return usFrontdoorURL, usCloudabilityURL
 	}
 }

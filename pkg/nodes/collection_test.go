@@ -20,6 +20,9 @@ var _ = Describe("Raw node data", func() {
 		file, err := os.CreateTemp("", "")
 		Expect(err).ToNot(HaveOccurred())
 		tempBearerFile = file.Name()
+
+		t := GinkgoT()
+		t.Setenv("INSECURE", "true")
 	})
 	AfterEach(func() {
 		err := os.RemoveAll(tempBearerFile)
