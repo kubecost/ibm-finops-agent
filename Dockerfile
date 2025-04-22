@@ -6,11 +6,11 @@ RUN yum install -y unzip \
                    ca-certificates \
                    yum-utils
 
-# Install Go 1.24.0
-RUN wget https://go.dev/dl/go1.24.0.linux-amd64.tar.gz && \
+# Install Go 1.24.2
+RUN wget https://go.dev/dl/go1.24.2.linux-amd64.tar.gz && \
     rm -rf /usr/local/go && \
-    tar -C /usr/local -xzf go1.24.0.linux-amd64.tar.gz && \
-    rm go1.24.0.linux-amd64.tar.gz
+    tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz && \
+    rm go1.24.2.linux-amd64.tar.gz
 
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GOPROXY=https://proxy.golang.org,direct
