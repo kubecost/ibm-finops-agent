@@ -3,8 +3,10 @@ package nodes
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/spf13/cast"
@@ -13,16 +15,21 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-func NewNodeClientConfig() NodeClientConfig {
+func NewNodeClientConfig() (NodeClientConfig, error) {
 	viper.AutomaticEnv()
 	forceKubeProxy := getEnvValueOrDefault("FORCE_KUBE_PROXY", false, cast.ToBool)
 	insecure := getEnvValueOrDefault("INSECURE", false, cast.ToBool)
 	concurrentPollers := getEnvValueOrDefault("NUMBER_OF_CONCURRENT_NODE_POLLERS", 100, cast.ToInt)
-	certFile := viper.GetString("CERT_FILE")
-	keyFile := viper.GetString("KEY_FILE")
+	clusterName := getEnvValueOrDefault("CLUSTER_NAME", "", cast.ToString)
+	certFile := getEnvValueOrDefault("CERT_FILE", "", cast.ToString)
+	keyFile := getEnvValueOrDefault("KEY_FILE", "", cast.ToString)
+
+	if strings.TrimSpace(clusterName) == "" {
+		return NodeClientConfig{}, fmt.Errorf("Cluster name is required and cannot be exclusively whitespace.")
+	}
 
 	if concurrentPollers <= 0 {
-		log.Errorf("number of concurrent pollers is either zero or misconfigured")
+		return NodeClientConfig{}, fmt.Errorf("number of concurrent pollers is either zero or misconfigured")
 	}
 
 	var transport *http.Transport
@@ -69,7 +76,7 @@ func NewNodeClientConfig() NodeClientConfig {
 		ConcurrentPollers: concurrentPollers,
 		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0),
 		InClusterClient: NewClient(http.Client{Transport: transport}, 0),
-	}
+	}, nil
 }
 
 type NodeClientConfig struct {

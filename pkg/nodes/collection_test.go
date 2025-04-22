@@ -23,6 +23,7 @@ var _ = Describe("Raw node data", func() {
 
 		t := GinkgoT()
 		t.Setenv("INSECURE", "true")
+		t.Setenv("CLUSTER_NAME", "test")
 	})
 	AfterEach(func() {
 		err := os.RemoveAll(tempBearerFile)
@@ -78,7 +79,9 @@ var _ = Describe("Raw node data", func() {
 })
 
 func setupTestNodeStatSummaryClient(tempBearerFile string, failDirect bool, failProxy bool) NodeStatsSummaryClient {
-	ncc := NewNodeClientConfig()
+	ncc, err := NewNodeClientConfig()
+	Expect(err).ToNot(HaveOccurred())
+
 	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), true, failDirect, failProxy)
 	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), false, failDirect, failProxy)
 	

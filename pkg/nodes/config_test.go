@@ -12,10 +12,12 @@ var _ = Describe("Node config", func() {
 		t.Setenv("CLOUDABILITY_NUMBER_OF_CONCURRENT_NODE_POLLERS", "17")
 		t.Setenv("INSECURE", "true")
 		t.Setenv("CLOUDABILITY_INSECURE", "false")
+		t.Setenv("CLUSTER_NAME", "test")
 	})
 	It("should return proper values for dual-CLDY environment variables", func() {
 
-		nodeClientConfig := NewNodeClientConfig()
+		nodeClientConfig, err := NewNodeClientConfig()
+		Expect(err).ToNot(HaveOccurred())
 
 		// Variable not set, should default
 		Expect(nodeClientConfig.ForceKubeProxy).To(BeFalse())
