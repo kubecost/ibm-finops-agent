@@ -45,7 +45,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	metricsQuerier := adapters.NewMetricsQuerierAdapter(snapshot.Metrics)
 
 	confManager := config.NewConfigFileManager(&config.ConfigFileManagerOpts{
-		LocalConfigPath:   ke.config.ConfigPath,
+		LocalConfigPath:   "/",
 		BucketStoreConfig: "",
 	})
 
