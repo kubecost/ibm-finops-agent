@@ -38,6 +38,10 @@ type EmitterConfig struct {
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 	// TODO: evaluate whether or not to check scratch dir for completed samples
 	// TODO: cleanup old samples (> 72 hrs?)
+	err := createIfNotExists(config.ScratchDir + "/" + scratchPath)
+	if err != nil {
+		panic("failed to create scratch directory: " + err.Error())
+	}
 	return &Emitter{
 		config:    config,
 		Uploader:  NewCldyUploader(config.UploaderConfig, stop),
@@ -51,7 +55,11 @@ func createIfNotExists(path string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return os.MkdirAll(path, os.ModePerm)
+	// already exists, do not create
+	if err == nil {
+		return nil
+	}
+	return os.Mkdir(path, os.ModePerm)
 }
 
 func (ce *Emitter) ID() emitter.EmitterID {

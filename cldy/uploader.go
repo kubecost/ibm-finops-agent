@@ -5,12 +5,16 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"fmt"
+	"github.com/opencost/opencost/core/pkg/log"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+var requiredFiles = []string{"baseline-summary", "stats-summary", "statefulsets", "services", "replicationcontrollers", "replicasets", "pods", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces", "jobs", "deployments", "daemonsets", "agent-measurement"}
 
 type Uploader interface {
 	AddSample(sample string)
@@ -44,8 +48,12 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		// TODO: dynamically pick client based upon upload config
 		StorageService: NewApptioSerivce(config.ApptioConfig),
 	}
-	// TODO: check scratch dir for existing samples on startup, add them to upload sample pool
-	// TODO: cleanup old samples (> 72 hrs?)
+
+	err = uploader.recoverDataOnStartup()
+	if err != nil {
+		log.Warnf("failed to recover historic samples on startup: %v", err)
+	}
+
 	go uploader.uploadLoop()
 	return &uploader
 }
@@ -62,6 +70,84 @@ func (ce *CldyUploader) AddSample(sample string) {
 
 func (ce *CldyUploader) SetClusterID(id string) {
 	ce.clusterID = id
+}
+
+func (ce *CldyUploader) recoverDataOnStartup() error {
+	err := ce.recoverCompleteSamples()
+	if err != nil {
+		return err
+	}
+	return ce.recoverUploadFiles()
+}
+
+func (ce *CldyUploader) recoverCompleteSamples() error {
+	var currentDir string
+	hasShipped := false
+	filesNeeded := getNeededFiles()
+	err := filepath.WalkDir(ce.config.ScratchDir+"/"+scratchPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		// this directory has a complete sample and should be added
+		if len(filesNeeded) == 0 && !hasShipped {
+			ce.AddSample(currentDir)
+			hasShipped = true
+			return nil
+		}
+
+		// get directory
+		dir := filepath.Dir(path)
+		// on first pass, set currentDir to first found
+		if currentDir == "" {
+			currentDir = dir
+		}
+		// if dir changes, new sample set found, reset required files
+		if currentDir != dir {
+			filesNeeded = getNeededFiles()
+			currentDir = dir
+			hasShipped = false
+		}
+		// if file found, remove from filesNeeded
+		if !d.IsDir() {
+			for requiredFile := range filesNeeded {
+				if strings.Contains(path, requiredFile) {
+					delete(filesNeeded, requiredFile)
+					break
+				}
+			}
+		}
+		return nil
+	})
+	return err
+}
+
+func (ce *CldyUploader) recoverUploadFiles() error {
+	err := filepath.WalkDir(ce.uploadPathDir, func(path string, d fs.DirEntry, err error) error {
+		if !d.IsDir() {
+			parts := strings.Split(path, "-")
+			date, dErr := time.Parse("20060102", parts[6])
+			if dErr != nil {
+				return dErr
+			}
+			// remove and do not upload samples older than 72 hours
+			if time.Since(date.UTC()).Hours() > 72 {
+				err = os.Remove(path)
+				return err
+			}
+			// just add to uploadSet and clean up will occur during next upload
+			ce.uploadSet.add(path)
+		}
+		return nil
+	})
+	return err
+}
+
+func getNeededFiles() map[string]struct{} {
+	filesNeeded := map[string]struct{}{}
+	for _, name := range requiredFiles {
+		filesNeeded[name] = struct{}{}
+	}
+	return filesNeeded
 }
 
 func (ce *CldyUploader) uploadLoop() {
