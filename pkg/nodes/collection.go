@@ -51,11 +51,15 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	var nodes []*v1.Node
 	var statsList []*stats.Summary
 
-	bearerToken, err := nssc.getBearerToken()
-	if err != nil {
-		return nil, err
+	var bearerToken string
+	if !nssc.config.ProxyConfig.IsLocalProxy() {
+		token, err := nssc.getBearerToken()
+		if err != nil {
+			return nil, err
+		}
+		bearerToken = token
 	}
-	
+
 	nodes = getReadyNodes(nssc.cache)
 
 	var wg sync.WaitGroup
@@ -90,7 +94,7 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 			}
 			connectionMethods := nssc.config.connectionOptions(currentNode, nd)
 
-			resp, err := retrieveNodeData(nd, currentNode, nssc.endpoint, connectionMethods, bearerToken)
+			resp, err := retrieveNodeData(nssc.endpoint, connectionMethods, bearerToken)
 			if err != nil {
 				log.Warnf("error retrieving node data: %s", err)
 			} else {
@@ -118,7 +122,7 @@ type nodeFetchData struct {
 }
 
 // retrieveNodeData fetches summary and container data for the node
-func retrieveNodeData(nd nodeFetchData, n v1.Node, endpoint string, connectionMethods []connectionMethod, bearerToken string) (*http.Response, error) {
+func retrieveNodeData(endpoint string, connectionMethods []connectionMethod, bearerToken string) (*http.Response, error) {
 
 	// Fail after trying all connections the alloted number of retries
 	for _, cm := range connectionMethods {

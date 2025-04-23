@@ -15,9 +15,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-func NewNodeClientConfig() (NodeClientConfig, error) {
+func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	viper.AutomaticEnv()
-	forceKubeProxy := getEnvValueOrDefault("FORCE_KUBE_PROXY", false, cast.ToBool)
+	// forceKubeProxy := getEnvValueOrDefault("FORCE_KUBE_PROXY", false, cast.ToBool)
 	insecure := getEnvValueOrDefault("INSECURE", false, cast.ToBool)
 	concurrentPollers := getEnvValueOrDefault("NUMBER_OF_CONCURRENT_NODE_POLLERS", 100, cast.ToInt)
 	clusterName := getEnvValueOrDefault("CLUSTER_NAME", "", cast.ToString)
@@ -73,21 +73,33 @@ func NewNodeClientConfig() (NodeClientConfig, error) {
 
 	return NodeClientConfig{
 		ClusterName:       clusterName,
-		ForceKubeProxy:    forceKubeProxy,
 		ConcurrentPollers: concurrentPollers,
 		DirectNodeClient:  NewClient(http.Client{Transport: transport}, 0),
 		InClusterClient:   NewClient(http.Client{Transport: transport}, 0),
+		ProxyConfig:       NodeClientProxyConfig{
+			ForceKubeProxy: false,
+			LocalProxy:     "",
+		},
 	}, nil
+}
+
+type NodeClientProxyConfig struct {
+	ForceKubeProxy bool
+	LocalProxy     string
+}
+
+func (nac NodeClientProxyConfig) IsLocalProxy() bool {
+	return nac.LocalProxy != ""
 }
 
 type NodeClientConfig struct {
 	ClusterName       string
-	ForceKubeProxy    bool
 	ConcurrentPollers int
 	DirectNodeClient  Client
 	InClusterClient   Client
 	CertFile          string
 	KeyFile           string
+	ProxyConfig       NodeClientProxyConfig
 }
 
 // connectionOptions returns the connection methods that are allowed for this node based on config
@@ -96,7 +108,7 @@ func (nac NodeClientConfig) connectionOptions(n v1.Node, nd nodeFetchData) []con
 	connectionMethods := make([]connectionMethod, 0)
 
 	// Do not allow direct connection to fargate nodes
-	if !nac.ForceKubeProxy && !isFargateNode(n) {
+	if !nac.ProxyConfig.ForceKubeProxy && !isFargateNode(n) {
 		directAPI, err := setupDirectNodeAPI(&n)
 		if err != nil {
 			log.Warnf("error reaching direct node api %s", err)
@@ -104,7 +116,12 @@ func (nac NodeClientConfig) connectionOptions(n v1.Node, nd nodeFetchData) []con
 			connectionMethods = append(connectionMethods, connectionMethod{directAPI, nac.DirectNodeClient})
 		}
 	}
-	proxyAPI := setupProxyAPI(nd.ClusterHostURL, nd.nodeName)
+	clusterHostURL := nd.ClusterHostURL
+	if nac.ProxyConfig.IsLocalProxy() {
+		clusterHostURL = nac.ProxyConfig.LocalProxy
+	}
+
+	proxyAPI := setupProxyAPI(clusterHostURL, nd.nodeName)
 	connectionMethods = append(connectionMethods, connectionMethod{proxyAPI, nac.InClusterClient})
 	return connectionMethods
 }

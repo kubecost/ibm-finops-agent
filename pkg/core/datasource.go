@@ -67,18 +67,18 @@ func NewAgentDataSource() DataSource {
 	if err != nil {
 		log.Fatalf("error retrieving in cluster config: %s", err)
 	}
-	nodeClientConfig, err := nodes.NewNodeClientConfig()
+	nodeClientConfig, err := nodes.NewNodeClientConfigFromEnv()
 	if err != nil {
 		log.Fatalf("error retrieving node client config: %s", err)
 	}
 	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, inClusterConfig)
-
+	
 	// TODO: Initialization of any other data sources here
 
 	return &agentDataSource{
-		opencostSource: opencostSource,
-		metrics:        opencostSource.Metrics(),
-		clusterCache:   k8sCache,
+		opencostSource:         opencostSource,
+		metrics:                opencostSource.Metrics(),
+		clusterCache:           k8sCache,
 		nodeStatsSummaryClient: nodeStatsSummaryClient,
 	}
 }
@@ -95,7 +95,7 @@ type agentDataSource struct {
 
 	// Node Stats Summary Client
 	nodeStatsSummaryClient nodes.StatSummaryClient
-	
+
 	// TODO: HTTP Server/Proxy for Turbo?
 }
 

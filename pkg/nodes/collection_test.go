@@ -79,7 +79,7 @@ var _ = Describe("Raw node data", func() {
 })
 
 func setupTestNodeStatSummaryClient(tempBearerFile string, failDirect bool, failProxy bool) NodeStatsSummaryClient {
-	ncc, err := NewNodeClientConfig()
+	ncc, err := NewNodeClientConfigFromEnv()
 	Expect(err).ToNot(HaveOccurred())
 
 	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), true, failDirect, failProxy)
@@ -97,7 +97,7 @@ type mockClusterCache struct {
 	cluster.ClusterCache
 }
 
-func NewMockClusterCache() (cluster.ClusterCache) {
+func NewMockClusterCache() cluster.ClusterCache {
 	return mockClusterCache{}
 }
 
