@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
-	"github.com/spf13/cast"
 	"github.com/spf13/viper"
 
 	v1 "k8s.io/api/core/v1"
@@ -17,12 +17,13 @@ import (
 
 func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	viper.AutomaticEnv()
-	// forceKubeProxy := getEnvValueOrDefault("FORCE_KUBE_PROXY", false, cast.ToBool)
-	insecure := getEnvValueOrDefault("INSECURE", false, cast.ToBool)
-	concurrentPollers := getEnvValueOrDefault("NUMBER_OF_CONCURRENT_NODE_POLLERS", 100, cast.ToInt)
-	clusterName := getEnvValueOrDefault("CLUSTER_NAME", "", cast.ToString)
-	certFile := getEnvValueOrDefault("CERT_FILE", "", cast.ToString)
-	keyFile := getEnvValueOrDefault("KEY_FILE", "", cast.ToString)
+	clusterName := env.GetNodeStatsClusterName()
+	concurrentPollers := env.GetNodeStatsConcurrentPollers()
+	insecure := env.IsNodeStatsInsecure()
+	certFile := env.GetNodeStatsCertFile()
+	keyFile := env.GetNodeStatsKeyFile()
+	forceKubeProxy := env.IsNodeStatsForceKubeProxy()
+	localProxy := env.GetNodeStatsLocalProxy()
 
 	if strings.TrimSpace(clusterName) == "" {
 		return NodeClientConfig{}, fmt.Errorf("Cluster name is required and cannot be exclusively whitespace.")
@@ -77,8 +78,8 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 		DirectNodeClient:  NewClient(http.Client{Transport: transport}, 0),
 		InClusterClient:   NewClient(http.Client{Transport: transport}, 0),
 		ProxyConfig:       NodeClientProxyConfig{
-			ForceKubeProxy: false,
-			LocalProxy:     "",
+			ForceKubeProxy: forceKubeProxy,
+			LocalProxy:     localProxy,
 		},
 	}, nil
 }
@@ -124,24 +125,4 @@ func (nac NodeClientConfig) connectionOptions(n v1.Node, nd nodeFetchData) []con
 	proxyAPI := setupProxyAPI(clusterHostURL, nd.nodeName)
 	connectionMethods = append(connectionMethods, connectionMethod{proxyAPI, nac.InClusterClient})
 	return connectionMethods
-}
-
-// getEnvValueOrDefault attempts to read the environment variable raw and then with the CLOUDABILITY_ prefix,
-// converting it to the relevant type if found
-func getEnvValueOrDefault[T any](envVariable string, defaultValue T, convert func(interface{}) T) T {
-	const prefix = "CLOUDABILITY_"
-	var envValue interface{}
-
-	// Attempt without prefix first
-	envValue = viper.Get(envVariable)
-	if envValue == nil {
-		// Attempt with prefix
-		envValue = viper.Get(prefix + envVariable)
-		if envValue == nil {
-			// Set to default value
-			envValue = defaultValue
-		}
-	}
-
-	return convert(envValue)
 }

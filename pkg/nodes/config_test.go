@@ -1,9 +1,9 @@
 package nodes
 
 import (
+	"github.com/ibm/finops-agent/pkg/env"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/spf13/cast"
 )
 
 var _ = Describe("Node config", func() {
@@ -26,7 +26,7 @@ var _ = Describe("Node config", func() {
 		Expect(nodeClientConfig.ConcurrentPollers).To(BeNumerically("==", 17))
 
 		// INSECURE and CLOUDABILITY_INSECURE are set, should favor INSECURE
-		insecure := getEnvValueOrDefault("INSECURE", false, cast.ToBool)
+		insecure := env.IsNodeStatsInsecure()
 		Expect(insecure).To(BeTrue())
 	})
 })
