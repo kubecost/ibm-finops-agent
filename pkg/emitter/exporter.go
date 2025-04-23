@@ -57,7 +57,6 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 	go func() {
 		runContext, cancelRun := context.WithCancel(context.Background())
 		defer cancelRun()
-		defer de.runState.Reset()
 
 		// take a snapshot of the current cluster state
 		snapshot, err := de.snapshotProvider.SnapshotOf(de.ds)
@@ -78,6 +77,7 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			// if our stop channel receives data, it means we have explicitly called
 			// Stop(), and must reset our AtomicRunState to it's initial idle state
 			case <-de.runState.OnStop():
+				de.runState.Reset()
 				cancelRun()
 				return // exit go routine
 

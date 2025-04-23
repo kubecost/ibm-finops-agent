@@ -84,14 +84,19 @@ var _ = Describe("Raw node data", func() {
 })
 
 func setupTestNodeStatSummaryClient(forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool, tempBearerFile string, mockClusterHostURL string) NodeStatsSummaryClient {
-	ncc := NewNodeClientConfig(forceKubeProxy, concurrentPollers, insecure)
+	proxyConfig := NodeClientProxyConfig{
+		ForceKubeProxy: forceKubeProxy,
+		LocalProxy:     "",
+	}
+
+	ncc := NewNodeClientConfig(proxyConfig, concurrentPollers, insecure)
 	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
 	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
-	
+
 	mockCache := NewMockClusterCache()
 	mockInClusterConfig := &rest.Config{
 		BearerTokenFile: tempBearerFile,
-		Host: mockClusterHostURL,
+		Host:            mockClusterHostURL,
 	}
 	return NewNodeStatsSummaryClient(mockCache, ncc, mockInClusterConfig)
 }
@@ -100,7 +105,7 @@ type mockClusterCache struct {
 	cluster.ClusterCache
 }
 
-func NewMockClusterCache() (cluster.ClusterCache) {
+func NewMockClusterCache() cluster.ClusterCache {
 	return mockClusterCache{}
 }
 
@@ -111,7 +116,7 @@ func (m mockClusterCache) GetAllNodes() []*v1.Node {
 
 // Note: mockHTTPClient mocks statSummary data specifically, but can be changed later
 type mockHTTPClient struct {
-	FailRequests	bool
+	FailRequests bool
 }
 
 func NewHTTPMockClient(c Client, failRequests bool) *mockHTTPClient {

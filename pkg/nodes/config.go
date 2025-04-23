@@ -6,12 +6,24 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
 
 	v1 "k8s.io/api/core/v1"
 )
 
-func NewNodeClientConfig(forceKubeProxy bool, concurrentPollers int, insecure bool) NodeClientConfig {
+func NewNodeClientConfigFromEnv() NodeClientConfig {
+	return NewNodeClientConfig(
+		NodeClientProxyConfig{
+			ForceKubeProxy: env.IsNodeStatsForceKubeProxy(),
+			LocalProxy:     env.GetNodeStatsLocalProxy(),
+		},
+		env.GetNodeStatsConcurrentPollers(),
+		env.IsNodeStatsInsecureSkipVerify(),
+	)
+}
+
+func NewNodeClientConfig(proxyConfig NodeClientProxyConfig, concurrentPollers int, insecure bool) NodeClientConfig {
 	var transport *http.Transport
 	if insecure {
 		transport = &http.Transport{
@@ -35,18 +47,27 @@ func NewNodeClientConfig(forceKubeProxy bool, concurrentPollers int, insecure bo
 	}
 
 	return NodeClientConfig{
-		ForceKubeProxy: forceKubeProxy,
+		ProxyConfig:       proxyConfig,
 		ConcurrentPollers: concurrentPollers,
-		DirectNodeClient: NewClient(http.Client{Transport: transport}, 0),
-		InClusterClient: NewClient(http.Client{Transport: transport}, 0),
+		DirectNodeClient:  NewClient(http.Client{Transport: transport}, 0),
+		InClusterClient:   NewClient(http.Client{Transport: transport}, 0),
 	}
 }
 
+type NodeClientProxyConfig struct {
+	ForceKubeProxy bool
+	LocalProxy     string
+}
+
+func (nac NodeClientProxyConfig) IsLocalProxy() bool {
+	return nac.LocalProxy != ""
+}
+
 type NodeClientConfig struct {
-	ForceKubeProxy     bool
-	ConcurrentPollers  int
-	DirectNodeClient   Client
-	InClusterClient    Client
+	ProxyConfig       NodeClientProxyConfig
+	ConcurrentPollers int
+	DirectNodeClient  Client
+	InClusterClient   Client
 }
 
 // connectionOptions returns the connection methods that are allowed for this node based on config
@@ -55,7 +76,7 @@ func (nac NodeClientConfig) connectionOptions(n v1.Node, nd nodeFetchData) []con
 	connectionMethods := make([]connectionMethod, 0)
 
 	// Do not allow direct connection to fargate nodes
-	if !nac.ForceKubeProxy && !isFargateNode(n) {
+	if !nac.ProxyConfig.ForceKubeProxy && !isFargateNode(n) {
 		directAPI, err := setupDirectNodeAPI(&n)
 		if err != nil {
 			log.Warnf("error reaching direct node api %s", err)
@@ -63,7 +84,12 @@ func (nac NodeClientConfig) connectionOptions(n v1.Node, nd nodeFetchData) []con
 			connectionMethods = append(connectionMethods, connectionMethod{directAPI, nac.DirectNodeClient})
 		}
 	}
-	proxyAPI := setupProxyAPI(nd.ClusterHostURL, nd.nodeName)
+	clusterHostURL := nd.ClusterHostURL
+	if nac.ProxyConfig.IsLocalProxy() {
+		clusterHostURL = nac.ProxyConfig.LocalProxy
+	}
+
+	proxyAPI := setupProxyAPI(clusterHostURL, nd.nodeName)
 	connectionMethods = append(connectionMethods, connectionMethod{proxyAPI, nac.InClusterClient})
 	return connectionMethods
 }
