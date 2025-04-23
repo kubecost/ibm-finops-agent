@@ -259,8 +259,10 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		Tags: map[string]string{
 			"cluster_uid": *ce.ClusterID,
 		},
-		Ts:     time.Now().UTC().UnixMilli() / 1000,
-		Values: nil,
+		Ts: time.Now().UTC().UnixMilli() / 1000,
+		Values: map[string]string{
+			"cluster_name": "jhudson-gke",
+		},
 	}
 	agentBytes, err := json.Marshal(agent)
 	if err != nil {
