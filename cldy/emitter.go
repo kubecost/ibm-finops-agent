@@ -35,7 +35,7 @@ type Emitter struct {
 
 type EmitterConfig struct {
 	UploaderConfig
-	EmitAsJson bool
+	EmitAsJson      bool
 	ParseMetricData bool
 }
 
@@ -63,19 +63,20 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	return EmitterConfig{
 		UploaderConfig: UploaderConfig{
 			ApptioConfig: ApptioConfig{
-				EnvID:         viper.GetString("ENV_ID"),
-				Timeout:       time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
-				Retries:       viper.GetInt("UPLOAD_RETRY_COUNT"),
-				ProxyURL:      outboundProxyUrl,
-				ProxyAuth:     viper.GetString("OUTBOUND_PROXY_AUTH"),
-				ProxyInsecure: viper.GetBool("OUTBOUND_PROXY_INSECURE"),
-				Region:        viper.GetString("UPLOAD_REGION"),
+				SecretManager:        NewKeyValueSecretManager(viper.GetString("KEY_ACCESS"), viper.GetString("KEY_SECRET")),
+				EnvID:                viper.GetString("ENV_ID"),
+				Timeout:              time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
+				Retries:              viper.GetInt("UPLOAD_RETRY_COUNT"),
+				ProxyURL:             outboundProxyUrl,
+				ProxyAuth:            viper.GetString("OUTBOUND_PROXY_AUTH"),
+				ProxyInsecure:        viper.GetBool("OUTBOUND_PROXY_INSECURE"),
+				Region:               viper.GetString("UPLOAD_REGION"),
 				CustomS3UploadBucket: viper.GetString("CUSTOM_S3_UPLOAD_BUCKET"),
 			},
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),
 		},
-		EmitAsJson: viper.GetBool("EMIT_AS_JSON"),
+		EmitAsJson:      viper.GetBool("EMIT_AS_JSON"),
 		ParseMetricData: viper.GetBool("PARSE_METRIC_DATA"),
 	}, nil
 }
