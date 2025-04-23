@@ -16,11 +16,11 @@ var _ = Describe("Node config", func() {
 	})
 	It("should return proper values for dual-CLDY environment variables", func() {
 
-		nodeClientConfig, err := NewNodeClientConfig()
+		nodeClientConfig, err := NewNodeClientConfigFromEnv()
 		Expect(err).ToNot(HaveOccurred())
 
 		// Variable not set, should default
-		Expect(nodeClientConfig.ForceKubeProxy).To(BeFalse())
+		Expect(nodeClientConfig.ProxyConfig.ForceKubeProxy).To(BeFalse())
 
 		// CLOUDABILITY_ version is set, should not use default
 		Expect(nodeClientConfig.ConcurrentPollers).To(BeNumerically("==", 17))
