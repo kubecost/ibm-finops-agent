@@ -42,7 +42,26 @@ var _ = Describe("Uploader", func() {
 			uploader.SetClusterID("test_id")
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			actualUploader := uploader.(*cldy.CldyUploader)
-			path, err := actualUploader.ConstructPayload()
+			path, err := actualUploader.ConstructPayload(time.Now())
+			Expect(err).ToNot(HaveOccurred())
+			fileInfo, err := os.Stat(path)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+		})
+	})
+	Context("TestStartupRecovery", func() {
+		FIt("should recover complete sample", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: time.Hour,
+				ScratchDir:      tempDir,
+			}
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			uploader.SetClusterID("test_id")
+			uploader.AddSample(tempDir + "/scratch/temp_test_data")
+			actualUploader := uploader.(*cldy.CldyUploader)
+			path, err := actualUploader.ConstructPayload(time.Now())
 			Expect(err).ToNot(HaveOccurred())
 			fileInfo, err := os.Stat(path)
 			Expect(err).ToNot(HaveOccurred())
@@ -241,10 +260,4 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response,
 		return &http.Response{StatusCode: 200, Body: r.Body, Header: http.Header{}}, nil
 	}
 	return &http.Response{}, fmt.Errorf("unknown request")
-}
-
-func safeClose(closer func() error, err *error) {
-	if closeErr := closer(); closeErr != nil && *err == nil {
-		*err = closeErr
-	}
 }

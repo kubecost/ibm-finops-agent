@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/opencost/opencost/core/pkg/util/json"
 	"io"
 	"io/fs"
 	"os"
@@ -22,15 +23,17 @@ type Uploader interface {
 }
 
 type CldyUploader struct {
-	config         UploaderConfig
-	tickerCh       time.Ticker
-	sampleSet      *set
-	uploadSet      *set
-	stop           chan struct{}
-	clusterID      string
-	agentVersion   string
-	uploadPathDir  string
-	StorageService StorageService
+	config           UploaderConfig
+	tickerCh         time.Ticker
+	sampleSet        *set
+	uploadSet        *set
+	stop             chan struct{}
+	clusterID        string
+	agentVersion     string
+	uploadPathDir    string
+	StorageService   StorageService
+	recoveredSamples int
+	recoveredUploads int
 }
 
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
@@ -52,6 +55,10 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
 		log.Warnf("failed to recover historic samples on startup: %v", err)
+	}
+	if uploader.recoveredUploads != 0 || uploader.recoveredSamples != 0 {
+		log.Infof("Cloudability successfully recovered %d samples and %d uploads on startup",
+			uploader.recoveredSamples, uploader.recoveredUploads)
 	}
 
 	go uploader.uploadLoop()
@@ -82,33 +89,54 @@ func (ce *CldyUploader) recoverDataOnStartup() error {
 
 func (ce *CldyUploader) recoverCompleteSamples() error {
 	var currentDir string
+	var sampleTime time.Time
+	first := true
 	hasShipped := false
 	filesNeeded := getNeededFiles()
+	// if specific dir is not complete, remove bad sample
 	err := filepath.WalkDir(ce.config.ScratchDir+"/"+scratchPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+		// skip first Walk (top level directory /scratch)
+		if first {
+			first = false
+			return nil
+		}
 		// this directory has a complete sample and should be added
 		if len(filesNeeded) == 0 && !hasShipped {
-			ce.AddSample(currentDir)
 			hasShipped = true
+			err = ce.recoverSample(currentDir, sampleTime)
+			if err != nil {
+				return err
+			}
 			return nil
 		}
 
-		// get directory
-		dir := filepath.Dir(path)
-		// on first pass, set currentDir to first found
-		if currentDir == "" {
-			currentDir = dir
-		}
-		// if dir changes, new sample set found, reset required files
-		if currentDir != dir {
-			filesNeeded = getNeededFiles()
-			currentDir = dir
-			hasShipped = false
-		}
-		// if file found, remove from filesNeeded
-		if !d.IsDir() {
+		if d.IsDir() {
+			dir := path
+			// on first pass, set currentDir to first found
+			if currentDir == "" {
+				currentDir = dir
+			}
+			// if dir changes, new sample set found, reset required files and delete previous from scratch
+			if currentDir != dir {
+				err = os.RemoveAll(currentDir)
+				if err != nil {
+					return err
+				}
+				filesNeeded = getNeededFiles()
+				currentDir = dir
+				hasShipped = false
+			}
+		} else {
+			// file found, gather timestamp from agent measure and remove from filesNeeded
+			if strings.Contains(path, "agent-measurement") {
+				sampleTime, err = collectSampleTime(path)
+				if err != nil {
+					return err
+				}
+			}
 			for requiredFile := range filesNeeded {
 				if strings.Contains(path, requiredFile) {
 					delete(filesNeeded, requiredFile)
@@ -119,6 +147,44 @@ func (ce *CldyUploader) recoverCompleteSamples() error {
 		return nil
 	})
 	return err
+}
+
+// recover sample adds a completed sample to the set and constructs the upload file, construct handles
+// scratch dir clean up, the sample will be uploaded in first upload loop of the agent
+func (ce *CldyUploader) recoverSample(dir string, sampleTime time.Time) error {
+	ce.recoveredSamples++
+	ce.AddSample(dir)
+	path, err := ce.ConstructPayload(sampleTime)
+	if err != nil {
+		return fmt.Errorf("failed to construct sample payload: %v", err)
+	}
+	ce.uploadSet.add(path)
+	return nil
+}
+
+func collectSampleTime(path string) (t time.Time, rerr error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer safeClose(file.Close, &rerr)
+	bytes, err := io.ReadAll(file)
+	if err != nil {
+		return time.Time{}, err
+	}
+	var agentMeasure agentMeasurement
+	err = json.Unmarshal(bytes, &agentMeasure)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if agentMeasure.Timestamp == 0 {
+		return time.Time{}, fmt.Errorf("agent-measurement timestamp is missing")
+	}
+	return time.Unix(agentMeasure.Timestamp, 0), nil
+}
+
+type agentMeasurement struct {
+	Timestamp int64 `json:"ts"`
 }
 
 func (ce *CldyUploader) recoverUploadFiles() error {
@@ -160,7 +226,7 @@ func (ce *CldyUploader) uploadLoop() {
 			if ce.sampleSet.length() == 0 {
 				continue
 			}
-			path, err := ce.ConstructPayload()
+			path, err := ce.ConstructPayload(time.Now().UTC())
 			if err != nil {
 				// TODO: general error handling, maybe this can just be logged
 				panic("failed to construct cldy payload: " + err.Error())
@@ -174,7 +240,7 @@ func (ce *CldyUploader) uploadLoop() {
 	}
 }
 
-func (ce *CldyUploader) ConstructPayload() (path string, rerr error) {
+func (ce *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rerr error) {
 	files := make([]*os.File, 0)
 	for _, samplePath := range ce.sampleSet.contents() {
 		file, err := os.Open(SafePath(samplePath))
@@ -190,7 +256,7 @@ func (ce *CldyUploader) ConstructPayload() (path string, rerr error) {
 		fmt.Sprintf(
 			"%s_%s.tgz",
 			ce.clusterID,
-			time.Now().Format("2006-01-02-15-04-05"),
+			sampleTime.Format("2006-01-02-15-04-05"),
 		),
 	)
 	tw, err := os.Create(path)
