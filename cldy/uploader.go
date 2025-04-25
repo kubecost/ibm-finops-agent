@@ -95,7 +95,6 @@ func (ce *CldyUploader) recoverCompleteSamples() error {
 	first := true
 	hasShipped := false
 	filesNeeded := getNeededFiles()
-	// if specific dir is not complete, remove bad sample
 	err := filepath.WalkDir(ce.config.ScratchDir+"/"+scratchPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
