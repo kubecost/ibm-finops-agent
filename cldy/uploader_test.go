@@ -23,8 +23,7 @@ var _ = Describe("Uploader", func() {
 		var err error
 		tempDir, err = os.MkdirTemp("", "")
 		Expect(err).ToNot(HaveOccurred())
-		err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
-		Expect(err).ToNot(HaveOccurred())
+		err = os.Mkdir(tempDir+"/scratch", os.ModePerm)
 	})
 	AfterEach(func() {
 		err := os.RemoveAll(tempDir)
@@ -39,25 +38,10 @@ var _ = Describe("Uploader", func() {
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
-			uploader.SetClusterID("test_id")
-			uploader.AddSample(tempDir + "/scratch/temp_test_data")
-			actualUploader := uploader.(*cldy.CldyUploader)
-			path, err := actualUploader.ConstructPayload(time.Now())
+
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
 			Expect(err).ToNot(HaveOccurred())
-			fileInfo, err := os.Stat(path)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
-		})
-	})
-	Context("TestStartupRecovery", func() {
-		FIt("should recover complete sample", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-			}
-			stopCh := make(chan struct{})
-			defer close(stopCh)
-			uploader := cldy.NewCldyUploader(config, stopCh)
+
 			uploader.SetClusterID("test_id")
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			actualUploader := uploader.(*cldy.CldyUploader)
@@ -77,6 +61,10 @@ var _ = Describe("Uploader", func() {
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
+
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)
 			mockService := cldy.ApptioServiceImpl{}
@@ -84,6 +72,133 @@ var _ = Describe("Uploader", func() {
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			time.Sleep(time.Second)
 			fileInfo, err := os.Stat(tempDir + "/upload")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+		})
+	})
+	Context("TestStartupRecovery", func() {
+		It("should recover complete sample", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: time.Hour,
+				ScratchDir:      tempDir,
+				// 100 years (should recover all samples)
+				RecoveryPeriod: 1000000 * time.Hour,
+			}
+			// copy over data before creating uploader simulating recovery state
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			uploader.SetClusterID("123456-1234-1234-123456789012")
+			actualUploader := uploader.(*cldy.CldyUploader)
+			Expect(actualUploader.RecoveredSamples).To(Equal(1))
+			Expect(actualUploader.RecoveredUploads).To(Equal(1))
+			checkScratchEmpty(tempDir + "/scratch")
+
+			// copy over another sample and ensure recovery does not break happy path
+			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			uploader.AddSample(tempDir + "/scratch/temp_test_data")
+
+			path, err := actualUploader.ConstructPayload(time.Now())
+			Expect(err).ToNot(HaveOccurred())
+			fileInfo, err := os.Stat(path)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+		})
+		It("should recover sample but not upload when outside recovery range", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: time.Hour,
+				ScratchDir:      tempDir,
+				// 1 hour (will not recover as agent-measurement timestamp is old)
+				RecoveryPeriod: 1 * time.Hour,
+			}
+			// copy over data before creating uploader simulating recovery state
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			uploader.SetClusterID("123456-1234-1234-123456789012")
+			actualUploader := uploader.(*cldy.CldyUploader)
+			Expect(actualUploader.RecoveredSamples).To(Equal(1))
+			Expect(actualUploader.RecoveredUploads).To(Equal(0))
+			checkScratchEmpty(tempDir + "/scratch")
+
+			// copy over another sample and ensure recovery does not break happy path
+			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			uploader.AddSample(tempDir + "/scratch/temp_test_data")
+
+			path, err := actualUploader.ConstructPayload(time.Now())
+			Expect(err).ToNot(HaveOccurred())
+			fileInfo, err := os.Stat(path)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+		})
+		It("should not recover incomplete sample", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: time.Hour,
+				ScratchDir:      tempDir,
+				// 100 years (should recover all samples if complete)
+				RecoveryPeriod: 1000000 * time.Hour,
+			}
+			// copy over data before creating uploader simulating recovery state
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdataIncomplete"))
+			Expect(err).ToNot(HaveOccurred())
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			uploader.SetClusterID("123456-1234-1234-123456789012")
+			actualUploader := uploader.(*cldy.CldyUploader)
+			Expect(actualUploader.RecoveredSamples).To(Equal(0))
+			Expect(actualUploader.RecoveredUploads).To(Equal(0))
+			checkScratchEmpty(tempDir + "/scratch")
+
+			// copy over another sample and ensure recovery does not break happy path
+			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			uploader.AddSample(tempDir + "/scratch/temp_test_data")
+
+			path, err := actualUploader.ConstructPayload(time.Now())
+			Expect(err).ToNot(HaveOccurred())
+			fileInfo, err := os.Stat(path)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+		})
+		It("should recover multiple complete samples and ignore 1 incomplete sample", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: time.Hour,
+				ScratchDir:      tempDir,
+				// 100 years (should recover all samples)
+				RecoveryPeriod: 1000000 * time.Hour,
+			}
+			// copy over data before creating uploader simulating recovery state
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			err = os.CopyFS(tempDir+"/scratch/temp_test_data_1", os.DirFS("testdata2"))
+			Expect(err).ToNot(HaveOccurred())
+			err = os.CopyFS(tempDir+"/scratch/temp_test_data_2", os.DirFS("testdataIncomplete"))
+			Expect(err).ToNot(HaveOccurred())
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			uploader.SetClusterID("123456-1234-1234-123456789012")
+			actualUploader := uploader.(*cldy.CldyUploader)
+			Expect(actualUploader.RecoveredSamples).To(Equal(2))
+			Expect(actualUploader.RecoveredUploads).To(Equal(2))
+
+			checkScratchEmpty(tempDir + "/scratch")
+
+			// copy over another sample and ensure recovery does not break happy path
+			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			uploader.AddSample(tempDir + "/scratch/temp_test_data")
+
+			path, err := actualUploader.ConstructPayload(time.Now())
+			Expect(err).ToNot(HaveOccurred())
+			fileInfo, err := os.Stat(path)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
 		})
@@ -97,6 +212,8 @@ var _ = Describe("Uploader", func() {
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)
 			service := cldy.ApptioServiceImpl{
@@ -112,7 +229,7 @@ var _ = Describe("Uploader", func() {
 				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
 			}
 			// upload with bad froontdoor credentials
-			err := actualUploader.StorageService.Upload(payload)
+			err = actualUploader.StorageService.Upload(payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("frontdoor service login call failed"))
 			service.SecretManager = cldy.NewKeyValueSecretManager("good-key", "")
@@ -133,6 +250,8 @@ var _ = Describe("Uploader", func() {
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
 			uploader.SetClusterID("test_id")
 
 			actualUploader := uploader.(*cldy.CldyUploader)
@@ -149,7 +268,7 @@ var _ = Describe("Uploader", func() {
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(1))
 			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(1))
 
-			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
 			Expect(err).ToNot(HaveOccurred())
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			time.Sleep(500 * time.Millisecond)
@@ -166,6 +285,8 @@ var _ = Describe("Uploader", func() {
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
 			uploader.SetClusterID("test_id")
 
 			actualUploader := uploader.(*cldy.CldyUploader)
@@ -182,7 +303,7 @@ var _ = Describe("Uploader", func() {
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(1))
 			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(1))
 
-			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
 			Expect(err).ToNot(HaveOccurred())
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			time.Sleep(500 * time.Millisecond)
@@ -192,6 +313,15 @@ var _ = Describe("Uploader", func() {
 		})
 	})
 })
+
+func checkScratchEmpty(dir string) {
+	f, err := os.Open(dir)
+	Expect(err).To(Not(HaveOccurred()))
+	defer f.Close()
+
+	_, err = f.Readdirnames(1)
+	Expect(err).To(BeEquivalentTo(io.EOF))
+}
 
 type mockClientService struct {
 	countByPath map[string]int

@@ -7,160 +7,142 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"testing"
 
 	"github.com/ibm/finops-agent/cldy"
 
 	"github.com/ibm/finops-agent/pkg/emitter"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
-func TestLoadData(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tempDir)
-	config := cldy.EmitterConfig{
-		UploaderConfig: cldy.UploaderConfig{
-			ScratchDir: tempDir,
-		},
-	}
-	cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
-	actualEmitter := cldyEmitter.(*cldy.Emitter)
+var _ = Describe("Emitter", func() {
+	Context("TestLoadData", func() {
+		It("should load data", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).NotTo(HaveOccurred())
+			defer os.RemoveAll(tempDir)
+			config := cldy.EmitterConfig{
+				UploaderConfig: cldy.UploaderConfig{
+					ScratchDir: tempDir,
+				},
+			}
+			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
+			actualEmitter := cldyEmitter.(*cldy.Emitter)
 
-	mockUpload := mockUploader{data: []string{}}
-	actualEmitter.Uploader = &mockUpload
+			mockUpload := mockUploader{data: []string{}}
 
-	data, err := buildTestData()
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = cldyEmitter.Init(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = cldyEmitter.Emit(context.TODO(), data)
-	if err != nil {
-		t.Fatal(err)
-	}
+			data, err := buildTestData()
+			Expect(err).NotTo(HaveOccurred())
+			err = cldyEmitter.Init(data)
+			Expect(err).NotTo(HaveOccurred())
+			actualEmitter.Uploader = &mockUpload
+			err = cldyEmitter.Emit(context.TODO(), data)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(mockUpload.data)).To(Equal(1))
 
-	if len(mockUpload.data) != 1 {
-		t.Fatalf("uploader data empty: %v", mockUpload.data)
-	}
-	expectedData := []string{
-		"agent-measurement.json",
-		"baseline-summary-nodename1.json",
-		"baseline-summary-nodename2.json",
-		"baseline-summary-nodename3.json",
-		"baseline-summary-nodename4.json",
-		"daemonsets.proto",
-		"deployments.proto",
-		"jobs.proto",
-		"namespaces.proto",
-		"nodes.proto",
-		"persistentvolumeclaims.proto",
-		"persistentvolumes.proto",
-		"pods.proto",
-		"replicasets.proto",
-		"replicationcontrollers.proto",
-		"services.proto",
-		"statefulsets.proto",
-		"stats-summary-nodename1.json",
-		"stats-summary-nodename2.json",
-		"stats-summary-nodename3.json",
-		"stats-summary-nodename4.json",
-	}
-	seenFiles := map[string]struct{}{}
-	filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
-		if !info.IsDir() {
-			parts := strings.Split(path, "/")
-			name := parts[len(parts)-1]
-			seenFiles[name] = struct{}{}
-		}
-		return nil
+			expectedData := []string{
+				"agent-measurement.json",
+				"baseline-summary-nodename1.json",
+				"baseline-summary-nodename2.json",
+				"baseline-summary-nodename3.json",
+				"baseline-summary-nodename4.json",
+				"daemonsets.proto",
+				"deployments.proto",
+				"jobs.proto",
+				"namespaces.proto",
+				"nodes.proto",
+				"persistentvolumeclaims.proto",
+				"persistentvolumes.proto",
+				"pods.proto",
+				"replicasets.proto",
+				"replicationcontrollers.proto",
+				"services.proto",
+				"statefulsets.proto",
+				"stats-summary-nodename1.json",
+				"stats-summary-nodename2.json",
+				"stats-summary-nodename3.json",
+				"stats-summary-nodename4.json",
+			}
+			seenFiles := map[string]struct{}{}
+			filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+				if !info.IsDir() {
+					parts := strings.Split(path, "/")
+					name := parts[len(parts)-1]
+					seenFiles[name] = struct{}{}
+				}
+				return nil
+			})
+			for _, path := range expectedData {
+				_, ok := seenFiles[path]
+				Expect(ok).To(BeTrue())
+			}
+		})
+		It("should load data as JSON", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).NotTo(HaveOccurred())
+			defer os.RemoveAll(tempDir)
+			config := cldy.EmitterConfig{
+				UploaderConfig: cldy.UploaderConfig{ScratchDir: tempDir},
+				EmitAsJson:     true,
+			}
+			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
+			actualEmitter := cldyEmitter.(*cldy.Emitter)
+
+			mockUpload := mockUploader{data: []string{}}
+
+			data, err := buildTestData()
+			Expect(err).NotTo(HaveOccurred())
+			err = cldyEmitter.Init(data)
+			Expect(err).NotTo(HaveOccurred())
+			actualEmitter.Uploader = &mockUpload
+
+			err = cldyEmitter.Emit(context.TODO(), data)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(mockUpload.data)).To(Equal(1))
+			expectedData := []string{
+				"agent-measurement.json",
+				"baseline-summary-nodename1.json",
+				"baseline-summary-nodename2.json",
+				"baseline-summary-nodename3.json",
+				"baseline-summary-nodename4.json",
+				"daemonsets.jsonl",
+				"deployments.jsonl",
+				"jobs.jsonl",
+				"namespaces.jsonl",
+				"nodes.jsonl",
+				"persistentvolumeclaims.jsonl",
+				"persistentvolumes.jsonl",
+				"pods.jsonl",
+				"replicasets.jsonl",
+				"replicationcontrollers.jsonl",
+				"services.jsonl",
+				"statefulsets.jsonl",
+				"stats-summary-nodename1.json",
+				"stats-summary-nodename2.json",
+				"stats-summary-nodename3.json",
+				"stats-summary-nodename4.json",
+			}
+			seenFiles := map[string]struct{}{}
+			filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+				if !info.IsDir() {
+					parts := strings.Split(path, "/")
+					name := parts[len(parts)-1]
+					seenFiles[name] = struct{}{}
+				}
+				return nil
+			})
+			for _, path := range expectedData {
+				_, ok := seenFiles[path]
+				Expect(ok).To(BeTrue())
+			}
+		})
 	})
-	for _, path := range expectedData {
-		if _, ok := seenFiles[path]; !ok {
-			t.Fatalf("file not seen: %v", path)
-		}
-	}
-}
-
-func TestLoadDataAsJSON(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tempDir)
-	config := cldy.EmitterConfig{
-		UploaderConfig: cldy.UploaderConfig{ScratchDir: tempDir},
-		EmitAsJson:     true,
-	}
-	cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
-	actualEmitter := cldyEmitter.(*cldy.Emitter)
-
-	mockUpload := mockUploader{data: []string{}}
-	actualEmitter.Uploader = &mockUpload
-
-	data, err := buildTestData()
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = cldyEmitter.Init(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = cldyEmitter.Emit(context.TODO(), data)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(mockUpload.data) != 1 {
-		t.Fatalf("uploader data empty: %v", mockUpload.data)
-	}
-	expectedData := []string{
-		"agent-measurement.json",
-		"baseline-summary-nodename1.json",
-		"baseline-summary-nodename2.json",
-		"baseline-summary-nodename3.json",
-		"baseline-summary-nodename4.json",
-		"daemonsets.jsonl",
-		"deployments.jsonl",
-		"jobs.jsonl",
-		"namespaces.jsonl",
-		"nodes.jsonl",
-		"persistentvolumeclaims.jsonl",
-		"persistentvolumes.jsonl",
-		"pods.jsonl",
-		"replicasets.jsonl",
-		"replicationcontrollers.jsonl",
-		"services.jsonl",
-		"statefulsets.jsonl",
-		"stats-summary-nodename1.json",
-		"stats-summary-nodename2.json",
-		"stats-summary-nodename3.json",
-		"stats-summary-nodename4.json",
-	}
-	seenFiles := map[string]struct{}{}
-	filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
-		if !info.IsDir() {
-			parts := strings.Split(path, "/")
-			name := parts[len(parts)-1]
-			seenFiles[name] = struct{}{}
-		}
-		return nil
-	})
-	for _, path := range expectedData {
-		if _, ok := seenFiles[path]; !ok {
-			t.Fatalf("file not seen: %v", path)
-		}
-	}
-}
+})
 
 type mockUploader struct {
 	data      []string
@@ -438,7 +420,7 @@ func loadStatefulSets() ([]*appsv1.StatefulSet, error) {
 func loadStats() ([]*stats.Summary, error) {
 	var data []*stats.Summary
 	for i := 1; i <= 4; i++ {
-		file, err := os.Open(fmt.Sprintf("testdata/summary-nodename%d.json", i))
+		file, err := os.Open(fmt.Sprintf("testdata/stats-summary-nodename%d.json", i))
 		if err != nil {
 			return nil, err
 		}

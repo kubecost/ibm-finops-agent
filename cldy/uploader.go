@@ -32,8 +32,9 @@ type CldyUploader struct {
 	agentVersion     string
 	uploadPathDir    string
 	StorageService   StorageService
-	recoveredSamples int
-	recoveredUploads int
+	RecoveredSamples int
+	RecoveredUploads int
+	recoveryPeriod   time.Duration
 }
 
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
@@ -50,15 +51,15 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		uploadPathDir: uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
 		StorageService: NewApptioSerivce(config.ApptioConfig),
+		recoveryPeriod: config.RecoveryPeriod,
 	}
-
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
 		log.Warnf("failed to recover historic samples on startup: %v", err)
 	}
-	if uploader.recoveredUploads != 0 || uploader.recoveredSamples != 0 {
-		log.Infof("Cloudability successfully recovered %d samples and %d uploads on startup",
-			uploader.recoveredSamples, uploader.recoveredUploads)
+	if uploader.RecoveredUploads != 0 || uploader.RecoveredSamples != 0 {
+		log.Infof("Cloudability successfully recovered %d samples and prepared %d uploads on startup",
+			uploader.RecoveredSamples, uploader.RecoveredUploads)
 	}
 
 	go uploader.uploadLoop()
@@ -69,6 +70,7 @@ type UploaderConfig struct {
 	ApptioConfig
 	UploadFrequency time.Duration
 	ScratchDir      string
+	RecoveryPeriod  time.Duration
 }
 
 func (ce *CldyUploader) AddSample(sample string) {
@@ -146,13 +148,20 @@ func (ce *CldyUploader) recoverCompleteSamples() error {
 		}
 		return nil
 	})
+	// last sample was incomplete, need to remove
+	if !hasShipped {
+		err = os.RemoveAll(currentDir)
+		if err != nil {
+			return err
+		}
+	}
 	return err
 }
 
 // recover sample adds a completed sample to the set and constructs the upload file, construct handles
 // scratch dir clean up, the sample will be uploaded in first upload loop of the agent
 func (ce *CldyUploader) recoverSample(dir string, sampleTime time.Time) error {
-	ce.recoveredSamples++
+	ce.RecoveredSamples++
 	ce.AddSample(dir)
 	path, err := ce.ConstructPayload(sampleTime)
 	if err != nil {
@@ -190,18 +199,27 @@ type agentMeasurement struct {
 func (ce *CldyUploader) recoverUploadFiles() error {
 	err := filepath.WalkDir(ce.uploadPathDir, func(path string, d fs.DirEntry, err error) error {
 		if !d.IsDir() {
-			parts := strings.Split(path, "-")
-			date, dErr := time.Parse("20060102", parts[6])
+			parts := strings.Split(path, "_")
+			if len(parts) == 0 {
+				return fmt.Errorf("invalid path: %s", path)
+			}
+			dateParts := strings.Split(parts[len(parts)-1], "-")
+			if len(dateParts) < 2 {
+				return fmt.Errorf("invalid date found in path: %s", path)
+			}
+			dateStr := dateParts[0] + dateParts[1] + dateParts[2]
+			date, dErr := time.Parse("20060102", dateStr)
 			if dErr != nil {
 				return dErr
 			}
-			// remove and do not upload samples older than 72 hours
-			if time.Since(date.UTC()).Hours() > 72 {
-				err = os.Remove(path)
-				return err
+			// remove and do not upload samples older than recovery Period
+			if time.Since(date.UTC()).Hours() > ce.recoveryPeriod.Hours() {
+				log.Infof("Cloudability sample is outside of recovery range, removing sample")
+				return os.Remove(path)
 			}
-			// just add to uploadSet and clean up will occur during next upload
+			// add to uploadSet and shipping & clean up will occur during next upload
 			ce.uploadSet.add(path)
+			ce.RecoveredUploads++
 		}
 		return nil
 	})
