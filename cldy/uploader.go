@@ -105,6 +105,22 @@ func (ce *CldyUploader) recoverCompleteSamples() error {
 			first = false
 			return nil
 		}
+
+		if !d.IsDir() {
+			// file found, gather timestamp from agent measure and remove from filesNeeded
+			if strings.Contains(path, "agent-measurement") {
+				sampleTime, err = collectSampleTime(path)
+				if err != nil {
+					return err
+				}
+			}
+			for requiredFile := range filesNeeded {
+				if strings.Contains(path, requiredFile) {
+					delete(filesNeeded, requiredFile)
+					break
+				}
+			}
+		}
 		// this directory has a complete sample and should be added
 		if len(filesNeeded) == 0 && !hasShipped {
 			hasShipped = true
@@ -130,20 +146,6 @@ func (ce *CldyUploader) recoverCompleteSamples() error {
 				filesNeeded = getNeededFiles()
 				currentDir = dir
 				hasShipped = false
-			}
-		} else {
-			// file found, gather timestamp from agent measure and remove from filesNeeded
-			if strings.Contains(path, "agent-measurement") {
-				sampleTime, err = collectSampleTime(path)
-				if err != nil {
-					return err
-				}
-			}
-			for requiredFile := range filesNeeded {
-				if strings.Contains(path, requiredFile) {
-					delete(filesNeeded, requiredFile)
-					break
-				}
 			}
 		}
 		return nil

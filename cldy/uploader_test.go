@@ -318,8 +318,7 @@ func checkScratchEmpty(dir string) {
 	f, err := os.Open(dir)
 	Expect(err).To(Not(HaveOccurred()))
 	defer f.Close()
-
-	_, err = f.Readdirnames(1)
+	_, err = f.Readdir(1)
 	Expect(err).To(BeEquivalentTo(io.EOF))
 }
 

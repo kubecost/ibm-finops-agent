@@ -26,7 +26,7 @@
     "outbound_proxy_url": "",
     "parse_metric_data": "false",
     "poll_interval": "180",
-    "provisioning_id": "d5c73b2f067d0de505c79836fa32a08db8e61d1b",
+    "provisioning_id": "123456",
     "retrieve_node_summaries": "true",
     "stats_summary_retrieval_method": "direct",
     "upload_region": "us-west-2"

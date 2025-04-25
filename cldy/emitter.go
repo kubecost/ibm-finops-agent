@@ -36,15 +36,11 @@ type EmitterConfig struct {
 }
 
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
-	err := createIfNotExists(config.ScratchDir + "/" + scratchPath)
-	if err != nil {
-		panic("failed to create scratch directory: " + err.Error())
-	}
 	return &Emitter{
 		config:    config,
+		Uploader:  NewCldyUploader(config.UploaderConfig, stop),
 		sampleCt:  initialSampleCt,
 		startTime: time.Now().UTC(),
-		Uploader:  NewCldyUploader(config.UploaderConfig, stop),
 	}
 }
 
@@ -52,10 +48,6 @@ func createIfNotExists(path string) error {
 	_, err := os.Stat(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
-	}
-	// already exists, do not create
-	if err == nil {
-		return nil
 	}
 	return os.MkdirAll(path, os.ModePerm)
 }
