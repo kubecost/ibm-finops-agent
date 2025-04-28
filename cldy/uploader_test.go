@@ -39,7 +39,7 @@ var _ = Describe("Uploader", func() {
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
 
-			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
 
 			uploader.SetClusterID("test_id")
@@ -62,7 +62,7 @@ var _ = Describe("Uploader", func() {
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
 
-			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
 
 			uploader.SetClusterID("test_id")
@@ -85,7 +85,7 @@ var _ = Describe("Uploader", func() {
 				RecoveryPeriod: 1000000 * time.Hour,
 			}
 			// copy over data before creating uploader simulating recovery state
-			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -97,15 +97,7 @@ var _ = Describe("Uploader", func() {
 			checkScratchEmpty(tempDir + "/scratch")
 
 			// copy over another sample and ensure recovery does not break happy path
-			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
-			Expect(err).ToNot(HaveOccurred())
-			uploader.AddSample(tempDir + "/scratch/temp_test_data")
-
-			path, err := actualUploader.ConstructPayload(time.Now())
-			Expect(err).ToNot(HaveOccurred())
-			fileInfo, err := os.Stat(path)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
 		})
 		It("should recover sample but not upload when outside recovery range", func() {
 			config := cldy.UploaderConfig{
@@ -115,7 +107,7 @@ var _ = Describe("Uploader", func() {
 				RecoveryPeriod: 1 * time.Hour,
 			}
 			// copy over data before creating uploader simulating recovery state
-			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -127,15 +119,7 @@ var _ = Describe("Uploader", func() {
 			checkScratchEmpty(tempDir + "/scratch")
 
 			// copy over another sample and ensure recovery does not break happy path
-			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
-			Expect(err).ToNot(HaveOccurred())
-			uploader.AddSample(tempDir + "/scratch/temp_test_data")
-
-			path, err := actualUploader.ConstructPayload(time.Now())
-			Expect(err).ToNot(HaveOccurred())
-			fileInfo, err := os.Stat(path)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
 		})
 		It("should not recover incomplete sample", func() {
 			config := cldy.UploaderConfig{
@@ -145,7 +129,7 @@ var _ = Describe("Uploader", func() {
 				RecoveryPeriod: 1000000 * time.Hour,
 			}
 			// copy over data before creating uploader simulating recovery state
-			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdataIncomplete"))
+			err := copyIncompleteData(tempDir+"/scratch/temp_test_data", "testdata", []string{"deployments.jsonl"})
 			Expect(err).ToNot(HaveOccurred())
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -157,15 +141,7 @@ var _ = Describe("Uploader", func() {
 			checkScratchEmpty(tempDir + "/scratch")
 
 			// copy over another sample and ensure recovery does not break happy path
-			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
-			Expect(err).ToNot(HaveOccurred())
-			uploader.AddSample(tempDir + "/scratch/temp_test_data")
-
-			path, err := actualUploader.ConstructPayload(time.Now())
-			Expect(err).ToNot(HaveOccurred())
-			fileInfo, err := os.Stat(path)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
 		})
 		It("should recover multiple complete samples and ignore 1 incomplete sample", func() {
 			config := cldy.UploaderConfig{
@@ -175,11 +151,15 @@ var _ = Describe("Uploader", func() {
 				RecoveryPeriod: 1000000 * time.Hour,
 			}
 			// copy over data before creating uploader simulating recovery state
-			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
-			err = os.CopyFS(tempDir+"/scratch/temp_test_data_1", os.DirFS("testdata2"))
+			// still valid test data, just with only 1 node file
+			err = copyIncompleteData(tempDir+"/scratch/temp_test_data_1", "testdata", []string{"stats-summary-nodename2.json", "stats-summary-nodename3.json", "stats-summary-nodename4.json"})
 			Expect(err).ToNot(HaveOccurred())
-			err = os.CopyFS(tempDir+"/scratch/temp_test_data_2", os.DirFS("testdataIncomplete"))
+			err = updateAgentTimestamp(tempDir+"/scratch/temp_test_data_1/agent-measurement.json", 1743499000)
+			Expect(err).ToNot(HaveOccurred())
+			// invalid data set
+			err = copyIncompleteData(tempDir+"/scratch/temp_test_data_2", "testdata", []string{"deployments.jsonl"})
 			Expect(err).ToNot(HaveOccurred())
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -188,19 +168,10 @@ var _ = Describe("Uploader", func() {
 			actualUploader := uploader.(*cldy.CldyUploader)
 			Expect(actualUploader.RecoveredSamples).To(Equal(2))
 			Expect(actualUploader.RecoveredUploads).To(Equal(2))
-
 			checkScratchEmpty(tempDir + "/scratch")
 
 			// copy over another sample and ensure recovery does not break happy path
-			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
-			Expect(err).ToNot(HaveOccurred())
-			uploader.AddSample(tempDir + "/scratch/temp_test_data")
-
-			path, err := actualUploader.ConstructPayload(time.Now())
-			Expect(err).ToNot(HaveOccurred())
-			fileInfo, err := os.Stat(path)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
 		})
 	})
 	Context("TestUpload", func() {
@@ -313,6 +284,68 @@ var _ = Describe("Uploader", func() {
 		})
 	})
 })
+
+// copies the entire testdata set
+func copyCompleteData(destination, source string) error {
+	return os.CopyFS(destination, os.DirFS(source))
+}
+
+// copies testdata set and removes 1 file for incomplete data set testing purposes
+func copyIncompleteData(destination, source string, filesToRemove []string) error {
+	err := os.CopyFS(destination, os.DirFS(source))
+	if err != nil {
+		return err
+	}
+	for _, file := range filesToRemove {
+		fErr := os.Remove(destination + "/" + file)
+		if fErr != nil {
+			return fErr
+		}
+	}
+	return nil
+}
+
+// sample timestamps need to be unique otherwise .tgz file names will be the same and cause overwrite which would
+// never occur in real data collection/uploading
+func updateAgentTimestamp(filePath string, ts int64) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	measure := testAgentMeasure{}
+	err = json.Unmarshal(data, &measure)
+	if err != nil {
+		return err
+	}
+	measure.Timestamp = ts
+	jsonInfo, err := json.Marshal(&measure)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, jsonInfo, 0644)
+}
+
+type testAgentMeasure struct {
+	Timestamp int64  `json:"ts"`
+	Name      string `json:"name"`
+}
+
+func checkCollectionAndConstruction(tempDir string, uploader cldy.Uploader, actualUploader *cldy.CldyUploader) {
+	err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
+	Expect(err).ToNot(HaveOccurred())
+	uploader.AddSample(tempDir + "/scratch/temp_test_data")
+
+	path, err := actualUploader.ConstructPayload(time.Now())
+	Expect(err).ToNot(HaveOccurred())
+	fileInfo, err := os.Stat(path)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+}
 
 func checkScratchEmpty(dir string) {
 	f, err := os.Open(dir)

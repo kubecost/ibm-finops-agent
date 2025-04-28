@@ -78,8 +78,7 @@ var _ = Describe("Emitter", func() {
 				return nil
 			})
 			for _, path := range expectedData {
-				_, ok := seenFiles[path]
-				Expect(ok).To(BeTrue())
+				Expect(seenFiles).To(HaveKey(path))
 			}
 		})
 		It("should load data as JSON", func() {
@@ -137,8 +136,7 @@ var _ = Describe("Emitter", func() {
 				return nil
 			})
 			for _, path := range expectedData {
-				_, ok := seenFiles[path]
-				Expect(ok).To(BeTrue())
+				Expect(seenFiles).To(HaveKey(path))
 			}
 		})
 	})

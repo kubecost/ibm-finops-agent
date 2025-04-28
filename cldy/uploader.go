@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/flate"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/util/json"
@@ -82,11 +83,20 @@ func (ce *CldyUploader) SetClusterID(id string) {
 }
 
 func (ce *CldyUploader) recoverDataOnStartup() error {
+	var recoveryErrs []error
 	err := ce.recoverCompleteSamples()
 	if err != nil {
-		return err
+		recoveryErrs = append(recoveryErrs, err)
 	}
-	return ce.recoverUploadFiles()
+	err = ce.recoverUploadFiles()
+	if err != nil {
+		recoveryErrs = append(recoveryErrs, err)
+	}
+	if len(recoveryErrs) > 0 {
+		return fmt.Errorf("%d error(s) occurred attempting to recover data on startup. errors: %w", len(recoveryErrs),
+			errors.Join(recoveryErrs...))
+	}
+	return nil
 }
 
 func (ce *CldyUploader) recoverCompleteSamples() error {
@@ -164,11 +174,10 @@ func (ce *CldyUploader) recoverCompleteSamples() error {
 func (ce *CldyUploader) recoverSample(dir string, sampleTime time.Time) error {
 	ce.RecoveredSamples++
 	ce.AddSample(dir)
-	path, err := ce.ConstructPayload(sampleTime)
+	_, err := ce.ConstructPayload(sampleTime)
 	if err != nil {
 		return fmt.Errorf("failed to construct sample payload: %v", err)
 	}
-	ce.uploadSet.add(path)
 	return nil
 }
 
