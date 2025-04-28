@@ -285,12 +285,12 @@ var _ = Describe("Uploader", func() {
 	})
 })
 
-// copies the entire testdata set
+// copies the entire directory
 func copyCompleteData(destination, source string) error {
 	return os.CopyFS(destination, os.DirFS(source))
 }
 
-// copies testdata set and removes 1 file for incomplete data set testing purposes
+// copies directory set and removes files in provided list for incomplete data set testing purposes
 func copyIncompleteData(destination, source string, filesToRemove []string) error {
 	err := os.CopyFS(destination, os.DirFS(source))
 	if err != nil {

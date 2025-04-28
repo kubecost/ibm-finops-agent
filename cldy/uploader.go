@@ -227,7 +227,7 @@ func (ce *CldyUploader) recoverUploadFiles() error {
 				log.Infof("Cloudability sample is outside of recovery range, removing sample")
 				return os.Remove(path)
 			}
-			// add to uploadSet and shipping & clean up will occur during next upload
+			// add to uploadSet for future shipping & clean up will occur during next upload
 			ce.uploadSet.add(path)
 			ce.RecoveredUploads++
 		}
