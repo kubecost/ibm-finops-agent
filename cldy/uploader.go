@@ -83,18 +83,10 @@ func (ce *CldyUploader) SetClusterID(id string) {
 }
 
 func (ce *CldyUploader) recoverDataOnStartup() error {
-	var recoveryErrs []error
 	err := ce.recoverCompleteSamples()
+	err = errors.Join(err, ce.recoverUploadFiles())
 	if err != nil {
-		recoveryErrs = append(recoveryErrs, err)
-	}
-	err = ce.recoverUploadFiles()
-	if err != nil {
-		recoveryErrs = append(recoveryErrs, err)
-	}
-	if len(recoveryErrs) > 0 {
-		return fmt.Errorf("%d error(s) occurred attempting to recover data on startup. errors: %w", len(recoveryErrs),
-			errors.Join(recoveryErrs...))
+		return fmt.Errorf("error(s) occurred attempting to recover data on startup. errors: %w", err)
 	}
 	return nil
 }
@@ -213,12 +205,7 @@ func (ce *CldyUploader) recoverUploadFiles() error {
 			if len(parts) == 0 {
 				return fmt.Errorf("invalid path: %s", path)
 			}
-			dateParts := strings.Split(parts[len(parts)-1], "-")
-			if len(dateParts) < 2 {
-				return fmt.Errorf("invalid date found in path: %s", path)
-			}
-			dateStr := dateParts[0] + dateParts[1] + dateParts[2]
-			date, dErr := time.Parse("20060102", dateStr)
+			date, dErr := time.Parse("2006-01-02-15-04-05", strings.TrimSuffix(parts[len(parts)-1], ".tgz"))
 			if dErr != nil {
 				return dErr
 			}
