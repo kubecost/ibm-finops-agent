@@ -39,7 +39,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		// create an object for sync
 		Expect(cli.Create(ctx, _testDeployment_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
 
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, false)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -55,7 +55,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 	})
 
 	It("can get auto sync with updated resources", func() {
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, false)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 

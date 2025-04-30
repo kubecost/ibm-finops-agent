@@ -1,6 +1,8 @@
 package cluster
 
 import (
+	"github.com/spf13/viper"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"log"
 	"reflect"
 	"time"
@@ -18,6 +20,23 @@ import (
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/rest"
 )
+
+const (
+	KubernetesLastAppliedConfig = "kubectl.kubernetes.io/last-applied-configuration"
+)
+
+type InfromerConfig struct {
+	ResyncInterval time.Duration
+	SanitizeData   bool
+}
+
+// LoadInformerConfig returns configs related to informer settings
+func LoadInformerConfig() InfromerConfig {
+	return InfromerConfig{
+		ResyncInterval: time.Duration(viper.GetInt("INFORMER_RESYNC_INTERVAL")) * time.Hour,
+		SanitizeData:   viper.GetBool("PARSE_METRICS_DATA"),
+	}
+}
 
 // TODO: Cloudy/Turbo needs filtering functionality for specific k8s resources!
 var (
@@ -44,8 +63,7 @@ type DynamicClusterCache struct {
 	dynamicinformer.DynamicSharedInformerFactory
 }
 
-func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration) (ClusterCache, error) {
-
+func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanitizeData bool) (ClusterCache, error) {
 	client, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -56,10 +74,25 @@ func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration) (Clus
 	}
 
 	for _, gvr := range cacheResourceMap {
-		cache.ForResource(gvr)
+		transformErr := cache.ForResource(gvr).Informer().SetTransform(GetTransformFunc(sanitizeData))
+		if transformErr != nil {
+			return nil, transformErr
+		}
 	}
 
 	return &cache, nil
+}
+
+// GetTransformFunc returns the correct transform to apply based on parseMetricsData flag
+// when enabled, sensitive information from k8s resources will be stripped
+func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interface{}, error) {
+	return func(resource interface{}) (interface{}, error) {
+		if parseMetricsData {
+			resource = sanitizeData(resource)
+		}
+		resource = trimData(resource)
+		return resource, nil
+	}
 }
 
 // Note: t is the actual struct not pointer
@@ -175,4 +208,210 @@ func (dcc *DynamicClusterCache) GetAllPodDisruptionBudgets() []*policyv1.PodDisr
 func (dcc *DynamicClusterCache) GetAllReplicationControllers() []*corev1.ReplicationController {
 
 	return ConvertUnstructuredArrayToTypedArray[corev1.ReplicationController](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.ReplicationController{})]))
+}
+
+// sanitizeData removes information from kubernetes resources for customer security purposes
+// nolint:gocyclo
+func sanitizeData(to interface{}) interface{} {
+	switch to.(type) {
+	case *corev1.Pod:
+		return sanitizePod(to)
+	case *appsv1.DaemonSet:
+		cast := to.(*appsv1.DaemonSet)
+		cast.Spec.Template = corev1.PodTemplateSpec{}
+		cast.Spec.RevisionHistoryLimit = nil
+		cast.Spec.UpdateStrategy = appsv1.DaemonSetUpdateStrategy{}
+		cast.Spec.MinReadySeconds = 0
+		cast.Spec.RevisionHistoryLimit = nil
+		sanitizeMeta(&cast.ObjectMeta)
+		return cast
+	case *appsv1.ReplicaSet:
+		cast := to.(*appsv1.ReplicaSet)
+		cast.Spec.Replicas = nil
+		cast.Spec.Template = corev1.PodTemplateSpec{}
+		cast.Spec.MinReadySeconds = 0
+		sanitizeMeta(&cast.ObjectMeta)
+		return cast
+	case *appsv1.Deployment:
+		cast := to.(*appsv1.Deployment)
+		cast.Spec.Template = corev1.PodTemplateSpec{}
+		cast.Spec.Replicas = nil
+		cast.Spec.Strategy = appsv1.DeploymentStrategy{}
+		cast.Spec.MinReadySeconds = 0
+		cast.Spec.RevisionHistoryLimit = nil
+		cast.Spec.ProgressDeadlineSeconds = nil
+		sanitizeMeta(&cast.ObjectMeta)
+		return cast
+	case *batchv1.Job:
+		cast := to.(*batchv1.Job)
+		cast.Spec.Template = corev1.PodTemplateSpec{}
+		cast.Spec.Parallelism = nil
+		cast.Spec.Completions = nil
+		cast.Spec.ActiveDeadlineSeconds = nil
+		cast.Spec.BackoffLimit = nil
+		cast.Spec.ManualSelector = nil
+		cast.Spec.TTLSecondsAfterFinished = nil
+		cast.Spec.CompletionMode = nil
+		cast.Spec.Suspend = nil
+		sanitizeMeta(&cast.ObjectMeta)
+		return cast
+	case *batchv1.CronJob:
+		cast := to.(*batchv1.CronJob)
+		// cronjobs have no Selector
+		cast.Spec = batchv1.CronJobSpec{}
+		sanitizeMeta(&cast.ObjectMeta)
+		return cast
+	case *corev1.Service:
+		cast := to.(*corev1.Service)
+		cast.Spec.Ports = nil
+		cast.Spec.ClusterIP = ""
+		cast.Spec.ClusterIPs = nil
+		cast.Spec.Type = ""
+		cast.Spec.ExternalIPs = nil
+		cast.Spec.SessionAffinity = ""
+		cast.Spec.LoadBalancerIP = ""
+		cast.Spec.LoadBalancerSourceRanges = nil
+		cast.Spec.ExternalName = ""
+		cast.Spec.ExternalTrafficPolicy = ""
+		cast.Spec.HealthCheckNodePort = 0
+		cast.Spec.SessionAffinityConfig = nil
+		cast.Spec.IPFamilies = nil
+		cast.Spec.IPFamilyPolicy = nil
+		cast.Spec.AllocateLoadBalancerNodePorts = nil
+		cast.Spec.LoadBalancerClass = nil
+		cast.Spec.InternalTrafficPolicy = nil
+		sanitizeMeta(&cast.ObjectMeta)
+		return cast
+	case *corev1.ReplicationController:
+		cast := to.(*corev1.ReplicationController)
+		cast.Spec.Replicas = nil
+		cast.Spec.Template = nil
+		cast.Spec.MinReadySeconds = 0
+		sanitizeMeta(&cast.ObjectMeta)
+		return cast
+	case *corev1.PersistentVolume:
+		cast := to.(*corev1.PersistentVolume)
+		sanitizeMeta(&cast.ObjectMeta)
+		return cast
+	case *corev1.PersistentVolumeClaim:
+		cast := to.(*corev1.PersistentVolumeClaim)
+		sanitizeMeta(&cast.ObjectMeta)
+		return cast
+	case *corev1.Node:
+		cast := to.(*corev1.Node)
+		sanitizeMeta(&cast.ObjectMeta)
+		return cast
+	}
+	return to
+}
+
+// trimData removes unneeded kubernetes resource fields
+// nolint:gocyclo
+func trimData(to interface{}) interface{} {
+	switch to.(type) {
+	case *corev1.Pod:
+		return trimPod(to)
+	case *appsv1.DaemonSet:
+		cast := to.(*appsv1.DaemonSet)
+		trimMeta(&cast.ObjectMeta)
+		return cast
+	case *appsv1.ReplicaSet:
+		cast := to.(*appsv1.ReplicaSet)
+		trimMeta(&cast.ObjectMeta)
+		return cast
+	case *appsv1.Deployment:
+		cast := to.(*appsv1.Deployment)
+		trimMeta(&cast.ObjectMeta)
+		return cast
+	case *batchv1.Job:
+		cast := to.(*batchv1.Job)
+		trimMeta(&cast.ObjectMeta)
+		return cast
+	case *batchv1.CronJob:
+		cast := to.(*batchv1.CronJob)
+		trimMeta(&cast.ObjectMeta)
+		return cast
+	case *corev1.Service:
+		cast := to.(*corev1.Service)
+		trimMeta(&cast.ObjectMeta)
+		return cast
+	case *corev1.ReplicationController:
+		cast := to.(*corev1.ReplicationController)
+		trimMeta(&cast.ObjectMeta)
+		return cast
+	case *corev1.Namespace:
+		return trimNamespace(to)
+	case *corev1.PersistentVolume:
+		cast := to.(*corev1.PersistentVolume)
+		trimMeta(&cast.ObjectMeta)
+		return cast
+	case *corev1.PersistentVolumeClaim:
+		cast := to.(*corev1.PersistentVolumeClaim)
+		trimMeta(&cast.ObjectMeta)
+		return cast
+	case *corev1.Node:
+		cast := to.(*corev1.Node)
+		trimMeta(&cast.ObjectMeta)
+		return cast
+	}
+	return to
+}
+
+func sanitizeMeta(objectMeta *metav1.ObjectMeta) {
+	objectMeta.Finalizers = nil
+}
+
+func trimMeta(objectMeta *metav1.ObjectMeta) {
+	objectMeta.ManagedFields = nil
+	delete(objectMeta.Annotations, KubernetesLastAppliedConfig)
+}
+
+func sanitizePod(to interface{}) interface{} {
+	cast := to.(*corev1.Pod)
+	for j, container := range (*cast).Spec.Containers {
+		(*cast).Spec.Containers[j] = sanitizeContainer(container)
+	}
+	for j, container := range (*cast).Spec.InitContainers {
+		(*cast).Spec.InitContainers[j] = sanitizeContainer(container)
+	}
+	return cast
+}
+
+func trimPod(to interface{}) interface{} {
+	cast := to.(*corev1.Pod)
+	// removing env var and related data from the object
+	(*cast).ObjectMeta.ManagedFields = nil
+	delete((*cast).ObjectMeta.Annotations, KubernetesLastAppliedConfig)
+
+	for j, container := range (*cast).Spec.Containers {
+		(*cast).Spec.Containers[j] = trimContainer(container)
+	}
+	for j, container := range (*cast).Spec.InitContainers {
+		(*cast).Spec.InitContainers[j] = trimContainer(container)
+	}
+	return cast
+}
+
+func sanitizeContainer(container corev1.Container) corev1.Container {
+	container.Command = nil
+	container.Args = nil
+	container.ImagePullPolicy = ""
+	container.LivenessProbe = nil
+	container.StartupProbe = nil
+	container.ReadinessProbe = nil
+	container.TerminationMessagePath = ""
+	container.TerminationMessagePolicy = ""
+	container.SecurityContext = nil
+	return container
+}
+
+func trimContainer(container corev1.Container) corev1.Container {
+	container.Env = nil
+	return container
+}
+
+func trimNamespace(to interface{}) interface{} {
+	cast := to.(*corev1.Namespace)
+	(*cast).ObjectMeta.ManagedFields = nil
+	return cast
 }
