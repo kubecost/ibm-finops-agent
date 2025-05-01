@@ -27,13 +27,20 @@ var metricsSummaryCacheDuration time.Duration = 5 * time.Minute
 // ConcurrentSnapshotProvider is a struct that implements the `SnapshotProvider` interface and executes the
 // snapshot generation process concurrently.
 type ConcurrentSnapshotProvider struct {
+	config             *SnapshotConfig
 	metricsSummary     *MetricsSummary
 	lastMetricsSummary time.Time
 }
 
 // NewConcurrentSnapshotProvider creates a new instance of `ConcurrentSnapshotProvider`.
-func NewConcurrentSnapshotProvider() SnapshotProvider {
-	return &ConcurrentSnapshotProvider{}
+func NewConcurrentSnapshotProvider(config *SnapshotConfig) SnapshotProvider {
+	if config == nil {
+		config = DefaultSnapshotConfig()
+	}
+
+	return &ConcurrentSnapshotProvider{
+		config: config,
+	}
 }
 
 // SnapshotOf generates a `ClusterSnapshot` from the provided `core.DataSource` and returns it.
@@ -68,7 +75,7 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 	var metricsSnapshot *MetricsSummary
 	group.Go(func() error {
 		var err error
-		metricsSnapshot, err = csp.cachedMetricsSummary(ds.Metrics())
+		metricsSnapshot, err = csp.cachedMetricsSummary(ds.Metrics(), csp.config)
 		return err
 	})
 
@@ -87,7 +94,7 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 
 // temporary caching of metrics summary every 5 minutes to avoid overloading the prometheus data source until
 // prometheus can be replaced.
-func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.MetricsQuerier) (*MetricsSummary, error) {
+func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.MetricsQuerier, config *SnapshotConfig) (*MetricsSummary, error) {
 	now := time.Now().UTC()
 
 	// FIXME: (bolt) use a metrics summary cache duration of 5 minutes while we're using a prometheus data source.
@@ -96,7 +103,7 @@ func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.Metri
 		return csp.metricsSummary, nil
 	}
 
-	metricsSummary, err := snapshotMetricsSummary(querier)
+	metricsSummary, err := snapshotMetricsSummary(querier, config)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +145,7 @@ func snapshotKubernetes(cluster clustercache.ClusterCache) (*KubernetesSnapshot,
 	}, nil
 }
 
-func snapshotNodeStats( client nodes.StatSummaryClient ) (*NodeStatsSummary, error) {
+func snapshotNodeStats(client nodes.StatSummaryClient) (*NodeStatsSummary, error) {
 	data, err := client.GetNodeData()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate node stats snapshot: %w", err)
@@ -149,7 +156,17 @@ func snapshotNodeStats( client nodes.StatSummaryClient ) (*NodeStatsSummary, err
 	}, nil
 }
 
-func snapshotMetricsSummary(querier source.MetricsQuerier) (*MetricsSummary, error) {
+func snapshotMetricsSummary(querier source.MetricsQuerier, config *SnapshotConfig) (*MetricsSummary, error) {
+	var minutelySnapshot *MetricsSnapshot
+	if config.MinutelyMetricsEnabled {
+		start, end := windowFor(10 * time.Minute)
+		snapshot, err := snapshotMetrics(querier, start, end)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate minutely metrics snapshot: %w", err)
+		}
+		minutelySnapshot = snapshot
+	}
+
 	start, end := windowFor(time.Hour)
 	hourlySnapshot, err := snapshotMetrics(querier, start, end)
 	if err != nil {
@@ -163,8 +180,9 @@ func snapshotMetricsSummary(querier source.MetricsQuerier) (*MetricsSummary, err
 	}
 
 	return &MetricsSummary{
-		Hourly: hourlySnapshot,
-		Daily:  dailySnapshot,
+		Minutely: minutelySnapshot,
+		Hourly:   hourlySnapshot,
+		Daily:    dailySnapshot,
 	}, nil
 }
 

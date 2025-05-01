@@ -15,7 +15,7 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
-	github.com/opencost/opencost v0.0.1-unpublished
+	github.com/opencost/opencost v1.113.0
 	github.com/opencost/opencost/core v0.0.1-unpublished
 	github.com/opencost/opencost/modules/prometheus-source v0.0.1-unpublished
 	github.com/prometheus/client_golang v1.20.5

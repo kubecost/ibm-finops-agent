@@ -21,7 +21,7 @@ import (
 func NewOpenCostDataSource(kubeClientset kubernetes.Interface, k8sCache cluster.ClusterCache, conf *OpenCostConfig) source.OpenCostDataSource {
 	// Create ConfigFileManager for synchronization of shared configuration
 	confManager := config.NewConfigFileManager(&config.ConfigFileManagerOpts{
-		LocalConfigPath:   conf.ConfigPath,
+		LocalConfigPath:   "/",
 		BucketStoreConfig: "",
 	})
 

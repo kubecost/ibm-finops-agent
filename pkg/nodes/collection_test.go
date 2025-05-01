@@ -20,6 +20,10 @@ var _ = Describe("Raw node data", func() {
 		file, err := os.CreateTemp("", "")
 		Expect(err).ToNot(HaveOccurred())
 		tempBearerFile = file.Name()
+
+		t := GinkgoT()
+		t.Setenv("INSECURE", "true")
+		t.Setenv("CLUSTER_NAME", "test")
 	})
 	AfterEach(func() {
 		err := os.RemoveAll(tempBearerFile)
@@ -75,7 +79,9 @@ var _ = Describe("Raw node data", func() {
 })
 
 func setupTestNodeStatSummaryClient(tempBearerFile string, failDirect bool, failProxy bool) NodeStatsSummaryClient {
-	ncc := NewNodeClientConfig()
+	ncc, err := NewNodeClientConfigFromEnv()
+	Expect(err).ToNot(HaveOccurred())
+
 	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), true, failDirect, failProxy)
 	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), false, failDirect, failProxy)
 	
@@ -91,7 +97,7 @@ type mockClusterCache struct {
 	cluster.ClusterCache
 }
 
-func NewMockClusterCache() (cluster.ClusterCache) {
+func NewMockClusterCache() cluster.ClusterCache {
 	return mockClusterCache{}
 }
 

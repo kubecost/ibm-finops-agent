@@ -30,12 +30,56 @@ type Emitter struct {
 	sampleCt    int
 	Uploader    Uploader
 	ClusterID   *string
-  ScratchPath string
+	ScratchPath string
 }
 
 type EmitterConfig struct {
 	UploaderConfig
-	EmitAsJson bool
+	EmitAsJson      bool
+	ParseMetricData bool
+}
+
+const UPLOAD_FREQUENCY = 10
+
+func NewEmitterConfigFromEnv() (EmitterConfig, error) {
+	viper.SetEnvPrefix("CLOUDABILITY")
+	defer viper.SetEnvPrefix("")
+	viper.AutomaticEnv()
+
+	// Set defaults
+	viper.SetDefault("HTTPS_CLIENT_TIMEOUT", 60) // Note for readme: In seconds
+	viper.SetDefault("UPLOAD_RETRY_COUNT", 5)
+	viper.SetDefault("OUTBOUND_PROXY_INSECURE", false)
+	viper.SetDefault("UPLOAD_REGION", "us")
+	viper.SetDefault("SCRATCH_DIR", "/tmp")
+	viper.SetDefault("EMIT_AS_JSON", true)
+	viper.SetDefault("PARSE_METRIC_DATA", false)
+
+	outboundProxyUrl, err := url.Parse(viper.GetString("OUTBOUND_PROXY"))
+	if err != nil {
+		return EmitterConfig{}, fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
+	}
+
+	return EmitterConfig{
+		UploaderConfig: UploaderConfig{
+			ApptioConfig: ApptioConfig{
+				SecretManager:        NewKeyValueSecretManager(viper.GetString("KEY_ACCESS"), viper.GetString("KEY_SECRET")),
+				EnvID:                viper.GetString("ENV_ID"),
+				Timeout:              time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
+				Retries:              viper.GetInt("UPLOAD_RETRY_COUNT"),
+				ProxyURL:             outboundProxyUrl,
+				ProxyAuth:            viper.GetString("OUTBOUND_PROXY_AUTH"),
+				ProxyInsecure:        viper.GetBool("OUTBOUND_PROXY_INSECURE"),
+				Region:               viper.GetString("UPLOAD_REGION"),
+				CustomS3UploadBucket: viper.GetString("CUSTOM_S3_UPLOAD_BUCKET"),
+				CustomS3UploadRegion: viper.GetString("CUSTOM_S3_UPLOAD_REGION"),
+			},
+			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
+			ScratchDir:      viper.GetString("SCRATCH_DIR"),
+		},
+		EmitAsJson:      viper.GetBool("EMIT_AS_JSON"),
+		ParseMetricData: viper.GetBool("PARSE_METRIC_DATA"),
+	}, nil
 }
 
 func NewEmitterConfigFromEnv() EmitterConfig {
@@ -75,8 +119,6 @@ func NewEmitterConfigFromEnv() EmitterConfig {
 }
 
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
-	// TODO: evaluate whether or not to check scratch dir for completed samples
-	// TODO: cleanup old samples (> 72 hrs?)
 	return &Emitter{
 		config:    config,
 		Uploader:  NewCldyUploader(config.UploaderConfig, stop),

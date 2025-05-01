@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
@@ -34,6 +35,16 @@ func (mqa *MetricsQuerierAdapter) Update(summary *emitter.MetricsSummary) {
 // must hold the read lock when calling this function
 func (mqa *MetricsQuerierAdapter) metricsSnapshotFor(start, end time.Time) *emitter.MetricsSnapshot {
 	t := end.Sub(start)
+
+	if t == (10 * time.Minute) {
+		if mqa.summary.Minutely != nil {
+			return mqa.summary.Minutely
+		}
+
+		log.Warnf("No metrics snapshot available for 10m duration. Must enable minutely metrics snapshotting!")
+		return nil
+	}
+
 	if t == time.Hour {
 		return mqa.summary.Hourly
 	}

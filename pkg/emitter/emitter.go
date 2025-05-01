@@ -39,8 +39,9 @@ type NodeStatsSummary struct {
 
 // MetricsSummary contains the metrics results from opencost data source queries.
 type MetricsSummary struct {
-	Hourly *MetricsSnapshot
-	Daily  *MetricsSnapshot
+	Minutely *MetricsSnapshot
+	Hourly   *MetricsSnapshot
+	Daily    *MetricsSnapshot
 }
 
 // MetricsSnapshot contains the metrics results from opencost data source queries.
@@ -138,6 +139,6 @@ type Emitter interface {
 	// the regular interval snapshots from the exporter.
 	Init(*ClusterSnapshot) error
 
-	// Emits the `ClusterSnapshot` based on the emitter's implementation.
+	// Emit emits the `ClusterSnapshot` based on the emitter's implementation.
 	Emit(context.Context, *ClusterSnapshot) error
 }

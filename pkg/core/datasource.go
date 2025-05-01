@@ -11,7 +11,6 @@ import (
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/pkg/kubeconfig"
-	"k8s.io/client-go/rest"
 )
 
 // NOTE: We can use this as an intermediate data source local to this project. We can defer pushing all the implementation down
@@ -63,18 +62,18 @@ func NewAgentDataSource() DataSource {
 		opencostSource = opencost.NewNoOpOpenCostDataSource()
 	}
 
-	inClusterConfig, err := rest.InClusterConfig()
+	nodeClientConfig, err := nodes.NewNodeClientConfigFromEnv()
 	if err != nil {
-		log.Fatalf("error retrieving in cluster config: %s", err)
+		log.Fatalf("error retrieving node client config: %s", err)
 	}
-	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodes.NewNodeClientConfig(), inClusterConfig)
-
+	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, cfg)
+	
 	// TODO: Initialization of any other data sources here
 
 	return &agentDataSource{
-		opencostSource: opencostSource,
-		metrics:        opencostSource.Metrics(),
-		clusterCache:   k8sCache,
+		opencostSource:         opencostSource,
+		metrics:                opencostSource.Metrics(),
+		clusterCache:           k8sCache,
 		nodeStatsSummaryClient: nodeStatsSummaryClient,
 	}
 }
@@ -91,7 +90,7 @@ type agentDataSource struct {
 
 	// Node Stats Summary Client
 	nodeStatsSummaryClient nodes.StatSummaryClient
-	
+
 	// TODO: HTTP Server/Proxy for Turbo?
 }
 
