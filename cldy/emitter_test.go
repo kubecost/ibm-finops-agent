@@ -162,6 +162,48 @@ func TestLoadDataAsJSON(t *testing.T) {
 	}
 }
 
+func TestNewEmitterConfig(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer os.RemoveAll(tempDir)
+	config, err := cldy.NewEmitterConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check defaults were set
+	if config.ParseMetricData {
+		t.Fatal("Parse metric data default not set properly")
+	}
+	if config.UploaderConfig.ScratchDir != "/tmp" {
+		t.Fatal("Scratch dir default not set properly")
+	}
+	if config.UploaderConfig.ApptioConfig.Region != "us" {
+		t.Fatal("Region default not set properly")
+	}
+}
+
+func TestNewEmitterConfigParsesOutboundProxy(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "1.1.1.1")
+
+	defer os.RemoveAll(tempDir)
+	config, err := cldy.NewEmitterConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.UploaderConfig.ApptioConfig.ProxyURL.Path == "" {
+		t.Fatal("ProxyURL not set")
+	}
+}
+
+
 type mockUploader struct {
 	data      []string
 	clusterID string

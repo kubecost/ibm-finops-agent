@@ -11,7 +11,6 @@ import (
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/pkg/kubeconfig"
-	"k8s.io/client-go/rest"
 )
 
 // NOTE: We can use this as an intermediate data source local to this project. We can defer pushing all the implementation down
@@ -63,15 +62,11 @@ func NewAgentDataSource() DataSource {
 		opencostSource = opencost.NewNoOpOpenCostDataSource()
 	}
 
-	inClusterConfig, err := rest.InClusterConfig()
-	if err != nil {
-		log.Fatalf("error retrieving in cluster config: %s", err)
-	}
 	nodeClientConfig, err := nodes.NewNodeClientConfigFromEnv()
 	if err != nil {
 		log.Fatalf("error retrieving node client config: %s", err)
 	}
-	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, inClusterConfig)
+	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, cfg)
 	
 	// TODO: Initialization of any other data sources here
 

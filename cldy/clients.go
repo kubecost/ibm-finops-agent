@@ -149,6 +149,7 @@ type ApptioConfig struct {
 	ProxyInsecure        bool
 	Region               string
 	CustomS3UploadBucket string
+	CustomS3UploadRegion string
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {

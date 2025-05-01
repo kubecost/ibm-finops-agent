@@ -72,6 +72,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 				ProxyInsecure:        viper.GetBool("OUTBOUND_PROXY_INSECURE"),
 				Region:               viper.GetString("UPLOAD_REGION"),
 				CustomS3UploadBucket: viper.GetString("CUSTOM_S3_UPLOAD_BUCKET"),
+				CustomS3UploadRegion: viper.GetString("CUSTOM_S3_UPLOAD_REGION"),
 			},
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),

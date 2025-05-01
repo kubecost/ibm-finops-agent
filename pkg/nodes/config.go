@@ -17,7 +17,7 @@ import (
 
 func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	viper.AutomaticEnv()
-	clusterName := env.GetNodeStatsClusterName()
+	clusterName := env.GetNodeStatsClusterIDName()
 	concurrentPollers := env.GetNodeStatsConcurrentPollers()
 	insecure := env.IsNodeStatsInsecure()
 	certFile := env.GetNodeStatsCertFile()

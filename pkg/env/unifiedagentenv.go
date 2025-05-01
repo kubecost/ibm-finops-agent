@@ -25,7 +25,10 @@ const (
 	NodeStatsInsecureEnvVar           = "INSECURE"
 	NodeStatsCertFileEnvVar           = "CERT_FILE"
 	NodeStatsKeyFileEnvVar            = "KEY_FILE"
+	
+	// Name and ID represent the same identifier for the cluster
 	NodeStatsClusterNameEnvVar        = "CLUSTER_NAME"
+	NodeStatsClusterIDEnvVar          = "CLUSTER_ID"
 
 	// Prefixes for 
 	CloudabilityPrefix  = "CLOUDABILITY_"
@@ -85,10 +88,14 @@ func GetNodeStatsKeyFile() string {
 	return getValueWithPotentialPrefixOrDefault(NodeStatsKeyFileEnvVar, CloudabilityPrefix, "", cast.ToString)
 }
 
-// Note: This one might have some overlap with kubecost and should have individual logic parsing
-// GetNodeStatsClusterName returns the name of the cluster
-func GetNodeStatsClusterName() string {
-	return getValueWithPotentialPrefixOrDefault(NodeStatsClusterNameEnvVar, CloudabilityPrefix, "", cast.ToString)
+// GetNodeStatsClusterIDName returns the id/name of the cluster. It tries to read CLUSTER_ID first, then CLUSTER_NAME
+// to unify past cloudability and kubecost environment variables.
+func GetNodeStatsClusterIDName() string {
+	idName := getValueWithPotentialPrefixOrDefault(NodeStatsClusterIDEnvVar, CloudabilityPrefix, "", cast.ToString)
+	if idName == "" {
+		idName = getValueWithPotentialPrefixOrDefault(NodeStatsClusterNameEnvVar, CloudabilityPrefix, "", cast.ToString)
+	}
+	return idName
 }
 
 // getValueWithPotentialPrefixOrDefault attempts to read the environment variable raw and then with the specified prefix,
