@@ -83,8 +83,6 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 }
 
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
-	// TODO: evaluate whether or not to check scratch dir for completed samples
-	// TODO: cleanup old samples (> 72 hrs?)
 	return &Emitter{
 		config:    config,
 		Uploader:  NewCldyUploader(config.UploaderConfig, stop),

@@ -1,0 +1,34 @@
+{
+  "name": "cldy_agent_status",
+  "metrics": {
+    "uptime": 1608480
+  },
+  "tags": {
+    "cluster_uid": "12345678-1234-1234-1234-123456789012"
+  },
+  "ts": 1743465782,
+  "values": {
+    "agent_version": "2.11.17",
+    "cluster_name": "my-test-cluster",
+    "cluster_version_git": "v1.30.10-eks-bc803b4",
+    "cluster_version_major": "1",
+    "cluster_version_minor": "30+",
+    "custom_s3_bucket": "",
+    "custom_s3_region": "",
+    "force_kube_proxy": "false",
+    "heapster_url": "",
+    "https_client_timeout": "60",
+    "incluster_config": "true",
+    "informer_resync_interval": "24",
+    "insecure": "false",
+    "number_of_concurrent_node_pollers": "100",
+    "outbound_proxy_auth": "false",
+    "outbound_proxy_url": "",
+    "parse_metric_data": "false",
+    "poll_interval": "180",
+    "provisioning_id": "123456",
+    "retrieve_node_summaries": "true",
+    "stats_summary_retrieval_method": "direct",
+    "upload_region": "us-west-2"
+  }
+}

@@ -139,6 +139,6 @@ type Emitter interface {
 	// the regular interval snapshots from the exporter.
 	Init(*ClusterSnapshot) error
 
-	// Emits the `ClusterSnapshot` based on the emitter's implementation.
+	// Emit emits the `ClusterSnapshot` based on the emitter's implementation.
 	Emit(context.Context, *ClusterSnapshot) error
 }
