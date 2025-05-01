@@ -140,49 +140,45 @@ var _ = Describe("Emitter", func() {
 			}
 		})
 	})
+	Context("Config", func() {
+		It("should load defaults", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).ToNot(HaveOccurred())
+			
+			defer os.RemoveAll(tempDir)
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(config.ParseMetricData).To(BeFalse())
+			Expect(config.UploaderConfig.ScratchDir).To(Equal("/tmp"))
+			Expect(config.UploaderConfig.ApptioConfig.Region).To(Equal("us"))
+		})
+		It("should load and parse custom outbound config", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).ToNot(HaveOccurred())
+			
+			t := GinkgoT()
+			t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "1.1.1.1")
+
+			defer os.RemoveAll(tempDir)
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(config.UploaderConfig.ApptioConfig.ProxyURL.Path).To(Equal("1.1.1.1"))
+		})
+		It("should throw error on improper outbound format", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).ToNot(HaveOccurred())
+			
+			t := GinkgoT()
+			t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "2.2.2.2:2")
+
+			defer os.RemoveAll(tempDir)
+			_, err = cldy.NewEmitterConfigFromEnv()
+			Expect(err).To(HaveOccurred())
+		})
+	})
 })
-
-func TestNewEmitterConfig(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer os.RemoveAll(tempDir)
-	config, err := cldy.NewEmitterConfigFromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Check defaults were set
-	if config.ParseMetricData {
-		t.Fatal("Parse metric data default not set properly")
-	}
-	if config.UploaderConfig.ScratchDir != "/tmp" {
-		t.Fatal("Scratch dir default not set properly")
-	}
-	if config.UploaderConfig.ApptioConfig.Region != "us" {
-		t.Fatal("Region default not set properly")
-	}
-}
-
-func TestNewEmitterConfigParsesOutboundProxy(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "1.1.1.1")
-
-	defer os.RemoveAll(tempDir)
-	config, err := cldy.NewEmitterConfigFromEnv()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.UploaderConfig.ApptioConfig.ProxyURL.Path == "" {
-		t.Fatal("ProxyURL not set")
-	}
-}
-
 
 type mockUploader struct {
 	data      []string
