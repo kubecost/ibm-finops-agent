@@ -53,21 +53,21 @@ func NewAgentDataSource() DataSource {
 
 	k8sCache.Start(context.Background().Done())
 
-	var opencostSource source.OpenCostDataSource
-	if env.IsOpenCostDataSourceEnabled() {
-		opencostConf := opencost.NewOpenCostConfigFromEnv()
-		opencostSource = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, opencostConf)
-	} else {
-		// fulfill the contract with a no-op opencost datasource
-		opencostSource = opencost.NewNoOpOpenCostDataSource()
-	}
-
 	nodeClientConfig, err := nodes.NewNodeClientConfigFromEnv()
 	if err != nil {
 		log.Fatalf("error retrieving node client config: %s", err)
 	}
 	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, cfg)
-	
+
+	var opencostSource source.OpenCostDataSource
+	if env.IsOpenCostDataSourceEnabled() {
+		opencostConf := opencost.NewOpenCostConfigFromEnv()
+		opencostSource = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, nodeStatsSummaryClient, opencostConf)
+	} else {
+		// fulfill the contract with a no-op opencost datasource
+		opencostSource = opencost.NewNoOpOpenCostDataSource()
+	}
+
 	// TODO: Initialization of any other data sources here
 
 	return &agentDataSource{

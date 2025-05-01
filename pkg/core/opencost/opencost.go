@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/opencost/opencost/core/pkg/log"
@@ -19,7 +20,7 @@ import (
 	"github.com/opencost/opencost/pkg/cloud/provider"
 )
 
-func NewOpenCostDataSource(kubeClientset kubernetes.Interface, k8sCache cluster.ClusterCache, conf *OpenCostConfig) source.OpenCostDataSource {
+func NewOpenCostDataSource(kubeClientset kubernetes.Interface, k8sCache cluster.ClusterCache, nodeClient nodes.StatSummaryClient, conf *OpenCostConfig) source.OpenCostDataSource {
 	// Create ConfigFileManager for synchronization of shared configuration
 	confManager := config.NewConfigFileManager(&config.ConfigFileManagerOpts{
 		LocalConfigPath:   "/",
@@ -46,6 +47,7 @@ func NewOpenCostDataSource(kubeClientset kubernetes.Interface, k8sCache cluster.
 	dataSource, _ := retry.Retry(
 		ctx,
 		func() (source.OpenCostDataSource, error) {
+			// FIXME: Pass nodeClient to the collector data source on initialization
 			ds, e := prom.NewDefaultPrometheusDataSource(clusterInfoProvider)
 			if e != nil {
 				if source.IsRetryable(e) {

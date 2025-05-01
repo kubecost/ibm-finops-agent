@@ -8,6 +8,7 @@ import (
 
 	"github.com/ibm/finops-agent/kubecost/adapters"
 	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/opencost/opencost/core/pkg/heartbeat"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/cloud/models"
@@ -105,8 +106,14 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 		)
 	}
 
+	// all pipeline export controllers
 	pipelineControllers := exporter.NewPipelineExportControllers(ke.config.ClusterID, bucketStore, costModel, pipelineConfig)
 	pipelineControllers.Start(ke.config.ExportInterval)
+
+	// agent presence and heartbeat
+	heartbeatMetadata := heartbeat.NewClusterInfoMetadataProvider(clusterInfo)
+	agentHeartbeat := heartbeat.NewHeartbeatExportController(ke.config.ClusterID, bucketStore, heartbeatMetadata)
+	agentHeartbeat.Start(5 * time.Minute)
 
 	// initialize emitter's internal state
 	ke.cloudProvider = cloudProvider
