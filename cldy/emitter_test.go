@@ -140,6 +140,44 @@ var _ = Describe("Emitter", func() {
 			}
 		})
 	})
+	Context("Config", func() {
+		It("should load defaults", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).ToNot(HaveOccurred())
+			
+			defer os.RemoveAll(tempDir)
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(config.ParseMetricData).To(BeFalse())
+			Expect(config.UploaderConfig.ScratchDir).To(Equal("/tmp"))
+			Expect(config.UploaderConfig.ApptioConfig.Region).To(Equal("us"))
+		})
+		It("should load and parse custom outbound config", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).ToNot(HaveOccurred())
+			
+			t := GinkgoT()
+			t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "1.1.1.1")
+
+			defer os.RemoveAll(tempDir)
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(config.UploaderConfig.ApptioConfig.ProxyURL.Path).To(Equal("1.1.1.1"))
+		})
+		It("should throw error on improper outbound format", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).ToNot(HaveOccurred())
+			
+			t := GinkgoT()
+			t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "2.2.2.2:2")
+
+			defer os.RemoveAll(tempDir)
+			_, err = cldy.NewEmitterConfigFromEnv()
+			Expect(err).To(HaveOccurred())
+		})
+	})
 })
 
 type mockUploader struct {

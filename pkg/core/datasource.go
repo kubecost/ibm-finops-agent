@@ -62,9 +62,12 @@ func NewAgentDataSource() DataSource {
 		opencostSource = opencost.NewNoOpOpenCostDataSource()
 	}
 
-	nodeClientConfig := nodes.NewNodeClientConfigFromEnv()
+	nodeClientConfig, err := nodes.NewNodeClientConfigFromEnv()
+	if err != nil {
+		log.Fatalf("error retrieving node client config: %s", err)
+	}
 	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, cfg)
-
+	
 	// TODO: Initialization of any other data sources here
 
 	return &agentDataSource{

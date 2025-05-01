@@ -3,12 +3,9 @@ package nodes
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"strings"
-	"testing"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	. "github.com/onsi/ginkgo/v2"
@@ -17,18 +14,16 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-func TestUtils(t *testing.T) {
-	RegisterFailHandler(Fail)
-
-	RunSpecs(t, "Node Collection Testing")
-}
-
 var _ = Describe("Raw node data", func() {
 	var tempBearerFile string
 	BeforeEach(func() {
 		file, err := os.CreateTemp("", "")
 		Expect(err).ToNot(HaveOccurred())
 		tempBearerFile = file.Name()
+
+		t := GinkgoT()
+		t.Setenv("INSECURE", "true")
+		t.Setenv("CLUSTER_NAME", "test")
 	})
 	AfterEach(func() {
 		err := os.RemoveAll(tempBearerFile)
@@ -36,7 +31,7 @@ var _ = Describe("Raw node data", func() {
 	})
 	Context("Raw stats summary data", func() {
 		It("can be downloaded directly and converted into stats summary data", func() {
-			summaryClient := setupTestNodeStatSummaryClient(false, 10, true, false, tempBearerFile, "")
+			summaryClient := setupTestNodeStatSummaryClient(tempBearerFile, false, true)
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -45,7 +40,7 @@ var _ = Describe("Raw node data", func() {
 		})
 
 		It("can be downloaded through proxy and converted into stats summary data", func() {
-			summaryClient := setupTestNodeStatSummaryClient(true, 10, true, false, tempBearerFile, "https://localhost:8080")
+			summaryClient := setupTestNodeStatSummaryClient(tempBearerFile, true, false)
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -54,7 +49,7 @@ var _ = Describe("Raw node data", func() {
 		})
 
 		It("returns nothing on failed http requests", func() {
-			summaryClient := setupTestNodeStatSummaryClient(false, 10, true, true, tempBearerFile, "")
+			summaryClient := setupTestNodeStatSummaryClient(tempBearerFile, true, true)
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).ToNot(HaveOccurred())
@@ -83,20 +78,17 @@ var _ = Describe("Raw node data", func() {
 	// TOOD: Add in cAdvisor tests once cAdvisor data struct is implemented
 })
 
-func setupTestNodeStatSummaryClient(forceKubeProxy bool, concurrentPollers int, insecure bool, failRequests bool, tempBearerFile string, mockClusterHostURL string) NodeStatsSummaryClient {
-	proxyConfig := NodeClientProxyConfig{
-		ForceKubeProxy: forceKubeProxy,
-		LocalProxy:     "",
-	}
+func setupTestNodeStatSummaryClient(tempBearerFile string, failDirect bool, failProxy bool) NodeStatsSummaryClient {
+	ncc, err := NewNodeClientConfigFromEnv()
+	Expect(err).ToNot(HaveOccurred())
 
-	ncc := NewNodeClientConfig(proxyConfig, concurrentPollers, insecure)
-	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
-	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), failRequests)
-
+	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), true, failDirect, failProxy)
+	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), false, failDirect, failProxy)
+	
 	mockCache := NewMockClusterCache()
 	mockInClusterConfig := &rest.Config{
 		BearerTokenFile: tempBearerFile,
-		Host:            mockClusterHostURL,
+		Host: "testHost",
 	}
 	return NewNodeStatsSummaryClient(mockCache, ncc, mockInClusterConfig)
 }
@@ -116,12 +108,16 @@ func (m mockClusterCache) GetAllNodes() []*v1.Node {
 
 // Note: mockHTTPClient mocks statSummary data specifically, but can be changed later
 type mockHTTPClient struct {
-	FailRequests bool
+	isDirect		bool
+	failDirect		bool
+	failProxy		bool
 }
 
-func NewHTTPMockClient(c Client, failRequests bool) *mockHTTPClient {
+func NewHTTPMockClient(c Client, isDirect bool, failDirect bool, failProxy bool) *mockHTTPClient {
 	return &mockHTTPClient{
-		FailRequests: failRequests,
+		isDirect:	isDirect,
+		failDirect: failDirect,
+		failProxy: 	failProxy,
 	}
 }
 
@@ -129,23 +125,23 @@ func (m *mockHTTPClient) Do(request *http.Request) (*http.Response, error) {
 	proxyData, _ := os.ReadFile("testdata/summary-proxynode.json")
 	directData, _ := os.ReadFile("testdata/summary-directnode.json")
 
-	if m.FailRequests {
-		resp := &http.Response{StatusCode: 400, Header: http.Header{}}
-		return resp, nil
-	}
-
-	if strings.Contains(request.URL.Path, "stats/summary") {
-		if strings.Contains(request.URL.Host, "localhost") {
+	if m.isDirect {
+		if !m.failDirect {
+			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(directData)), Header: http.Header{}}
+			return resp, nil
+		} else {
+			resp := &http.Response{StatusCode: 400, Header: http.Header{}}
+			return resp, nil
+		}
+	} else {
+		if !m.failProxy {
 			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(proxyData)), Header: http.Header{}}
 			return resp, nil
 		} else {
-			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(directData)), Header: http.Header{}}
+			resp := &http.Response{StatusCode: 400, Header: http.Header{}}
 			return resp, nil
 		}
 	}
-
-	err := fmt.Errorf("no data returned")
-	return nil, err
 }
 
 func loadNodes() ([]*v1.Node, error) {

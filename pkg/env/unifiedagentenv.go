@@ -1,6 +1,10 @@
 package env
 
-import "github.com/opencost/opencost/core/pkg/env"
+import (
+	"github.com/opencost/opencost/core/pkg/env"
+	"github.com/spf13/cast"
+	"github.com/spf13/viper"
+)
 
 const (
 	// Emitter Configuration
@@ -14,11 +18,20 @@ const (
 	// Snapshot Configuration
 	MinuteMetricsEnabledEnvVar = "MINUTE_METRICS_ENABLED"
 
-	// Node Stats Client Configuration
-	NodeStatsForceKubeProxyEnvVar     = "NODE_STATS_FORCE_KUBE_PROXY"
-	NodeStatsLocalProxyEnvVar         = "NODE_STATS_LOCAL_PROXY"
-	NodeStatsConcurrentPollersEnvVar  = "NODE_STATS_CONCURRENT_POLLERS"
-	NodeStatsInsecureSkipVerifyEnvVar = "NODE_STATS_INSECURE_SKIP_VERIFY"
+	// Node Stats Client Configuration (can be prefixed)
+	NodeStatsForceKubeProxyEnvVar     = "FORCE_KUBE_PROXY"
+	NodeStatsLocalProxyEnvVar         = "LOCAL_PROXY"
+	NodeStatsConcurrentPollersEnvVar  = "NUMBER_OF_CONCURRENT_NODE_POLLERS"
+	NodeStatsInsecureEnvVar           = "INSECURE"
+	NodeStatsCertFileEnvVar           = "CERT_FILE"
+	NodeStatsKeyFileEnvVar            = "KEY_FILE"
+	
+	// Name and ID represent the same identifier for the cluster
+	NodeStatsClusterNameEnvVar        = "CLUSTER_NAME"
+	NodeStatsClusterIDEnvVar          = "CLUSTER_ID"
+
+	// Prefixes for 
+	CloudabilityPrefix  = "CLOUDABILITY_"
 )
 
 func IsKubecostEmitterEnabled() bool {
@@ -46,21 +59,60 @@ func IsMinuteMetricsEnabled() bool {
 // IsNodeStatsForceKubeProxy returns true if the node stats client should force the kube proxy direct end
 // point formatting
 func IsNodeStatsForceKubeProxy() bool {
-	return env.GetBool(NodeStatsForceKubeProxyEnvVar, false)
+	return getValueWithPotentialPrefixOrDefault(NodeStatsForceKubeProxyEnvVar, CloudabilityPrefix, false, cast.ToBool)
 }
 
 // GetNodeStatsLocalProxy returns the fully qualified local proxy endpoint for the node stats client IFF the proxyAPI
 // is selected.
 func GetNodeStatsLocalProxy() string {
-	return env.Get(NodeStatsLocalProxyEnvVar, "")
+	return getValueWithPotentialPrefixOrDefault(NodeStatsLocalProxyEnvVar, CloudabilityPrefix, "", cast.ToString)
 }
 
 // GetNodeStatsConcurrentPollers returns the number of concurrent requests to make to the node stats endpoints
 func GetNodeStatsConcurrentPollers() int {
-	return env.GetInt(NodeStatsConcurrentPollersEnvVar, 10)
+	return getValueWithPotentialPrefixOrDefault(NodeStatsConcurrentPollersEnvVar, CloudabilityPrefix, 10, cast.ToInt)
 }
 
-// IsNodeStatsInsecureSkipVerify returns true if the node stats client should skip TLS verification
-func IsNodeStatsInsecureSkipVerify() bool {
-	return env.GetBool(NodeStatsInsecureSkipVerifyEnvVar, false)
+// IsNodeStatsInsecure returns true if the node stats client should skip TLS verification
+func IsNodeStatsInsecure() bool {
+	return getValueWithPotentialPrefixOrDefault(NodeStatsInsecureEnvVar, CloudabilityPrefix, false, cast.ToBool)
+}
+
+// GetNodeStatsCertFile returns the path of the cert file
+func GetNodeStatsCertFile() string {
+	return getValueWithPotentialPrefixOrDefault(NodeStatsCertFileEnvVar, CloudabilityPrefix, "", cast.ToString)
+}
+
+// GetNodeStatsKeyFile returns the path of the key file
+func GetNodeStatsKeyFile() string {
+	return getValueWithPotentialPrefixOrDefault(NodeStatsKeyFileEnvVar, CloudabilityPrefix, "", cast.ToString)
+}
+
+// GetNodeStatsClusterIDName returns the id/name of the cluster. It tries to read CLUSTER_ID first, then CLUSTER_NAME
+// to unify past cloudability and kubecost environment variables.
+func GetNodeStatsClusterIDName() string {
+	idName := getValueWithPotentialPrefixOrDefault(NodeStatsClusterIDEnvVar, CloudabilityPrefix, "", cast.ToString)
+	if idName == "" {
+		idName = getValueWithPotentialPrefixOrDefault(NodeStatsClusterNameEnvVar, CloudabilityPrefix, "", cast.ToString)
+	}
+	return idName
+}
+
+// getValueWithPotentialPrefixOrDefault attempts to read the environment variable raw and then with the specified prefix,
+// converting it to the relevant type if found. Necessary that it doesn't default immediately.
+func getValueWithPotentialPrefixOrDefault[T any](envVariable string, prefix string, defaultValue T, convert func(interface{}) T) T {
+	var envValue interface{}
+
+	// Attempt without prefix first
+	envValue = viper.Get(envVariable)
+	if envValue == nil {
+		// Attempt with prefix
+		envValue = viper.Get(prefix + envVariable)
+		if envValue == nil {
+			// Set to default value
+			envValue = defaultValue
+		}
+	}
+
+	return convert(envValue)
 }

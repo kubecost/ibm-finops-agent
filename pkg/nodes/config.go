@@ -3,27 +3,36 @@ package nodes
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/spf13/viper"
 
 	v1 "k8s.io/api/core/v1"
 )
 
-func NewNodeClientConfigFromEnv() NodeClientConfig {
-	return NewNodeClientConfig(
-		NodeClientProxyConfig{
-			ForceKubeProxy: env.IsNodeStatsForceKubeProxy(),
-			LocalProxy:     env.GetNodeStatsLocalProxy(),
-		},
-		env.GetNodeStatsConcurrentPollers(),
-		env.IsNodeStatsInsecureSkipVerify(),
-	)
-}
+func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
+	viper.AutomaticEnv()
+	clusterName := env.GetNodeStatsClusterIDName()
+	concurrentPollers := env.GetNodeStatsConcurrentPollers()
+	insecure := env.IsNodeStatsInsecure()
+	certFile := env.GetNodeStatsCertFile()
+	keyFile := env.GetNodeStatsKeyFile()
+	forceKubeProxy := env.IsNodeStatsForceKubeProxy()
+	localProxy := env.GetNodeStatsLocalProxy()
 
-func NewNodeClientConfig(proxyConfig NodeClientProxyConfig, concurrentPollers int, insecure bool) NodeClientConfig {
+	if strings.TrimSpace(clusterName) == "" {
+		return NodeClientConfig{}, fmt.Errorf("Cluster name is required and cannot be exclusively whitespace.")
+	}
+
+	if concurrentPollers <= 0 {
+		return NodeClientConfig{}, fmt.Errorf("number of concurrent pollers is either zero or misconfigured")
+	}
+
 	var transport *http.Transport
 	if insecure {
 		transport = &http.Transport{
@@ -40,18 +49,39 @@ func NewNodeClientConfig(proxyConfig NodeClientProxyConfig, concurrentPollers in
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(pemData)
 
-		tlsConfig := &tls.Config{
-			RootCAs: caCertPool,
+		var tlsConfig *tls.Config
+
+		if certFile != "" && keyFile != "" {
+			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+
+			if err != nil {
+				log.Fatalf("Unable to load cert: %s key: %s error: %v", certFile, keyFile, err)
+			}
+
+			tlsConfig = &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				RootCAs:      caCertPool,
+			}
+
+			transport = &http.Transport{TLSClientConfig: tlsConfig}
+		} else {
+			tlsConfig := &tls.Config{
+				RootCAs: caCertPool,
+			}
+			transport = &http.Transport{TLSClientConfig: tlsConfig}
 		}
-		transport = &http.Transport{TLSClientConfig: tlsConfig}
 	}
 
 	return NodeClientConfig{
-		ProxyConfig:       proxyConfig,
+		ClusterName:       clusterName,
 		ConcurrentPollers: concurrentPollers,
 		DirectNodeClient:  NewClient(http.Client{Transport: transport}, 0),
 		InClusterClient:   NewClient(http.Client{Transport: transport}, 0),
-	}
+		ProxyConfig:       NodeClientProxyConfig{
+			ForceKubeProxy: forceKubeProxy,
+			LocalProxy:     localProxy,
+		},
+	}, nil
 }
 
 type NodeClientProxyConfig struct {
@@ -64,10 +94,13 @@ func (nac NodeClientProxyConfig) IsLocalProxy() bool {
 }
 
 type NodeClientConfig struct {
-	ProxyConfig       NodeClientProxyConfig
+	ClusterName       string
 	ConcurrentPollers int
 	DirectNodeClient  Client
 	InClusterClient   Client
+	CertFile          string
+	KeyFile           string
+	ProxyConfig       NodeClientProxyConfig
 }
 
 // connectionOptions returns the connection methods that are allowed for this node based on config
