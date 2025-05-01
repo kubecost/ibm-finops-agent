@@ -3,7 +3,6 @@ package cluster
 import (
 	"github.com/spf13/viper"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"log"
 	"reflect"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	stv1 "k8s.io/api/storage/v1"
 
+	"github.com/opencost/opencost/core/pkg/log"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -87,11 +87,24 @@ func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanit
 // when enabled, sensitive information from k8s resources will be stripped
 func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interface{}, error) {
 	return func(resource interface{}) (interface{}, error) {
-		if parseMetricsData {
-			resource = sanitizeData(resource)
+		unTyped, ok := resource.(*unstructured.Unstructured)
+		if !ok {
+			log.Debugf("resource found that is not unstructured, skipping sanitization")
+			return resource, nil
 		}
-		resource = trimData(resource)
-		return resource, nil
+		k8Obj := ConvertToKubernetesResource(unTyped)
+
+		if parseMetricsData {
+			resource = sanitizeData(k8Obj)
+		}
+		resource = trimData(k8Obj)
+
+		unstructuredResource, err := runtime.DefaultUnstructuredConverter.ToUnstructured(resource)
+		if err != nil {
+			return nil, err
+		}
+
+		return &unstructured.Unstructured{Object: unstructuredResource}, nil
 	}
 }
 
@@ -107,13 +120,59 @@ func ConvertUnstructuredArrayToTypedArray[T any](uObjs []*unstructured.Unstructu
 		var obj T
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.Object, &obj)
 		if err != nil {
-			log.Printf("failed to convert object. err: %s, obj: %v", err.Error(), obj)
+			log.Warnf("failed to convert object. err: %s, obj: %v", err.Error(), obj)
 			return nil
 		}
 		array = append(array, &obj)
 	}
 
 	return array
+}
+
+func ConvertToKubernetesResource(resource *unstructured.Unstructured) interface{} {
+	switch resource.GetKind() {
+	case "Deployment":
+		return ConvertUnstructuredToTyped[appsv1.Deployment](resource)
+	case "Pod":
+		return ConvertUnstructuredToTyped[corev1.Pod](resource)
+	case "Service":
+		return ConvertUnstructuredToTyped[corev1.Service](resource)
+	case "ConfigMap":
+		return ConvertUnstructuredToTyped[corev1.ConfigMap](resource)
+	case "PersistentVolume":
+		return ConvertUnstructuredToTyped[corev1.PersistentVolume](resource)
+	case "PersistentVolumeClaim":
+		return ConvertUnstructuredToTyped[corev1.PersistentVolumeClaim](resource)
+	case "ReplicationController":
+		return ConvertUnstructuredToTyped[corev1.ReplicationController](resource)
+	case "ReplicaSet":
+		return ConvertUnstructuredToTyped[appsv1.ReplicaSet](resource)
+	case "StatefulSet":
+		return ConvertUnstructuredToTyped[appsv1.StatefulSet](resource)
+	case "DaemonSet":
+		return ConvertUnstructuredToTyped[appsv1.DaemonSet](resource)
+	case "Job":
+		return ConvertUnstructuredToTyped[batchv1.Job](resource)
+	case "CronJob":
+		return ConvertUnstructuredToTyped[batchv1.CronJob](resource)
+	case "Namespace":
+		return ConvertUnstructuredToTyped[corev1.Namespace](resource)
+	case "Node":
+		return ConvertUnstructuredToTyped[corev1.Node](resource)
+	default:
+		log.Warnf("unknown resource added to infromer, not sanitizing Kind: %s", resource.GetKind())
+	}
+	return resource
+}
+
+func ConvertUnstructuredToTyped[T any](uObj *unstructured.Unstructured) *T {
+	var obj T
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(uObj.Object, &obj)
+	if err != nil {
+		log.Warnf("failed to convert object. err: %s, obj: %v", err.Error(), obj)
+		return nil
+	}
+	return &obj
 }
 
 func (dcc *DynamicClusterCache) Start(stopCh <-chan struct{}) {
