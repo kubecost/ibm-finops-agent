@@ -55,9 +55,14 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
 
-	outboundProxyUrl, err := url.Parse(viper.GetString("OUTBOUND_PROXY"))
-	if err != nil {
-		return EmitterConfig{}, fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
+	var outboundProxyUrl *url.URL
+	proxyURL := viper.GetString("OUTBOUND_PROXY")
+	if proxyURL != "" {
+		var err error
+		outboundProxyUrl, err = url.Parse(proxyURL)
+		if err != nil {
+			return EmitterConfig{}, fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
+		}
 	}
 
 	return EmitterConfig{

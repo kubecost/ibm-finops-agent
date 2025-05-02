@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ibm/finops-agent/cldy"
 	"github.com/ibm/finops-agent/kubecost"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/emitter"
@@ -48,7 +49,11 @@ func main() {
 		emitters = append(emitters, kubecost.NewKubecostEmitter(kubecost.NewEmitterConfigFromEnv()))
 	}
 	if env.IsCloudyEmitterEnabled() {
-		//emitters = append(emitters, emitter.NewCloudyEmitter(dataSource))
+		cldyConfig, err := cldy.NewEmitterConfigFromEnv()
+		if err != nil {
+			panic("invalid cloudability emitter config " + err.Error())
+		}
+		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
 	if env.IsTurboEmitterEnabled() {
 		//emitters = append(emitters, emitter.NewTurboEmitter(dataSource))
