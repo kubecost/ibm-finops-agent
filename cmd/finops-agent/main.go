@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"github.com/ibm/finops-agent/cldy"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/ibm/finops-agent/cldy"
 	"github.com/ibm/finops-agent/kubecost"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/emitter"
