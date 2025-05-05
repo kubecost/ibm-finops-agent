@@ -46,15 +46,44 @@ const s3UploadDescription = "uploading sample to Cloudability S3 using presigned
 // StorageService contains the upload paths for cloudability s3, custom s3, and custom azure blob
 type StorageService interface {
 	Upload(payload UploadPayload) error
-	UploadCustomS3(payload UploadPayload, customS3Bucket string, customS3Region string) error
+	UploadToCustomS3(payload UploadPayload, customS3Bucket string, customS3Region string) error
 }
 
 type ClientService interface {
 	Do(r *http.Request, requestDescription string) (*http.Response, error)
+	CustomS3Session(s3Region string) (*s3manager.Uploader, error)
+	CustomS3Upload(s3Bucket string, key string, fileReader *os.File, uploader *s3manager.Uploader) error
 }
 
 func (ac ApptioClient) Do(r *http.Request, requestDescription string) (*http.Response, error) {
 	return ac.doWithRetry(r, requestDescription)
+}
+
+func (ac ApptioClient) CustomS3Session(s3Region string) (*s3manager.Uploader, error) {
+	sess, err := session.NewSession(&aws.Config{
+		Region:     aws.String(s3Region),
+		MaxRetries: aws.Int(3)},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("Could not establish AWS Session, " +
+			"ensure AWS environment variables are set correctly: %s", err)
+	}
+	svc := s3.New(sess)
+	return s3manager.NewUploaderWithClient(svc), nil
+}
+
+func (ac ApptioClient) CustomS3Upload(s3Bucket string, key string, fileReader *os.File, uploader *s3manager.Uploader) error {
+	sampleToUpload := &s3manager.UploadInput{
+		Bucket: aws.String(s3Bucket),
+		Key:    aws.String(key),
+		Body:   fileReader,
+	}
+
+	_, err := uploader.Upload(sampleToUpload)
+	if err != nil {
+		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
+	}
+	return nil
 }
 
 type UploadPayload struct {
@@ -179,17 +208,11 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 	return s.sendData(payload, presignedURL)
 }
 
-func (s *ApptioServiceImpl) UploadCustomS3(payload UploadPayload, customS3Bucket string, customS3Region string) error {
-	sess, err := session.NewSession(&aws.Config{
-		Region:     aws.String(customS3Region),
-		MaxRetries: aws.Int(3)},
-	)
+func (s *ApptioServiceImpl) UploadToCustomS3(payload UploadPayload, customS3Bucket string, customS3Region string) error {
+	uploader, err := s.CldyUploadClient.CustomS3Session(customS3Region)
 	if err != nil {
-		return fmt.Errorf("Could not establish AWS Session, " +
-			"ensure AWS environment variables are set correctly: %s", err)
+		return err
 	}
-	svc := s3.New(sess)
-	uploader := s3manager.NewUploaderWithClient(svc)
 
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
@@ -200,17 +223,9 @@ func (s *ApptioServiceImpl) UploadCustomS3(payload UploadPayload, customS3Bucket
 	key, err := generateSampleKey(payload.FileName, payload.ClusterUID)
 	if err != nil {
 		return err
-	}
-	sampleToUpload := &s3manager.UploadInput{
-		Bucket: aws.String(customS3Bucket),
-		Key:    aws.String(key),
-		Body:   fileReader,
-	}
-
-	_, err = uploader.Upload(sampleToUpload)
-	if err != nil {
-		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
 	} 
+
+	s.CldyUploadClient.CustomS3Upload(customS3Bucket, key, fileReader, uploader)
 
 	log.Infof("successfully uploaded metric sample %s to custom S3 bucket: %s",
 		payload.FileName, customS3Bucket)

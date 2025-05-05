@@ -310,7 +310,7 @@ func (ce *CldyUploader) uploadData(path string) error {
 
 	if ce.config.CustomS3UploadBucket != "" || ce.config.CustomS3UploadRegion != "" {
 		if ce.config.CustomS3UploadBucket != "" && ce.config.CustomS3UploadRegion != "" {
-			err = ce.StorageService.UploadCustomS3(payload, ce.config.CustomS3UploadBucket, ce.config.CustomS3UploadRegion)
+			err = ce.StorageService.UploadToCustomS3(payload, ce.config.CustomS3UploadBucket, ce.config.CustomS3UploadRegion)
 			if err != nil {
 				return err
 			}
