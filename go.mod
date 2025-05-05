@@ -10,6 +10,7 @@ replace (
 go 1.24.2
 
 require (
+	github.com/aws/aws-sdk-go v1.50.8
 	github.com/gogo/protobuf v1.3.2
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/julienschmidt/httprouter v1.3.0
@@ -21,6 +22,7 @@ require (
 	github.com/prometheus/client_golang v1.20.5
 	github.com/rs/cors v1.8.2
 	github.com/rs/zerolog v1.26.1
+	github.com/spf13/cast v1.3.1
 	github.com/spf13/viper v1.8.1
 	k8s.io/api v0.32.3
 	k8s.io/apimachinery v0.32.3
@@ -56,7 +58,6 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/aliyun/alibaba-cloud-sdk-go v1.62.3 // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
-	github.com/aws/aws-sdk-go v1.50.8 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.36.3 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.1 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.29.10 // indirect
@@ -157,7 +158,6 @@ require (
 	github.com/shopspring/decimal v0.0.0-20180709203117-cd690d0c9e24 // indirect
 	github.com/sony/gobreaker v0.5.0 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
-	github.com/spf13/cast v1.3.1 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
