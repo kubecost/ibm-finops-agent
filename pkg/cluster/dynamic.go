@@ -2,8 +2,8 @@ package cluster
 
 import (
 	"github.com/spf13/viper"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -23,6 +23,7 @@ import (
 
 const (
 	KubernetesLastAppliedConfig = "kubectl.kubernetes.io/last-applied-configuration"
+	annotationsPath             = "metadata.annotations"
 )
 
 type InfromerConfig struct {
@@ -56,6 +57,60 @@ var (
 		reflect.TypeOf(batchv1.Job{}):                  {Group: "batch", Version: "v1", Resource: "jobs"},
 		reflect.TypeOf(policyv1.PodDisruptionBudget{}): {Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"},
 	}
+	gvkToGvr = map[schema.GroupVersionKind]schema.GroupVersionResource{
+		{Group: "apps", Version: "v1", Kind: "Deployment"}:            {Group: "apps", Version: "v1", Resource: "deployments"},
+		{Group: "apps", Version: "v1", Kind: "StatefulSet"}:           {Group: "apps", Version: "v1", Resource: "statefulsets"},
+		{Group: "apps", Version: "v1", Kind: "DaemonSet"}:             {Group: "apps", Version: "v1", Resource: "daemonsets"},
+		{Group: "apps", Version: "v1", Kind: "ReplicaSet"}:            {Group: "apps", Version: "v1", Resource: "replicasets"},
+		{Group: "apps", Version: "v1", Kind: "ReplicationController"}: {Group: "apps", Version: "v1", Resource: "replicationcontrollers"},
+		{Group: "batch", Version: "v1", Kind: "Job"}:                  {Group: "batch", Version: "v1", Resource: "jobs"},
+		{Group: "batch", Version: "v1", Kind: "CronJob"}:              {Group: "batch", Version: "v1", Resource: "cronjobs"},
+		{Version: "v1", Kind: "Node"}:                                 {Group: "v1", Resource: "nodes"},
+		{Version: "v1", Kind: "Namespace"}:                            {Group: "v1", Resource: "namespaces"},
+		{Version: "v1", Kind: "Service"}:                              {Group: "v1", Resource: "services"},
+		{Version: "v1", Kind: "Pod"}:                                  {Group: "v1", Resource: "pods"},
+		{Version: "v1", Kind: "PersistentVolumeClaim"}:                {Group: "v1", Resource: "persistentvolumeclaims"},
+		{Version: "v1", Kind: "PersistentVolume"}:                     {Group: "v1", Resource: "persistentvolumes"},
+		{Version: "v1", Kind: "Container"}:                            {Group: "v1", Resource: "containers"},
+	}
+	// fields to trim on specific resources if parseMetricsData is enabled
+	gvrToSanitizePaths = map[schema.GroupVersionResource][]string{
+		{Group: "apps", Version: "v1", Resource: "deployments"}:            {"spec.progressDeadlineSeconds", "spec.minReadySeconds", "spec.strategy", "spec.replicas"},
+		{Group: "apps", Version: "v1", Resource: "statefulsets"}:           []string{},
+		{Group: "apps", Version: "v1", Resource: "daemonsets"}:             {"spec.updateStrategy"},
+		{Group: "apps", Version: "v1", Resource: "replicasets"}:            []string{},
+		{Group: "apps", Version: "v1", Resource: "replicationcontrollers"}: []string{},
+		{Group: "batch", Version: "v1", Resource: "jobs"}:                  {"spec.parallelism", "spec.completions", "spec.activeDeadlineSeconds", "spec.backoffLimit", "spec.manualSelector", "spec.ttlSecondsAfterFinished", "spec.completionMode", "spec.suspend"},
+		{Group: "batch", Version: "v1", Resource: "cronjobs"}:              {"spec"},
+		{Group: "v1", Resource: "containers"}:                              {"command", "args", "imagePullPolicy", "livenessProbe", "readinessProbe", "startupProbe", "terminationMessagePath", "terminationMessagePolicy", "securityContext"},
+		{Version: "v1", Resource: "nodes"}:                                 []string{},
+		{Version: "v1", Resource: "namespaces"}:                            []string{},
+		{Version: "v1", Resource: "services"}:                              {"spec.ports", "spec.clusterIP", "spec.clusterIPs", "spec.type", "spec.externalIPs", "spec.sessionAffinity", "spec.loadBalancerIP", "spec.loadBalancerSourceRanges", "spec.externalName", "spec.externalTrafficPolicy", "spec.healthCheckNodePort", "spec.sessionAffinityConfig", "spec.ipFamilies", "spec.ipFamilyPolicy", "spec.allocatedLoadBalancerNodePorts", "spec.loadBalancerClass", "spec.internalTrafficPolicy"},
+		{Version: "v1", Resource: "pods"}:                                  []string{},
+		{Version: "v1", Resource: "persistentvolumeclaims"}:                []string{},
+		{Version: "v1", Resource: "persistentvolumes"}:                     []string{},
+	}
+	// common fields to trim on all resources if parseMetricsData is enabled
+	commonSanitizePaths = []string{"spec.template", "spec.revisionHistoryLimit", "spec.replicas", "spec.minReadySeconds", "metadata.finalizers"}
+	// fields to trim on specific resources by default
+	gvrToTrimPaths = map[schema.GroupVersionResource][]string{
+		{Group: "apps", Version: "v1", Resource: "deployments"}:            {},
+		{Group: "apps", Version: "v1", Resource: "statefulsets"}:           {},
+		{Group: "apps", Version: "v1", Resource: "daemonsets"}:             {},
+		{Group: "apps", Version: "v1", Resource: "replicasets"}:            {},
+		{Group: "apps", Version: "v1", Resource: "replicationcontrollers"}: {},
+		{Group: "batch", Version: "v1", Resource: "jobs"}:                  {},
+		{Group: "batch", Version: "v1", Resource: "cronjobs"}:              {},
+		{Group: "v1", Resource: "containers"}:                              {"env"},
+		{Version: "v1", Resource: "nodes"}:                                 {},
+		{Version: "v1", Resource: "namespaces"}:                            {},
+		{Version: "v1", Resource: "services"}:                              {},
+		{Version: "v1", Resource: "pods"}:                                  {},
+		{Version: "v1", Resource: "persistentvolumeclaims"}:                {},
+		{Version: "v1", Resource: "persistentvolumes"}:                     {},
+	}
+	// common fields to trim on all resources by default
+	commonTrimPaths = []string{"metadata.managedFields", annotationsPath}
 )
 
 // DynamicClusterCache is the implementation of ClusterCache with dynamic informers
@@ -87,24 +142,64 @@ func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanit
 // when enabled, sensitive information from k8s resources will be stripped
 func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interface{}, error) {
 	return func(resource interface{}) (interface{}, error) {
-		unTyped, ok := resource.(*unstructured.Unstructured)
-		if !ok {
-			log.Debugf("resource found that is not unstructured, skipping sanitization")
+		var casted *unstructured.Unstructured
+		var ok bool
+		if casted, ok = resource.(*unstructured.Unstructured); !ok {
+			log.Warnf("Not trimming or sanitizing non-unstructured resource: %s", reflect.TypeOf(resource))
 			return resource, nil
 		}
-		k8Obj := ConvertToKubernetesResource(unTyped)
+		casted = sanitizeResource(casted, parseMetricsData)
+		return resource, nil
+	}
+}
 
+func sanitizeResource(resource *unstructured.Unstructured, parseMetricsData bool) *unstructured.Unstructured {
+	gvk := resource.GetObjectKind().GroupVersionKind()
+	gvr := gvkToGvr[gvk]
+	// for pods, we need to clean the individual containers before cleaning the pod fields
+	if gvr.Resource == "Pod" {
+		cleanPodContainers(resource, gvr, parseMetricsData)
+	}
+	// remove paths (if any) that are specific to the resource
+	cleanResourceFieldsFromPath(resource, gvrToTrimPaths[gvr])
+	// remove common paths for all resources
+	cleanResourceFieldsFromPath(resource, commonTrimPaths)
+	// perform further sanitization of kubernetes resources if enabled
+	if parseMetricsData {
+		// remove paths (if any) that are specific to the resource
+		cleanResourceFieldsFromPath(resource, gvrToSanitizePaths[gvr])
+		// remove common paths for all resources
+		cleanResourceFieldsFromPath(resource, commonSanitizePaths)
+	}
+	return resource
+}
+
+func cleanResourceFieldsFromPath(resource *unstructured.Unstructured, paths []string) {
+	for _, path := range paths {
+		if path == annotationsPath {
+			annotations := resource.GetAnnotations()
+			delete(annotations, KubernetesLastAppliedConfig)
+			resource.SetAnnotations(annotations)
+			continue
+		}
+		unstructured.RemoveNestedField(resource.Object, strings.Split(path, ".")...)
+	}
+}
+
+func cleanPodContainers(resource *unstructured.Unstructured, gvr schema.GroupVersionResource, parseMetricsData bool) {
+	containers, ok, err := unstructured.NestedSlice(resource.Object, "spec.containers")
+	if err != nil || !ok {
+		log.Warnf("issue retrieving pod's containers list %s or no containers found. Not cleaning", err)
+	}
+	for _, container := range containers {
 		if parseMetricsData {
-			resource = sanitizeData(k8Obj)
+			for _, path := range gvrToSanitizePaths[gvr] {
+				unstructured.RemoveNestedField(container.(map[string]interface{}), strings.Split(path, ".")...)
+			}
 		}
-		resource = trimData(k8Obj)
-
-		unstructuredResource, err := runtime.DefaultUnstructuredConverter.ToUnstructured(resource)
-		if err != nil {
-			return nil, err
+		for _, path := range gvrToTrimPaths[gvr] {
+			unstructured.RemoveNestedField(container.(map[string]interface{}), strings.Split(path, ".")...)
 		}
-
-		return &unstructured.Unstructured{Object: unstructuredResource}, nil
 	}
 }
 
@@ -128,53 +223,6 @@ func ConvertUnstructuredArrayToTypedArray[T any](uObjs []*unstructured.Unstructu
 
 	return array
 }
-
-func ConvertToKubernetesResource(resource *unstructured.Unstructured) interface{} {
-	switch resource.GetKind() {
-	case "Deployment":
-		return ConvertUnstructuredToTyped[appsv1.Deployment](resource)
-	case "Pod":
-		return ConvertUnstructuredToTyped[corev1.Pod](resource)
-	case "Service":
-		return ConvertUnstructuredToTyped[corev1.Service](resource)
-	case "ConfigMap":
-		return ConvertUnstructuredToTyped[corev1.ConfigMap](resource)
-	case "PersistentVolume":
-		return ConvertUnstructuredToTyped[corev1.PersistentVolume](resource)
-	case "PersistentVolumeClaim":
-		return ConvertUnstructuredToTyped[corev1.PersistentVolumeClaim](resource)
-	case "ReplicationController":
-		return ConvertUnstructuredToTyped[corev1.ReplicationController](resource)
-	case "ReplicaSet":
-		return ConvertUnstructuredToTyped[appsv1.ReplicaSet](resource)
-	case "StatefulSet":
-		return ConvertUnstructuredToTyped[appsv1.StatefulSet](resource)
-	case "DaemonSet":
-		return ConvertUnstructuredToTyped[appsv1.DaemonSet](resource)
-	case "Job":
-		return ConvertUnstructuredToTyped[batchv1.Job](resource)
-	case "CronJob":
-		return ConvertUnstructuredToTyped[batchv1.CronJob](resource)
-	case "Namespace":
-		return ConvertUnstructuredToTyped[corev1.Namespace](resource)
-	case "Node":
-		return ConvertUnstructuredToTyped[corev1.Node](resource)
-	default:
-		log.Warnf("unknown resource added to infromer, not sanitizing Kind: %s", resource.GetKind())
-	}
-	return resource
-}
-
-func ConvertUnstructuredToTyped[T any](uObj *unstructured.Unstructured) *T {
-	var obj T
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(uObj.Object, &obj)
-	if err != nil {
-		log.Warnf("failed to convert object. err: %s, obj: %v", err.Error(), obj)
-		return nil
-	}
-	return &obj
-}
-
 func (dcc *DynamicClusterCache) Start(stopCh <-chan struct{}) {
 
 	dcc.DynamicSharedInformerFactory.Start(stopCh)
@@ -267,210 +315,4 @@ func (dcc *DynamicClusterCache) GetAllPodDisruptionBudgets() []*policyv1.PodDisr
 func (dcc *DynamicClusterCache) GetAllReplicationControllers() []*corev1.ReplicationController {
 
 	return ConvertUnstructuredArrayToTypedArray[corev1.ReplicationController](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.ReplicationController{})]))
-}
-
-// sanitizeData removes information from kubernetes resources for customer security purposes
-// nolint:gocyclo
-func sanitizeData(to interface{}) interface{} {
-	switch to.(type) {
-	case *corev1.Pod:
-		return sanitizePod(to)
-	case *appsv1.DaemonSet:
-		cast := to.(*appsv1.DaemonSet)
-		cast.Spec.Template = corev1.PodTemplateSpec{}
-		cast.Spec.RevisionHistoryLimit = nil
-		cast.Spec.UpdateStrategy = appsv1.DaemonSetUpdateStrategy{}
-		cast.Spec.MinReadySeconds = 0
-		cast.Spec.RevisionHistoryLimit = nil
-		sanitizeMeta(&cast.ObjectMeta)
-		return cast
-	case *appsv1.ReplicaSet:
-		cast := to.(*appsv1.ReplicaSet)
-		cast.Spec.Replicas = nil
-		cast.Spec.Template = corev1.PodTemplateSpec{}
-		cast.Spec.MinReadySeconds = 0
-		sanitizeMeta(&cast.ObjectMeta)
-		return cast
-	case *appsv1.Deployment:
-		cast := to.(*appsv1.Deployment)
-		cast.Spec.Template = corev1.PodTemplateSpec{}
-		cast.Spec.Replicas = nil
-		cast.Spec.Strategy = appsv1.DeploymentStrategy{}
-		cast.Spec.MinReadySeconds = 0
-		cast.Spec.RevisionHistoryLimit = nil
-		cast.Spec.ProgressDeadlineSeconds = nil
-		sanitizeMeta(&cast.ObjectMeta)
-		return cast
-	case *batchv1.Job:
-		cast := to.(*batchv1.Job)
-		cast.Spec.Template = corev1.PodTemplateSpec{}
-		cast.Spec.Parallelism = nil
-		cast.Spec.Completions = nil
-		cast.Spec.ActiveDeadlineSeconds = nil
-		cast.Spec.BackoffLimit = nil
-		cast.Spec.ManualSelector = nil
-		cast.Spec.TTLSecondsAfterFinished = nil
-		cast.Spec.CompletionMode = nil
-		cast.Spec.Suspend = nil
-		sanitizeMeta(&cast.ObjectMeta)
-		return cast
-	case *batchv1.CronJob:
-		cast := to.(*batchv1.CronJob)
-		// cronjobs have no Selector
-		cast.Spec = batchv1.CronJobSpec{}
-		sanitizeMeta(&cast.ObjectMeta)
-		return cast
-	case *corev1.Service:
-		cast := to.(*corev1.Service)
-		cast.Spec.Ports = nil
-		cast.Spec.ClusterIP = ""
-		cast.Spec.ClusterIPs = nil
-		cast.Spec.Type = ""
-		cast.Spec.ExternalIPs = nil
-		cast.Spec.SessionAffinity = ""
-		cast.Spec.LoadBalancerIP = ""
-		cast.Spec.LoadBalancerSourceRanges = nil
-		cast.Spec.ExternalName = ""
-		cast.Spec.ExternalTrafficPolicy = ""
-		cast.Spec.HealthCheckNodePort = 0
-		cast.Spec.SessionAffinityConfig = nil
-		cast.Spec.IPFamilies = nil
-		cast.Spec.IPFamilyPolicy = nil
-		cast.Spec.AllocateLoadBalancerNodePorts = nil
-		cast.Spec.LoadBalancerClass = nil
-		cast.Spec.InternalTrafficPolicy = nil
-		sanitizeMeta(&cast.ObjectMeta)
-		return cast
-	case *corev1.ReplicationController:
-		cast := to.(*corev1.ReplicationController)
-		cast.Spec.Replicas = nil
-		cast.Spec.Template = nil
-		cast.Spec.MinReadySeconds = 0
-		sanitizeMeta(&cast.ObjectMeta)
-		return cast
-	case *corev1.PersistentVolume:
-		cast := to.(*corev1.PersistentVolume)
-		sanitizeMeta(&cast.ObjectMeta)
-		return cast
-	case *corev1.PersistentVolumeClaim:
-		cast := to.(*corev1.PersistentVolumeClaim)
-		sanitizeMeta(&cast.ObjectMeta)
-		return cast
-	case *corev1.Node:
-		cast := to.(*corev1.Node)
-		sanitizeMeta(&cast.ObjectMeta)
-		return cast
-	}
-	return to
-}
-
-// trimData removes unneeded kubernetes resource fields
-// nolint:gocyclo
-func trimData(to interface{}) interface{} {
-	switch to.(type) {
-	case *corev1.Pod:
-		return trimPod(to)
-	case *appsv1.DaemonSet:
-		cast := to.(*appsv1.DaemonSet)
-		trimMeta(&cast.ObjectMeta)
-		return cast
-	case *appsv1.ReplicaSet:
-		cast := to.(*appsv1.ReplicaSet)
-		trimMeta(&cast.ObjectMeta)
-		return cast
-	case *appsv1.Deployment:
-		cast := to.(*appsv1.Deployment)
-		trimMeta(&cast.ObjectMeta)
-		return cast
-	case *batchv1.Job:
-		cast := to.(*batchv1.Job)
-		trimMeta(&cast.ObjectMeta)
-		return cast
-	case *batchv1.CronJob:
-		cast := to.(*batchv1.CronJob)
-		trimMeta(&cast.ObjectMeta)
-		return cast
-	case *corev1.Service:
-		cast := to.(*corev1.Service)
-		trimMeta(&cast.ObjectMeta)
-		return cast
-	case *corev1.ReplicationController:
-		cast := to.(*corev1.ReplicationController)
-		trimMeta(&cast.ObjectMeta)
-		return cast
-	case *corev1.Namespace:
-		return trimNamespace(to)
-	case *corev1.PersistentVolume:
-		cast := to.(*corev1.PersistentVolume)
-		trimMeta(&cast.ObjectMeta)
-		return cast
-	case *corev1.PersistentVolumeClaim:
-		cast := to.(*corev1.PersistentVolumeClaim)
-		trimMeta(&cast.ObjectMeta)
-		return cast
-	case *corev1.Node:
-		cast := to.(*corev1.Node)
-		trimMeta(&cast.ObjectMeta)
-		return cast
-	}
-	return to
-}
-
-func sanitizeMeta(objectMeta *metav1.ObjectMeta) {
-	objectMeta.Finalizers = nil
-}
-
-func trimMeta(objectMeta *metav1.ObjectMeta) {
-	objectMeta.ManagedFields = nil
-	delete(objectMeta.Annotations, KubernetesLastAppliedConfig)
-}
-
-func sanitizePod(to interface{}) interface{} {
-	cast := to.(*corev1.Pod)
-	for j, container := range (*cast).Spec.Containers {
-		(*cast).Spec.Containers[j] = sanitizeContainer(container)
-	}
-	for j, container := range (*cast).Spec.InitContainers {
-		(*cast).Spec.InitContainers[j] = sanitizeContainer(container)
-	}
-	return cast
-}
-
-func trimPod(to interface{}) interface{} {
-	cast := to.(*corev1.Pod)
-	// removing env var and related data from the object
-	(*cast).ObjectMeta.ManagedFields = nil
-	delete((*cast).ObjectMeta.Annotations, KubernetesLastAppliedConfig)
-
-	for j, container := range (*cast).Spec.Containers {
-		(*cast).Spec.Containers[j] = trimContainer(container)
-	}
-	for j, container := range (*cast).Spec.InitContainers {
-		(*cast).Spec.InitContainers[j] = trimContainer(container)
-	}
-	return cast
-}
-
-func sanitizeContainer(container corev1.Container) corev1.Container {
-	container.Command = nil
-	container.Args = nil
-	container.ImagePullPolicy = ""
-	container.LivenessProbe = nil
-	container.StartupProbe = nil
-	container.ReadinessProbe = nil
-	container.TerminationMessagePath = ""
-	container.TerminationMessagePolicy = ""
-	container.SecurityContext = nil
-	return container
-}
-
-func trimContainer(container corev1.Container) corev1.Container {
-	container.Env = nil
-	return container
-}
-
-func trimNamespace(to interface{}) interface{} {
-	cast := to.(*corev1.Namespace)
-	(*cast).ObjectMeta.ManagedFields = nil
-	return cast
 }
