@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/ibm/finops-agent/cldy"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -461,4 +462,12 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response,
 		return &http.Response{StatusCode: 200, Body: r.Body, Header: http.Header{}}, nil
 	}
 	return &http.Response{}, fmt.Errorf("unknown request")
+}
+
+func (mcs *mockClientService) CustomS3Session(s3Region string) (*s3manager.Uploader, error) {
+	return nil, nil
+}
+
+func (mcs *mockClientService) CustomS3Upload(s3Bucket string, key string, fileReader *os.File, uploader *s3manager.Uploader) error {
+	return nil
 }
