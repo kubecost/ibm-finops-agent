@@ -75,39 +75,18 @@ var (
 	}
 	// fields to trim on specific resources if parseMetricsData is enabled
 	gvrToSanitizePaths = map[schema.GroupVersionResource][]string{
-		{Group: "apps", Version: "v1", Resource: "deployments"}:            {"spec.progressDeadlineSeconds", "spec.minReadySeconds", "spec.strategy", "spec.replicas"},
-		{Group: "apps", Version: "v1", Resource: "statefulsets"}:           []string{},
-		{Group: "apps", Version: "v1", Resource: "daemonsets"}:             {"spec.updateStrategy"},
-		{Group: "apps", Version: "v1", Resource: "replicasets"}:            []string{},
-		{Group: "apps", Version: "v1", Resource: "replicationcontrollers"}: []string{},
-		{Group: "batch", Version: "v1", Resource: "jobs"}:                  {"spec.parallelism", "spec.completions", "spec.activeDeadlineSeconds", "spec.backoffLimit", "spec.manualSelector", "spec.ttlSecondsAfterFinished", "spec.completionMode", "spec.suspend"},
-		{Group: "batch", Version: "v1", Resource: "cronjobs"}:              {"spec"},
-		{Group: "v1", Resource: "containers"}:                              {"command", "args", "imagePullPolicy", "livenessProbe", "readinessProbe", "startupProbe", "terminationMessagePath", "terminationMessagePolicy", "securityContext"},
-		{Version: "v1", Resource: "nodes"}:                                 []string{},
-		{Version: "v1", Resource: "namespaces"}:                            []string{},
-		{Version: "v1", Resource: "services"}:                              {"spec.ports", "spec.clusterIP", "spec.clusterIPs", "spec.type", "spec.externalIPs", "spec.sessionAffinity", "spec.loadBalancerIP", "spec.loadBalancerSourceRanges", "spec.externalName", "spec.externalTrafficPolicy", "spec.healthCheckNodePort", "spec.sessionAffinityConfig", "spec.ipFamilies", "spec.ipFamilyPolicy", "spec.allocatedLoadBalancerNodePorts", "spec.loadBalancerClass", "spec.internalTrafficPolicy"},
-		{Version: "v1", Resource: "pods"}:                                  []string{},
-		{Version: "v1", Resource: "persistentvolumeclaims"}:                []string{},
-		{Version: "v1", Resource: "persistentvolumes"}:                     []string{},
+		{Group: "apps", Version: "v1", Resource: "deployments"}: {"spec.progressDeadlineSeconds", "spec.minReadySeconds", "spec.strategy", "spec.replicas"},
+		{Group: "apps", Version: "v1", Resource: "daemonsets"}:  {"spec.updateStrategy"},
+		{Group: "batch", Version: "v1", Resource: "jobs"}:       {"spec.parallelism", "spec.completions", "spec.activeDeadlineSeconds", "spec.backoffLimit", "spec.manualSelector", "spec.ttlSecondsAfterFinished", "spec.completionMode", "spec.suspend"},
+		{Group: "batch", Version: "v1", Resource: "cronjobs"}:   {"spec"},
+		{Group: "v1", Resource: "containers"}:                   {"command", "args", "imagePullPolicy", "livenessProbe", "readinessProbe", "startupProbe", "terminationMessagePath", "terminationMessagePolicy", "securityContext"},
+		{Version: "v1", Resource: "services"}:                   {"spec.ports", "spec.clusterIP", "spec.clusterIPs", "spec.type", "spec.externalIPs", "spec.sessionAffinity", "spec.loadBalancerIP", "spec.loadBalancerSourceRanges", "spec.externalName", "spec.externalTrafficPolicy", "spec.healthCheckNodePort", "spec.sessionAffinityConfig", "spec.ipFamilies", "spec.ipFamilyPolicy", "spec.allocatedLoadBalancerNodePorts", "spec.loadBalancerClass", "spec.internalTrafficPolicy"},
 	}
 	// common fields to trim on all resources if parseMetricsData is enabled
 	commonSanitizePaths = []string{"spec.template", "spec.revisionHistoryLimit", "spec.replicas", "spec.minReadySeconds", "metadata.finalizers"}
 	// fields to trim on specific resources by default
 	gvrToTrimPaths = map[schema.GroupVersionResource][]string{
-		{Group: "apps", Version: "v1", Resource: "deployments"}:            {},
-		{Group: "apps", Version: "v1", Resource: "statefulsets"}:           {},
-		{Group: "apps", Version: "v1", Resource: "daemonsets"}:             {},
-		{Group: "apps", Version: "v1", Resource: "replicasets"}:            {},
-		{Group: "apps", Version: "v1", Resource: "replicationcontrollers"}: {},
-		{Group: "batch", Version: "v1", Resource: "jobs"}:                  {},
-		{Group: "batch", Version: "v1", Resource: "cronjobs"}:              {},
-		{Group: "v1", Resource: "containers"}:                              {"env"},
-		{Version: "v1", Resource: "nodes"}:                                 {},
-		{Version: "v1", Resource: "namespaces"}:                            {},
-		{Version: "v1", Resource: "services"}:                              {},
-		{Version: "v1", Resource: "pods"}:                                  {},
-		{Version: "v1", Resource: "persistentvolumeclaims"}:                {},
-		{Version: "v1", Resource: "persistentvolumes"}:                     {},
+		{Group: "v1", Resource: "containers"}: {"env"},
 	}
 	// common fields to trim on all resources by default
 	commonTrimPaths = []string{"metadata.managedFields", annotationsPath}
