@@ -6,14 +6,15 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
-	"github.com/opencost/opencost/core/pkg/log"
-	"github.com/opencost/opencost/core/pkg/util/json"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/opencost/opencost/core/pkg/util/json"
 )
 
 var requiredFiles = []string{"baseline-summary", "stats-summary", "statefulsets", "services", "replicationcontrollers", "replicasets", "pods", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces", "jobs", "deployments", "daemonsets", "agent-measurement"}
@@ -306,6 +307,18 @@ func (ce *CldyUploader) uploadData(path string) error {
 		UploadHash:   hash,
 		FilePath:     path,
 	}
+
+	if ce.config.CustomS3UploadBucket != "" || ce.config.CustomS3UploadRegion != "" {
+		if ce.config.CustomS3UploadBucket != "" && ce.config.CustomS3UploadRegion != "" {
+			err = ce.StorageService.UploadCustomS3(payload, ce.config.CustomS3UploadBucket, ce.config.CustomS3UploadRegion)
+			if err != nil {
+				return err
+			}
+		} else {
+			log.Warnf("both custom bucket and custom region must be set for custom s3 configuration. skipping upload.")
+		}
+	}
+
 	err = ce.StorageService.Upload(payload)
 	if err != nil {
 		return err

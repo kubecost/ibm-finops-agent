@@ -11,8 +11,13 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
@@ -36,9 +41,10 @@ const frontDoorLoginDescription = "performing login request to FrontDoor using K
 const presignedURLDescription = "acquiring presigned URL from Cloudability with acquired Open-token"
 const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
 
-// StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob
+// StorageService contains the upload paths for cloudability s3, custom s3, and custom azure blob
 type StorageService interface {
 	Upload(payload UploadPayload) error
+	UploadCustomS3(payload UploadPayload, customS3Bucket string, customS3Region string) error
 }
 
 type ClientService interface {
@@ -169,6 +175,44 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 	}
 	// upload data using presigned url
 	return s.sendData(payload, presignedURL)
+}
+
+func (s *ApptioServiceImpl) UploadCustomS3(payload UploadPayload, customS3Bucket string, customS3Region string) error {
+	sess, err := session.NewSession(&aws.Config{
+		Region:     aws.String(customS3Region),
+		MaxRetries: aws.Int(3)},
+	)
+	if err != nil {
+		return fmt.Errorf("Could not establish AWS Session, " +
+			"ensure AWS environment variables are set correctly: %s", err)
+	}
+	svc := s3.New(sess)
+	uploader := s3manager.NewUploaderWithClient(svc)
+
+	fileReader, err := os.Open(payload.FilePath)
+	if err != nil {
+		return fmt.Errorf("Unable to open metric sample file %v", err)
+	}
+	defer fileReader.Close()
+
+	key, err := generateSampleKey(payload.FileName, payload.ClusterUID)
+	if err != nil {
+		return err
+	}
+	sampleToUpload := &s3manager.UploadInput{
+		Bucket: aws.String(customS3Bucket),
+		Key:    aws.String(key),
+		Body:   fileReader,
+	}
+
+	_, err = uploader.Upload(sampleToUpload)
+	if err != nil {
+		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
+	} 
+
+	log.Infof("successfully uploaded metric sample %s to custom S3 bucket: %s",
+		payload.FileName, customS3Bucket)
+	return nil
 }
 
 // login gathers the opentoken required to make requests to Cloudability by hitting Frontdoor's apikeylogin endpoint
@@ -337,6 +381,32 @@ func getURLsFromRegion(region string) (string, string) {
 		log.Warnf("customer region is invalid. Defaulting to US region.")
 		return usFrontdoorURL, usCloudabilityURL
 	}
+}
+
+// generateSampleKey creates a key (location) for s3 to upload the sample to. Example of s3 location format
+// /production/data/metrics-agent/<YYYY>/<MM>/<DD>/<CLUSTER_UID>/<CLUSTER_UID>-<YYYYMMDD>-<HH>-<MM>.tgz
+func generateSampleKey(fileName string, clusterUID string) (string, error) {
+	withoutID := strings.Split(fileName, "_")
+	if len(withoutID) < 2 {
+		return "", fmt.Errorf("error parsing name from sample filename")
+	}
+
+	segments := strings.Split(withoutID[1], "-")
+    extIndex := strings.Index(segments[len(segments) - 1], ".")
+    numSegments := len(segments)
+
+	// Filename should be comprised of at least 5 segments
+	if numSegments < 4 {
+		return "", fmt.Errorf("error parsing timestamp from sample filename")
+	}
+    minute := segments[numSegments - 1][:extIndex]
+    hour := segments[numSegments - 2]
+	day := segments[numSegments - 3]
+	month := segments[numSegments - 4]
+	year := segments[numSegments - 5]
+
+	return fmt.Sprintf("/production/data/metrics-agent/%s/%s/%s/%s/%s-%s%s%s-%s-%s.tgz", year,
+		month, day, clusterUID, clusterUID, year, month, day, hour, minute), nil
 }
 
 // SecretManager is an abstraction that allows for an api key to not be held in memory

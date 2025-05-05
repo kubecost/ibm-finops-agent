@@ -6,15 +6,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/ibm/finops-agent/cldy"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ibm/finops-agent/cldy"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("Uploader", func() {
@@ -282,6 +283,44 @@ var _ = Describe("Uploader", func() {
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(2))
 			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(2))
 		})
+		// It("should upload to custom bucket", func() {
+		// 	config := cldy.UploaderConfig{
+		// 		UploadFrequency: time.Hour,
+		// 		ScratchDir:      tempDir,
+		// 	}
+		// 	stopCh := make(chan struct{})
+		// 	defer close(stopCh)
+		// 	uploader := cldy.NewCldyUploader(config, stopCh)
+		// 	err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+		// 	Expect(err).ToNot(HaveOccurred())
+		// 	uploader.SetClusterID("test_id")
+		// 	actualUploader := uploader.(*cldy.CldyUploader)
+		// 	service := cldy.ApptioServiceImpl{
+		// 		CldyUploadClient: &mockClientService{},
+		// 		SecretManager:    cldy.NewKeyValueSecretManager("bad-key", ""),
+		// 	}
+		// 	actualUploader.StorageService = &service
+		// 	payload := cldy.UploadPayload{
+		// 		ClusterUID:   "bad-cluster",
+		// 		FileName:     "8604469a-1368-44ee-9f1c-c5cc8c2121c1_2025-05-05-18-05-17.tgz",
+		// 		AgentVersion: "1.0.0",
+		// 		UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
+		// 		FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
+		// 	}
+		// 	// upload with bad froontdoor credentials
+		// 	err = actualUploader.StorageService.UploadCustomS3(payload)
+		// 	Expect(err).To(HaveOccurred())
+		// 	Expect(err.Error()).To(ContainSubstring("frontdoor service login call failed"))
+		// 	service.SecretManager = cldy.NewKeyValueSecretManager("good-key", "")
+		// 	// upload with good key but bad clusterUID
+		// 	err = actualUploader.StorageService.Upload(payload)
+		// 	Expect(err).To(HaveOccurred())
+		// 	Expect(err.Error()).To(ContainSubstring("cloudability clusters/upload request call failed with status"))
+		// 	// upload with successful login and successful url generation
+		// 	payload.ClusterUID = "good-cluster"
+		// 	err = actualUploader.StorageService.Upload(payload)
+		// 	Expect(err).ToNot(HaveOccurred())
+		// })
 	})
 })
 
