@@ -22,11 +22,13 @@ import (
 )
 
 const usFrontdoorURL = "https://frontdoor.apptio.com"
+const usFrontdoorStgURL = "https://frontdoor-stage.apptio.com"
 const euFrontdoorURL = "https://frontdoor-eu.apptio.com"
 const auFrontdoorURL = "https://frontdoor-au.apptio.com"
 const meFrontdoorURL = "https://frontdoor-me.apptio.com"
 
 const usCloudabilityURL = "https://api.cloudability.com"
+const usCloudabilityStgURL = "https://api-s.cloudability.com"
 const euCloudabilityURL = "https://api-eu.cloudability.com"
 const auCloudabilityURL = "https://api-au.cloudability.com"
 const meCloudabilityURL = "https://api-me.cloudability.com"
@@ -365,6 +367,8 @@ func getURLsFromRegion(region string) (string, string) {
 	switch region {
 	case "us", "us-west-2": // us-west-2 is for old agent migrations
 		return usFrontdoorURL, usCloudabilityURL
+	case "staging": // staging account
+		return usFrontdoorStgURL, usCloudabilityStgURL
 	case "eu", "eu-central-1": // eu-central-1 is for old agent migrations
 		return euFrontdoorURL, euCloudabilityURL
 	case "au", "ap-southeast-2":
