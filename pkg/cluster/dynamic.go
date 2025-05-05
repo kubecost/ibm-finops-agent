@@ -26,14 +26,14 @@ const (
 	annotationsPath             = "metadata.annotations"
 )
 
-type InfromerConfig struct {
+type InformerConfig struct {
 	ResyncInterval time.Duration
 	SanitizeData   bool
 }
 
 // LoadInformerConfig returns configs related to informer settings
-func LoadInformerConfig() InfromerConfig {
-	return InfromerConfig{
+func LoadInformerConfig() InformerConfig {
+	return InformerConfig{
 		ResyncInterval: time.Duration(viper.GetInt("INFORMER_RESYNC_INTERVAL")) * time.Hour,
 		SanitizeData:   viper.GetBool("PARSE_METRICS_DATA"),
 	}
