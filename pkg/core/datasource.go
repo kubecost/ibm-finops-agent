@@ -9,8 +9,11 @@ import (
 	"github.com/ibm/finops-agent/pkg/core/opencost"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/nodes"
+	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/pkg/kubeconfig"
+
+	"github.com/julienschmidt/httprouter"
 )
 
 // NOTE: We can use this as an intermediate data source local to this project. We can defer pushing all the implementation down
@@ -33,7 +36,7 @@ var (
 	defaultCacheResyncDuration = 60 * time.Minute
 )
 
-func NewAgentDataSource() DataSource {
+func NewAgentDataSource(router *httprouter.Router, diag diagnostics.DiagnosticService) DataSource {
 	// NOTE: (bolt) This just uses a fairly straight-forward kube client initialization. We should add specific proxy/auth
 	// NOTE: (bolt) requirements for the other data sources.
 	kubeClientset, err := kubeconfig.LoadKubeClient("")
@@ -53,21 +56,21 @@ func NewAgentDataSource() DataSource {
 
 	k8sCache.Start(context.Background().Done())
 
-	var opencostSource source.OpenCostDataSource
-	if env.IsOpenCostDataSourceEnabled() {
-		opencostConf := opencost.NewOpenCostConfigFromEnv()
-		opencostSource = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, opencostConf)
-	} else {
-		// fulfill the contract with a no-op opencost datasource
-		opencostSource = opencost.NewNoOpOpenCostDataSource()
-	}
-
 	nodeClientConfig, err := nodes.NewNodeClientConfigFromEnv()
 	if err != nil {
 		log.Fatalf("error retrieving node client config: %s", err)
 	}
 	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, cfg)
-	
+
+	var opencostSource source.OpenCostDataSource
+	if env.IsOpenCostDataSourceEnabled() {
+		opencostConf := opencost.NewOpenCostConfigFromEnv()
+		opencostSource = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, nodeStatsSummaryClient, router, diag, opencostConf)
+	} else {
+		// fulfill the contract with a no-op opencost datasource
+		opencostSource = opencost.NewNoOpOpenCostDataSource()
+	}
+
 	// TODO: Initialization of any other data sources here
 
 	return &agentDataSource{

@@ -6,6 +6,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/clusters"
+	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
@@ -44,6 +45,11 @@ func (ocdsa *OpenCostDataSourceAdapter) Update(snapshot *emitter.ClusterSnapshot
 // RegisterEndPoints registers any custom endpoints that can be used for diagnostics or debug purposes.
 func (ocdsa *OpenCostDataSourceAdapter) RegisterEndPoints(router *httprouter.Router) {
 	// TODO: What specific opencost endpoints should we expose? Debug, diagnostics, etc...
+}
+
+// RegisterDiagnostics registers any custom diagnostics that can be used for monitoring the data source.
+func (ocds *OpenCostDataSourceAdapter) RegisterDiagnostics(diag diagnostics.DiagnosticService) {
+
 }
 
 // Metrics returns a MetricsQuerier that can be used to query historical metrics data from the data source.
