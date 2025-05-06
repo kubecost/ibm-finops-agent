@@ -250,7 +250,7 @@ func (ce *CldyUploader) uploadLoop() {
 			ce.uploadSet.add(path)
 			err = ce.uploadSet.operateAndRemove(ce.uploadData)
 			if err != nil {
-				// TODO: logging
+				log.Warnf("error uploading: %s", err.Error())
 			}
 		}
 	}
