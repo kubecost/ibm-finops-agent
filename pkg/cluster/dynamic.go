@@ -75,7 +75,7 @@ var (
 	}
 	// fields to trim on specific resources if parseMetricsData is enabled
 	gvrToSanitizePaths = map[schema.GroupVersionResource][]string{
-		{Group: "apps", Version: "v1", Resource: "deployments"}: {"spec.progressDeadlineSeconds", "spec.minReadySeconds", "spec.strategy", "spec.replicas"},
+		{Group: "apps", Version: "v1", Resource: "deployments"}: {"spec.progressDeadlineSeconds", "spec.strategy"},
 		{Group: "apps", Version: "v1", Resource: "daemonsets"}:  {"spec.updateStrategy"},
 		{Group: "batch", Version: "v1", Resource: "jobs"}:       {"spec.parallelism", "spec.completions", "spec.activeDeadlineSeconds", "spec.backoffLimit", "spec.manualSelector", "spec.ttlSecondsAfterFinished", "spec.completionMode", "spec.suspend"},
 		{Group: "batch", Version: "v1", Resource: "cronjobs"}:   {"spec"},
@@ -127,12 +127,12 @@ func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interfa
 			log.Warnf("Not trimming or sanitizing non-unstructured resource: %s", reflect.TypeOf(resource))
 			return resource, nil
 		}
-		casted = sanitizeResource(casted, parseMetricsData)
+		casted = cleanResource(casted, parseMetricsData)
 		return resource, nil
 	}
 }
 
-func sanitizeResource(resource *unstructured.Unstructured, parseMetricsData bool) *unstructured.Unstructured {
+func cleanResource(resource *unstructured.Unstructured, parseMetricsData bool) *unstructured.Unstructured {
 	gvk := resource.GetObjectKind().GroupVersionKind()
 	gvr := gvkToGvr[gvk]
 	// for pods, we need to clean the individual containers before cleaning the pod fields
