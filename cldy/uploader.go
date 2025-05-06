@@ -308,6 +308,7 @@ func (ce *CldyUploader) uploadData(path string) error {
 		FilePath:     path,
 	}
 
+	// Custom S3 upload path
 	if ce.config.CustomS3UploadBucket != "" || ce.config.CustomS3UploadRegion != "" {
 		if ce.config.CustomS3UploadBucket != "" && ce.config.CustomS3UploadRegion != "" {
 			err = ce.StorageService.UploadToCustomS3(payload, ce.config.CustomS3UploadBucket, ce.config.CustomS3UploadRegion)
@@ -319,9 +320,12 @@ func (ce *CldyUploader) uploadData(path string) error {
 		}
 	}
 
-	err = ce.StorageService.Upload(payload)
-	if err != nil {
-		return err
+	// Cloudability upload path
+	if !ce.config.CustomS3Exclusive {
+		err = ce.StorageService.Upload(payload)
+		if err != nil {
+			return err
+		}
 	}
 	// uploads data, then removes tar from path if successful
 	return os.Remove(path)

@@ -54,6 +54,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("SCRATCH_DIR", "/tmp")
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
+	viper.SetDefault("CUSTOM_S3_EXCLUSIVE", false)
 
 	var outboundProxyUrl *url.URL
 	proxyURL := viper.GetString("OUTBOUND_PROXY")
@@ -78,6 +79,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 				Region:               viper.GetString("UPLOAD_REGION"),
 				CustomS3UploadBucket: viper.GetString("CUSTOM_S3_UPLOAD_BUCKET"),
 				CustomS3UploadRegion: viper.GetString("CUSTOM_S3_UPLOAD_REGION"),
+				CustomS3Exclusive:    viper.GetBool("CUSTOM_S3_EXCLUSIVE"),
 			},
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),

@@ -187,6 +187,7 @@ type ApptioConfig struct {
 	Region               string
 	CustomS3UploadBucket string
 	CustomS3UploadRegion string
+	CustomS3Exclusive    bool
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -225,7 +226,10 @@ func (s *ApptioServiceImpl) UploadToCustomS3(payload UploadPayload, customS3Buck
 		return err
 	} 
 
-	s.CldyUploadClient.CustomS3Upload(customS3Bucket, key, fileReader, uploader)
+	err = s.CldyUploadClient.CustomS3Upload(customS3Bucket, key, fileReader, uploader)
+	if err != nil {
+		return err
+	} 
 
 	log.Infof("successfully uploaded metric sample %s to custom S3 bucket: %s",
 		payload.FileName, customS3Bucket)
@@ -411,18 +415,17 @@ func generateSampleKey(fileName string, clusterUID string) (string, error) {
 	}
 
 	segments := strings.Split(withoutID[1], "-")
-    extIndex := strings.Index(segments[len(segments) - 1], ".")
     numSegments := len(segments)
 
-	// Filename should be comprised of at least 5 segments
-	if numSegments < 4 {
+	// Filename should be comprised of at least 6 segments
+	if numSegments < 5 {
 		return "", fmt.Errorf("error parsing timestamp from sample filename")
 	}
-    minute := segments[numSegments - 1][:extIndex]
-    hour := segments[numSegments - 2]
-	day := segments[numSegments - 3]
-	month := segments[numSegments - 4]
-	year := segments[numSegments - 5]
+    minute := segments[numSegments - 2]
+    hour := segments[numSegments - 3]
+	day := segments[numSegments - 4]
+	month := segments[numSegments - 5]
+	year := segments[numSegments - 6]
 
 	return fmt.Sprintf("/production/data/metrics-agent/%s/%s/%s/%s/%s-%s%s%s-%s-%s.tgz", year,
 		month, day, clusterUID, clusterUID, year, month, day, hour, minute), nil
