@@ -316,16 +316,14 @@ func (ce *CldyUploader) uploadData(path string) error {
 				return err
 			}
 		} else {
-			log.Warnf("both custom bucket and custom region must be set for custom s3 configuration. skipping upload.")
+			log.Warnf("both custom bucket and custom region must be set for custom s3 configuration. skipping s3 upload.")
 		}
 	}
 
 	// Cloudability upload path
-	if !ce.config.CustomS3Exclusive {
-		err = ce.StorageService.Upload(payload)
-		if err != nil {
-			return err
-		}
+	err = ce.StorageService.Upload(payload)
+	if err != nil {
+		return err
 	}
 	// uploads data, then removes tar from path if successful
 	return os.Remove(path)

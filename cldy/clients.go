@@ -187,7 +187,6 @@ type ApptioConfig struct {
 	Region               string
 	CustomS3UploadBucket string
 	CustomS3UploadRegion string
-	CustomS3Exclusive    bool
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -427,7 +426,7 @@ func generateSampleKey(fileName string, clusterUID string) (string, error) {
 	month := segments[numSegments - 5]
 	year := segments[numSegments - 6]
 
-	return fmt.Sprintf("/staging/data/metrics-agent/%s/%s/%s/%s/%s-%s%s%s-%s-%s.tgz", year,
+	return fmt.Sprintf("/production/data/metrics-agent/%s/%s/%s/%s/%s-%s%s%s-%s-%s.tgz", year,
 		month, day, clusterUID, clusterUID, year, month, day, hour, minute), nil
 }
 
