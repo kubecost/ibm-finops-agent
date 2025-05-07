@@ -43,7 +43,7 @@ const frontDoorLoginDescription = "performing login request to FrontDoor using K
 const presignedURLDescription = "acquiring presigned URL from Cloudability with acquired Open-token"
 const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
 
-// StorageService contains the upload paths for cloudability s3, custom s3, and custom azure blob
+// StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob
 type StorageService interface {
 	Upload(payload UploadPayload) error
 }
@@ -83,7 +83,27 @@ type CloudabilityClustersUploadInfo struct {
 	RequestID string `json:"requestId"`
 }
 
-func NewApptioSerivce(config ApptioConfig) StorageService {
+func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
+	body, err := config.SecretManager.GetSecret()
+	if err != nil {
+		return nil, err
+	}
+	// remove secret from memory
+	defer func() {
+		for i := range body {
+			body[i] = 0
+		}
+	}()
+
+	// Cloudability upload configuration not set, silently skip
+	if len(body) == 0 && config.EnvID == "" {
+		return nil, nil
+	}
+
+	if len(body) == 0 || config.EnvID == "" {
+		return nil, fmt.Errorf("key access, key secret, and env id must all be set to upload to cloudability.")
+	}
+
 	frontdoorURL, cloudabilityURL := getURLsFromRegion(config.Region)
 
 	return &ApptioServiceImpl{
@@ -93,7 +113,7 @@ func NewApptioSerivce(config ApptioConfig) StorageService {
 		CldyUploadClient: NewApptioClient(config),
 		FrontdoorURL:     frontdoorURL,
 		CloudabilityURL:  cloudabilityURL,
-	}
+	}, nil
 }
 
 // ApptioClient is the client used in the cloudability uploader
@@ -160,7 +180,6 @@ type ApptioConfig struct {
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
-	// Cloudability upload path
 	var presignedURL string
 	var err error
 	// gather opentoken from Frontdoor on first run or if token expired

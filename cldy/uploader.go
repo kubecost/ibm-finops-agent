@@ -47,7 +47,13 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	}
 
 	var storageServices []StorageService
-	storageServices = append(storageServices, NewApptioSerivce(config.ApptioConfig))
+	apptioService, err := NewApptioSerivce(config.ApptioConfig)
+	if err != nil {
+		log.Warnf("failed to create cloudability uploader: %v", err)
+	}
+	if apptioService != nil {
+		storageServices = append(storageServices, apptioService)
+	}
 
 	s3Client, err := NewCustomS3Client(config.CustomS3UploadBucket, config.CustomS3UploadRegion)
 	if err != nil {
@@ -55,6 +61,11 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	}
 	if s3Client != nil {
 		storageServices = append(storageServices, s3Client)
+	}
+
+	// Check if no upload paths were configured
+	if len(storageServices) == 0 {
+		log.Errorf("no complete upload configurations were detected")
 	}
 
 	uploader := CldyUploader{
@@ -65,7 +76,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		uploadPathDir: uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
 		StorageServices: storageServices,
-		recoveryPeriod: config.RecoveryPeriod,
+		recoveryPeriod:  config.RecoveryPeriod,
 	}
 	err = uploader.recoverDataOnStartup()
 	if err != nil {

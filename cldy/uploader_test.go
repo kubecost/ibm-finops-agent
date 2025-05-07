@@ -36,6 +36,9 @@ var _ = Describe("Uploader", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -59,6 +62,10 @@ var _ = Describe("Uploader", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -85,6 +92,9 @@ var _ = Describe("Uploader", func() {
 				ScratchDir:      tempDir,
 				// 100 years (should recover all samples)
 				RecoveryPeriod: 1000000 * time.Hour,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
 			}
 			// copy over data before creating uploader simulating recovery state
 			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
@@ -107,6 +117,9 @@ var _ = Describe("Uploader", func() {
 				ScratchDir:      tempDir,
 				// 1 hour (will not recover as agent-measurement timestamp is old)
 				RecoveryPeriod: 1 * time.Hour,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
 			}
 			// copy over data before creating uploader simulating recovery state
 			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
@@ -129,6 +142,9 @@ var _ = Describe("Uploader", func() {
 				ScratchDir:      tempDir,
 				// 100 years (should recover all samples if complete)
 				RecoveryPeriod: 1000000 * time.Hour,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
 			}
 			// copy over data before creating uploader simulating recovery state
 			err := copyIncompleteData(tempDir+"/scratch/temp_test_data", "testdata", []string{"deployments.jsonl"})
@@ -151,6 +167,9 @@ var _ = Describe("Uploader", func() {
 				ScratchDir:      tempDir,
 				// 100 years (should recover all samples)
 				RecoveryPeriod: 1000000 * time.Hour,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
 			}
 			// copy over data before creating uploader simulating recovery state
 			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
@@ -181,6 +200,10 @@ var _ = Describe("Uploader", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -219,6 +242,10 @@ var _ = Describe("Uploader", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: 250 * time.Millisecond,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -254,6 +281,10 @@ var _ = Describe("Uploader", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: 250 * time.Millisecond,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -288,6 +319,10 @@ var _ = Describe("Uploader", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
