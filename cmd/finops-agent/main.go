@@ -15,6 +15,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/http"
 	"github.com/julienschmidt/httprouter"
+	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/rs/zerolog"
 	zerologger "github.com/rs/zerolog/log"
@@ -41,12 +42,16 @@ func main() {
 
 	log.Infof("Starting IBM Finops Agent...")
 
+	// Shared application utilities (http router, diagnostics, etc...)
+	router := httprouter.New()
+	diag := diagnostics.NewDiagnosticService()
+
 	// Initialize/Bootstrap the Agent Data Source
-	dataSource := core.NewAgentDataSource()
+	dataSource := core.NewAgentDataSource(router, diag)
 	var emitters []emitter.Emitter
 
 	if env.IsKubecostEmitterEnabled() {
-		emitters = append(emitters, kubecost.NewKubecostEmitter(kubecost.NewEmitterConfigFromEnv()))
+		emitters = append(emitters, kubecost.NewKubecostEmitter(diag, kubecost.NewEmitterConfigFromEnv()))
 	}
 	if env.IsCloudyEmitterEnabled() {
 		cldyConfig, err := cldy.NewEmitterConfigFromEnv()
@@ -73,10 +78,7 @@ func main() {
 		panic("Failed to start exporter")
 	}
 
-	router := httprouter.New()
-	// we can probably hook this router into the emitters to append any debug/diagnostic endpoints
-	// or we can initialize them directly in the `AgentDataSource` instantiation.
-
+	// Setup the HTTP server
 	server := http.NewHttpServer(router, 9003)
 	go func() {
 		err := server.ListenAndServe()

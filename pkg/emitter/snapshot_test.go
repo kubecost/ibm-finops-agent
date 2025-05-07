@@ -9,7 +9,9 @@ import (
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/clusters"
+	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/source"
+
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -149,6 +151,10 @@ func NewMockOpenCostDataSource() *MockOpenCostDataSource {
 
 // RegisterEndPoints registers any custom endpoints that can be used for diagnostics or debug purposes.
 func (mocds *MockOpenCostDataSource) RegisterEndPoints(router *httprouter.Router) {
+	// No-op
+}
+
+func (mocds *MockOpenCostDataSource) RegisterDiagnostics(diag diagnostics.DiagnosticService) {
 	// No-op
 }
 

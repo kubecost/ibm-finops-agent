@@ -8,6 +8,10 @@ import (
 
 	"github.com/ibm/finops-agent/kubecost/adapters"
 	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/opencost/opencost/core/pkg/diagnostics"
+	diagexporter "github.com/opencost/opencost/core/pkg/diagnostics/exporter"
+	ocexporter "github.com/opencost/opencost/core/pkg/exporter"
+	heartbeatexporter "github.com/opencost/opencost/core/pkg/heartbeat/exporter"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/cloud/models"
@@ -23,12 +27,16 @@ type KubecostEmitter struct {
 	dataSource          *adapters.OpenCostDataSourceAdapter
 	costModel           *costmodel.CostModel
 	pipelineControllers *exporter.PipelineExportControllers
+	heartbeatController ocexporter.ExportController
+	diagController      ocexporter.ExportController
+	diag                diagnostics.DiagnosticService
 
 	config *EmitterConfig
 }
 
-func NewKubecostEmitter(config *EmitterConfig) *KubecostEmitter {
+func NewKubecostEmitter(diag diagnostics.DiagnosticService, config *EmitterConfig) *KubecostEmitter {
 	return &KubecostEmitter{
+		diag:   diag,
 		config: config,
 	}
 }
@@ -105,14 +113,26 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 		)
 	}
 
+	// all pipeline export controllers
 	pipelineControllers := exporter.NewPipelineExportControllers(ke.config.ClusterID, bucketStore, costModel, pipelineConfig)
 	pipelineControllers.Start(ke.config.ExportInterval)
+
+	// agent presence and heartbeat
+	heartbeatMetadata := heartbeatexporter.NewClusterInfoMetadataProvider(clusterInfo)
+	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.ClusterID, bucketStore, heartbeatMetadata)
+	agentHeartbeat.Start(5 * time.Minute)
+
+	// diagnostics exporter
+	diagnosticsExporter := diagexporter.NewDiagnosticsExportController(ke.config.ClusterID, bucketStore, ke.diag)
+	diagnosticsExporter.Start(time.Minute)
 
 	// initialize emitter's internal state
 	ke.cloudProvider = cloudProvider
 	ke.dataSource = dataSource
 	ke.costModel = costModel
 	ke.pipelineControllers = pipelineControllers
+	ke.heartbeatController = agentHeartbeat
+	ke.diagController = diagnosticsExporter
 
 	return nil
 }
