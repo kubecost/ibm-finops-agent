@@ -73,17 +73,18 @@ var (
 		{Version: "v1", Kind: "PersistentVolume"}:                     {Group: "v1", Resource: "persistentvolumes"},
 		{Version: "v1", Kind: "Container"}:                            {Group: "v1", Resource: "containers"},
 	}
+	containerGVR = schema.GroupVersionResource{Group: "v1", Resource: "containers"}
 	// fields to trim on specific resources if parseMetricsData is enabled
 	gvrToSanitizePaths = map[schema.GroupVersionResource][]string{
-		{Group: "apps", Version: "v1", Resource: "deployments"}: {"spec.progressDeadlineSeconds", "spec.strategy"},
+		{Group: "apps", Version: "v1", Resource: "deployments"}: {"spec.progressDeadlineSeconds"},
 		{Group: "apps", Version: "v1", Resource: "daemonsets"}:  {"spec.updateStrategy"},
 		{Group: "batch", Version: "v1", Resource: "jobs"}:       {"spec.parallelism", "spec.completions", "spec.activeDeadlineSeconds", "spec.backoffLimit", "spec.manualSelector", "spec.ttlSecondsAfterFinished", "spec.completionMode", "spec.suspend"},
 		{Group: "batch", Version: "v1", Resource: "cronjobs"}:   {"spec"},
 		{Group: "v1", Resource: "containers"}:                   {"command", "args", "imagePullPolicy", "livenessProbe", "readinessProbe", "startupProbe", "terminationMessagePath", "terminationMessagePolicy", "securityContext"},
-		{Version: "v1", Resource: "services"}:                   {"spec.ports", "spec.clusterIP", "spec.clusterIPs", "spec.type", "spec.externalIPs", "spec.sessionAffinity", "spec.loadBalancerIP", "spec.loadBalancerSourceRanges", "spec.externalName", "spec.externalTrafficPolicy", "spec.healthCheckNodePort", "spec.sessionAffinityConfig", "spec.ipFamilies", "spec.ipFamilyPolicy", "spec.allocatedLoadBalancerNodePorts", "spec.loadBalancerClass", "spec.internalTrafficPolicy"},
+		{Version: "v1", Resource: "services"}:                   {"spec.ports", "spec.clusterIPs", "spec.externalIPs", "spec.sessionAffinity", "spec.loadBalancerIP", "spec.loadBalancerSourceRanges", "spec.externalName", "spec.externalTrafficPolicy", "spec.healthCheckNodePort", "spec.sessionAffinityConfig", "spec.ipFamilies", "spec.ipFamilyPolicy", "spec.allocatedLoadBalancerNodePorts", "spec.loadBalancerClass", "spec.internalTrafficPolicy"},
 	}
 	// common fields to trim on all resources if parseMetricsData is enabled
-	commonSanitizePaths = []string{"spec.template", "spec.revisionHistoryLimit", "spec.replicas", "spec.minReadySeconds", "metadata.finalizers"}
+	commonSanitizePaths = []string{"spec.revisionHistoryLimit", "spec.minReadySeconds", "metadata.finalizers"}
 	// fields to trim on specific resources by default
 	gvrToTrimPaths = map[schema.GroupVersionResource][]string{
 		{Group: "v1", Resource: "containers"}: {"env"},
@@ -136,8 +137,8 @@ func cleanResource(resource *unstructured.Unstructured, parseMetricsData bool) *
 	gvk := resource.GetObjectKind().GroupVersionKind()
 	gvr := gvkToGvr[gvk]
 	// for pods, we need to clean the individual containers before cleaning the pod fields
-	if gvr.Resource == "Pod" {
-		cleanPodContainers(resource, gvr, parseMetricsData)
+	if gvr.Resource == "pods" || gvr.Resource == "deployments" || gvr.Resource == "replicasets" || gvr.Resource == "replicationcontrollers" || gvr.Resource == "jobs" || gvr.Resource == "daemonsets" {
+		cleanContainers(resource, gvr, parseMetricsData)
 	}
 	// remove paths (if any) that are specific to the resource
 	cleanResourceFieldsFromPath(resource, gvrToTrimPaths[gvr])
@@ -165,19 +166,39 @@ func cleanResourceFieldsFromPath(resource *unstructured.Unstructured, paths []st
 	}
 }
 
-func cleanPodContainers(resource *unstructured.Unstructured, gvr schema.GroupVersionResource, parseMetricsData bool) {
-	containers, ok, err := unstructured.NestedSlice(resource.Object, "spec.containers")
-	if err != nil || !ok {
-		log.Warnf("issue retrieving pod's containers list %s or no containers found. Not cleaning", err)
+func cleanContainers(resource *unstructured.Unstructured, gvr schema.GroupVersionResource, parseMetricsData bool) {
+	var pathsToContainers []string
+	if gvr.Resource == "pods" {
+		pathsToContainers = append(pathsToContainers, "spec.containers", "spec.initContainers")
+	} else {
+		// deployments, daemonsets, replicasets, replicationcontrollers, & jobs
+		pathsToContainers = append(pathsToContainers, "spec.template.spec.containers", "spec.template.spec.initContainers")
 	}
-	for _, container := range containers {
-		if parseMetricsData {
-			for _, path := range gvrToSanitizePaths[gvr] {
-				unstructured.RemoveNestedField(container.(map[string]interface{}), strings.Split(path, ".")...)
-			}
+
+	for _, path := range pathsToContainers {
+		containersUnstructured, found, err := unstructured.NestedFieldNoCopy(resource.Object, strings.Split(path, ".")...)
+		// some kubernetes resources will not have initContainers, we can just skip if so
+		if !found {
+			continue
 		}
-		for _, path := range gvrToTrimPaths[gvr] {
-			unstructured.RemoveNestedField(container.(map[string]interface{}), strings.Split(path, ".")...)
+		if err != nil {
+			log.Warnf("an error occurred getting resources containers %v", err)
+			continue
+		}
+		containers, ok := containersUnstructured.([]interface{})
+		if !ok {
+			log.Warnf("containers field is not a list. Not cleaning resource")
+			continue
+		}
+		for i := 0; i < len(containers); i++ {
+			if parseMetricsData {
+				for _, pathToContainer := range gvrToSanitizePaths[containerGVR] {
+					unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
+				}
+			}
+			for _, pathToContainer := range gvrToTrimPaths[containerGVR] {
+				unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
+			}
 		}
 	}
 }
