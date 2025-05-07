@@ -350,13 +350,13 @@ func getURLsFromRegion(region string) (string, string) {
 }
 
 type CustomS3Client struct {
-	S3Bucket string
-	S3Region string
-	Uploader *s3manager.Uploader
+	S3Bucket     string
+	S3Region     string
+	UploadClient CustomS3UploadService
 }
 
 func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageService, error) {
-	// Config is not set, silently omit custom s3
+	// Config is not set, silently skip custom s3 setup
 	if customS3Bucket == "" && customS3Region == "" {
 		return nil, nil
 	}
@@ -366,30 +366,40 @@ func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageSer
 		return nil, nil
 	}
 
-	
-	uploader, err := newS3Session(customS3Region)
+	uploadClient, err := newUploadClient(customS3Region)
 	if err != nil {
 		return nil, err
 	}
 
 	return CustomS3Client{
-		S3Bucket:   customS3Bucket,
-		S3Region:   customS3Region,
-		Uploader:   uploader,
+		S3Bucket:     customS3Bucket,
+		S3Region:     customS3Region,
+		UploadClient: uploadClient,
 	}, nil
 }
 
-func newS3Session(s3Region string) (*s3manager.Uploader, error) {
+type CustomS3UploadService interface {
+	Do(sampleToUpload *s3manager.UploadInput) error
+}
+
+type CustomS3Uploader struct {
+	Uploader *s3manager.Uploader
+}
+
+func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 	sess, err := session.NewSession(&aws.Config{
 		Region:     aws.String(s3Region),
 		MaxRetries: aws.Int(3)},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("Could not establish AWS Session, " +
+		return nil, fmt.Errorf("Could not establish AWS Session, "+
 			"ensure AWS environment variables are set correctly: %s", err)
 	}
 	svc := s3.New(sess)
-	return s3manager.NewUploaderWithClient(svc), nil
+
+	return &CustomS3Uploader{
+		Uploader: s3manager.NewUploaderWithClient(svc),
+	}, nil
 }
 
 func (cs3c CustomS3Client) Upload(payload UploadPayload) error {
@@ -402,15 +412,15 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) error {
 	key, err := generateSampleKey(payload.FileName, payload.ClusterUID)
 	if err != nil {
 		return err
-	} 
-	
+	}
+
 	sampleToUpload := &s3manager.UploadInput{
 		Bucket: aws.String(cs3c.S3Bucket),
 		Key:    aws.String(key),
 		Body:   fileReader,
 	}
 
-	_, err = cs3c.Uploader.Upload(sampleToUpload)
+	err = cs3c.UploadClient.Do(sampleToUpload)
 	if err != nil {
 		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
 	}
@@ -418,6 +428,11 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) error {
 	log.Infof("successfully uploaded metric sample %s to custom S3 bucket: %s",
 		payload.FileName, cs3c.S3Bucket)
 	return nil
+}
+
+func (cs3u CustomS3Uploader) Do(sampleToUpload *s3manager.UploadInput) error {
+	_, err := cs3u.Uploader.Upload(sampleToUpload)
+	return err
 }
 
 // generateSampleKey creates a key (location) for s3 to upload the sample to. Example of s3 location format
@@ -429,17 +444,17 @@ func generateSampleKey(fileName string, clusterUID string) (string, error) {
 	}
 
 	segments := strings.Split(withoutID[1], "-")
-    numSegments := len(segments)
+	numSegments := len(segments)
 
 	// Filename should be comprised of at least 6 segments
 	if numSegments < 5 {
 		return "", fmt.Errorf("error parsing timestamp from sample filename")
 	}
-    minute := segments[numSegments - 2]
-    hour := segments[numSegments - 3]
-	day := segments[numSegments - 4]
-	month := segments[numSegments - 5]
-	year := segments[numSegments - 6]
+	minute := segments[numSegments-2]
+	hour := segments[numSegments-3]
+	day := segments[numSegments-4]
+	month := segments[numSegments-5]
+	year := segments[numSegments-6]
 
 	return fmt.Sprintf("/production/data/metrics-agent/%s/%s/%s/%s/%s-%s%s%s-%s-%s.tgz", year,
 		month, day, clusterUID, clusterUID, year, month, day, hour, minute), nil

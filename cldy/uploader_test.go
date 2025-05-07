@@ -284,45 +284,40 @@ var _ = Describe("Uploader", func() {
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(2))
 			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(2))
 		})
-		// It("should upload to custom bucket", func() {
-		// 	config := cldy.UploaderConfig{
-		// 		UploadFrequency: time.Hour,
-		// 		ScratchDir:      tempDir,
-		// 	}
-		// 	stopCh := make(chan struct{})
-		// 	defer close(stopCh)
-		// 	uploader := cldy.NewCldyUploader(config, stopCh)
-		// 	err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
-		// 	Expect(err).ToNot(HaveOccurred())
-		// 	uploader.SetClusterID("test_id")
-		// 	actualUploader := uploader.(*cldy.CldyUploader)
-		// 	service := cldy.CustomS3Client{
-		// 		Uploader: &mockS3Uploader{},
-		// 	}
-		// 	actualUploader.StorageServices = append(actualUploader.StorageServices, &service)
+		It("should upload to custom bucket", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: time.Hour,
+				ScratchDir:      tempDir,
+			}
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			uploader.SetClusterID("test_id")
+			actualUploader := uploader.(*cldy.CldyUploader)
+			service := cldy.CustomS3Client{
+				UploadClient: &mockUploadService{},
+			}
+			actualUploader.StorageServices[0] = &service
 
-		// 	// Succeed on a good filename
-		// 	payload := cldy.UploadPayload{
-		// 		ClusterUID:   "good-cluster",
-		// 		FileName:     "8604469a-1368-44ee-9f1c-c5cc8c2121c1_2025-05-05-18-05-17.tgz",
-		// 		AgentVersion: "1.0.0",
-		// 		UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
-		// 		FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
-		// 	}
-		// 	err = actualUploader.StorageServices[0].Upload(payload)
-		// 	Expect(err).ToNot(HaveOccurred())
+			// Succeed on a good filename
+			payload := cldy.UploadPayload{
+				ClusterUID:   "good-cluster",
+				FileName:     "8604469a-1368-44ee-9f1c-c5cc8c2121c1_2025-05-05-18-05-17.tgz",
+				AgentVersion: "1.0.0",
+				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
+				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
+			}
+			err = actualUploader.StorageServices[0].Upload(payload)
+			Expect(err).ToNot(HaveOccurred())
 
-		// 	// Error on an unparseable filename
-		// 	payload.FileName = "badFileName"
-		// 	err = actualUploader.StorageServices[0].Upload(payload)
-		// 	Expect(err).To(HaveOccurred())
-		// 	Expect(err.Error()).To(ContainSubstring("error parsing name from sample filename"))
-			
-		// 	// Gracefully handle bad region
-		// 	err = actualUploader.StorageServices[0].Upload(payload)
-		// 	Expect(err).To(HaveOccurred())
-		// 	Expect(err.Error()).To(ContainSubstring("Error creating session"))
-		// })
+			// Error on an unparseable filename
+			payload.FileName = "badFileName"
+			err = actualUploader.StorageServices[0].Upload(payload)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("error parsing name from sample filename"))
+		})
 	})
 })
 
@@ -465,18 +460,8 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response,
 	return &http.Response{}, fmt.Errorf("unknown request")
 }
 
-// type mockS3Uploader struct {
-	
-// }
+type mockUploadService struct{}
 
-func (mcs *mockClientService) CustomS3Session(s3Region string) (*s3manager.Uploader, error) {
-	if s3Region == "bad-region" {
-		return nil, fmt.Errorf("Error creating session")
-	}
-	
-	return nil, nil
-}
-
-func (mcs *mockClientService) CustomS3Upload(s3Bucket string, key string, fileReader *os.File, uploader *s3manager.Uploader) error {
+func (mcs *mockUploadService) Do(sampleToUpload *s3manager.UploadInput) error {
 	return nil
 }
