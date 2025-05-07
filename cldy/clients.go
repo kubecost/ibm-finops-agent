@@ -46,7 +46,6 @@ const s3UploadDescription = "uploading sample to Cloudability S3 using presigned
 // StorageService contains the upload paths for cloudability s3, custom s3, and custom azure blob
 type StorageService interface {
 	Upload(payload UploadPayload) error
-	UploadToCustomS3(payload UploadPayload, customS3Bucket string, customS3Region string) error
 }
 
 type ClientService interface {
@@ -102,6 +101,9 @@ type ApptioServiceImpl struct {
 	CloudabilityURL  string
 	validTil         time.Time
 	CldyUploadClient ClientService
+	CustomS3Bucket   string
+	CustomS3Region   string
+	S3Uploader       *s3manager.Uploader
 }
 
 type CloudabilityClustersUploadResponse struct {
@@ -123,6 +125,8 @@ func NewApptioSerivce(config ApptioConfig) StorageService {
 		CldyUploadClient: NewApptioClient(config),
 		FrontdoorURL:     frontdoorURL,
 		CloudabilityURL:  cloudabilityURL,
+		CustomS3Bucket:   config.CustomS3UploadBucket,
+		CustomS3Region:   config.CustomS3UploadRegion,
 	}
 }
 
@@ -190,6 +194,7 @@ type ApptioConfig struct {
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
+	// Cloudability upload path
 	var presignedURL string
 	var err error
 	// gather opentoken from Frontdoor on first run or if token expired
@@ -205,13 +210,34 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 		return err
 	}
 	// upload data using presigned url
-	return s.sendData(payload, presignedURL)
-}
-
-func (s *ApptioServiceImpl) UploadToCustomS3(payload UploadPayload, customS3Bucket string, customS3Region string) error {
-	uploader, err := s.CldyUploadClient.CustomS3Session(customS3Region)
+	err = s.sendData(payload, presignedURL)
 	if err != nil {
 		return err
+	}
+
+	// Custom S3 upload path
+	if s.CustomS3Bucket != "" || s.CustomS3Region != "" {
+		if s.CustomS3Bucket != "" && s.CustomS3Region != "" {
+			err = s.UploadToCustomS3(payload)
+			if err != nil {
+				return err
+			}
+		} else {
+			log.Warnf("both custom bucket and custom region must be set for custom s3 configuration. skipping s3 upload.")
+		}
+	}
+	return nil
+}
+
+func (s *ApptioServiceImpl) UploadToCustomS3(payload UploadPayload) error {
+	var err error
+
+	// Create s3 session on first custom s3 upload
+	if s.S3Uploader == nil {
+		s.S3Uploader, err = s.CldyUploadClient.CustomS3Session(s.CustomS3Region)
+		if err != nil {
+			return err
+		}
 	}
 
 	fileReader, err := os.Open(payload.FilePath)
@@ -225,13 +251,13 @@ func (s *ApptioServiceImpl) UploadToCustomS3(payload UploadPayload, customS3Buck
 		return err
 	} 
 
-	err = s.CldyUploadClient.CustomS3Upload(customS3Bucket, key, fileReader, uploader)
+	err = s.CldyUploadClient.CustomS3Upload(s.CustomS3Bucket, key, fileReader, s.S3Uploader)
 	if err != nil {
 		return err
 	} 
 
 	log.Infof("successfully uploaded metric sample %s to custom S3 bucket: %s",
-		payload.FileName, customS3Bucket)
+		payload.FileName, s.CustomS3Bucket)
 	return nil
 }
 

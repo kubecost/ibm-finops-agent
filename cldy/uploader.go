@@ -308,19 +308,6 @@ func (ce *CldyUploader) uploadData(path string) error {
 		FilePath:     path,
 	}
 
-	// Custom S3 upload path
-	if ce.config.CustomS3UploadBucket != "" || ce.config.CustomS3UploadRegion != "" {
-		if ce.config.CustomS3UploadBucket != "" && ce.config.CustomS3UploadRegion != "" {
-			err = ce.StorageService.UploadToCustomS3(payload, ce.config.CustomS3UploadBucket, ce.config.CustomS3UploadRegion)
-			if err != nil {
-				return err
-			}
-		} else {
-			log.Warnf("both custom bucket and custom region must be set for custom s3 configuration. skipping s3 upload.")
-		}
-	}
-
-	// Cloudability upload path
 	err = ce.StorageService.Upload(payload)
 	if err != nil {
 		return err

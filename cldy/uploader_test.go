@@ -299,34 +299,31 @@ var _ = Describe("Uploader", func() {
 			service := cldy.ApptioServiceImpl{
 				CldyUploadClient: &mockClientService{},
 				SecretManager:    cldy.NewKeyValueSecretManager("good-key", ""),
+				CustomS3Bucket:   "test-bucket",
+				CustomS3Region:   "test-region",
 			}
 			actualUploader.StorageService = &service
 
 			// Succeed on a good filename
 			payload := cldy.UploadPayload{
-				ClusterUID:   "bad-cluster",
+				ClusterUID:   "good-cluster",
 				FileName:     "8604469a-1368-44ee-9f1c-c5cc8c2121c1_2025-05-05-18-05-17.tgz",
 				AgentVersion: "1.0.0",
 				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
 			}
-			err = actualUploader.StorageService.UploadToCustomS3(payload, "test-bucket", "test-region")
+			err = actualUploader.StorageService.Upload(payload)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Error on an unparseable filename
-			payload = cldy.UploadPayload{
-				ClusterUID:   "bad-cluster",
-				FileName:     "badFileName",
-				AgentVersion: "1.0.0",
-				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
-				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
-			}
-			err = actualUploader.StorageService.UploadToCustomS3(payload, "test-bucket", "test-region")
+			payload.FileName = "badFileName"
+			err = actualUploader.StorageService.Upload(payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("error parsing name from sample filename"))
 			
 			// Gracefully handle bad region
-			err = actualUploader.StorageService.UploadToCustomS3(payload, "test-bucket", "bad-region")
+			service.CustomS3Region = "bad-region"
+			err = actualUploader.StorageService.Upload(payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("Error creating session"))
 		})
