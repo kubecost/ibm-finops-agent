@@ -140,6 +140,7 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 }
 
 type ApptioConfig struct {
+	ClusterName          string
 	SecretManager        SecretManager
 	EnvID                string
 	OpenToken            string
