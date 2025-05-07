@@ -39,7 +39,6 @@ func LoadInformerConfig() InformerConfig {
 	}
 }
 
-// TODO: Cloudy/Turbo needs filtering functionality for specific k8s resources!
 var (
 	cacheResourceMap = map[reflect.Type]schema.GroupVersionResource{
 		reflect.TypeOf(corev1.Namespace{}):             {Version: "v1", Resource: "namespaces"},
@@ -136,19 +135,20 @@ func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interfa
 func cleanResource(resource *unstructured.Unstructured, parseMetricsData bool) *unstructured.Unstructured {
 	gvk := resource.GetObjectKind().GroupVersionKind()
 	gvr := gvkToGvr[gvk]
-	// for pods, we need to clean the individual containers before cleaning the pod fields
-	if gvr.Resource == "pods" || gvr.Resource == "deployments" || gvr.Resource == "replicasets" || gvr.Resource == "replicationcontrollers" || gvr.Resource == "jobs" || gvr.Resource == "daemonsets" {
+	// for resources with containers separate container cleaning needs to be done
+	if gvr.Resource == "pods" || gvr.Resource == "deployments" || gvr.Resource == "replicasets" ||
+		gvr.Resource == "replicationcontrollers" || gvr.Resource == "jobs" || gvr.Resource == "daemonsets" {
 		cleanContainers(resource, gvr, parseMetricsData)
 	}
-	// remove paths (if any) that are specific to the resource
+	// remove fields (if any) that are specific to the resource
 	cleanResourceFieldsFromPath(resource, gvrToTrimPaths[gvr])
-	// remove common paths for all resources
+	// remove common fields for all resources
 	cleanResourceFieldsFromPath(resource, commonTrimPaths)
-	// perform further sanitization of kubernetes resources if enabled
+	// perform further sanitization of resource if enabled
 	if parseMetricsData {
-		// remove paths (if any) that are specific to the resource
+		// remove fields (if any) that are specific to the resource
 		cleanResourceFieldsFromPath(resource, gvrToSanitizePaths[gvr])
-		// remove common paths for all resources
+		// remove common fields for all resources
 		cleanResourceFieldsFromPath(resource, commonSanitizePaths)
 	}
 	return resource
@@ -156,6 +156,7 @@ func cleanResource(resource *unstructured.Unstructured, parseMetricsData bool) *
 
 func cleanResourceFieldsFromPath(resource *unstructured.Unstructured, paths []string) {
 	for _, path := range paths {
+		// for annotations only remove default junk annotation
 		if path == annotationsPath {
 			annotations := resource.GetAnnotations()
 			delete(annotations, KubernetesLastAppliedConfig)
