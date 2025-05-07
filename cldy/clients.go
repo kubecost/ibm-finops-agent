@@ -50,39 +50,10 @@ type StorageService interface {
 
 type ClientService interface {
 	Do(r *http.Request, requestDescription string) (*http.Response, error)
-	CustomS3Session(s3Region string) (*s3manager.Uploader, error)
-	CustomS3Upload(s3Bucket string, key string, fileReader *os.File, uploader *s3manager.Uploader) error
 }
 
 func (ac ApptioClient) Do(r *http.Request, requestDescription string) (*http.Response, error) {
 	return ac.doWithRetry(r, requestDescription)
-}
-
-func (ac ApptioClient) CustomS3Session(s3Region string) (*s3manager.Uploader, error) {
-	sess, err := session.NewSession(&aws.Config{
-		Region:     aws.String(s3Region),
-		MaxRetries: aws.Int(3)},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("Could not establish AWS Session, " +
-			"ensure AWS environment variables are set correctly: %s", err)
-	}
-	svc := s3.New(sess)
-	return s3manager.NewUploaderWithClient(svc), nil
-}
-
-func (ac ApptioClient) CustomS3Upload(s3Bucket string, key string, fileReader *os.File, uploader *s3manager.Uploader) error {
-	sampleToUpload := &s3manager.UploadInput{
-		Bucket: aws.String(s3Bucket),
-		Key:    aws.String(key),
-		Body:   fileReader,
-	}
-
-	_, err := uploader.Upload(sampleToUpload)
-	if err != nil {
-		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
-	}
-	return nil
 }
 
 type UploadPayload struct {
@@ -101,9 +72,6 @@ type ApptioServiceImpl struct {
 	CloudabilityURL  string
 	validTil         time.Time
 	CldyUploadClient ClientService
-	CustomS3Bucket   string
-	CustomS3Region   string
-	S3Uploader       *s3manager.Uploader
 }
 
 type CloudabilityClustersUploadResponse struct {
@@ -125,8 +93,6 @@ func NewApptioSerivce(config ApptioConfig) StorageService {
 		CldyUploadClient: NewApptioClient(config),
 		FrontdoorURL:     frontdoorURL,
 		CloudabilityURL:  cloudabilityURL,
-		CustomS3Bucket:   config.CustomS3UploadBucket,
-		CustomS3Region:   config.CustomS3UploadRegion,
 	}
 }
 
@@ -210,55 +176,7 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 		return err
 	}
 	// upload data using presigned url
-	err = s.sendData(payload, presignedURL)
-	if err != nil {
-		return err
-	}
-
-	// Custom S3 upload path
-	if s.CustomS3Bucket != "" || s.CustomS3Region != "" {
-		if s.CustomS3Bucket != "" && s.CustomS3Region != "" {
-			err = s.UploadToCustomS3(payload)
-			if err != nil {
-				return err
-			}
-		} else {
-			log.Warnf("both custom bucket and custom region must be set for custom s3 configuration. skipping s3 upload.")
-		}
-	}
-	return nil
-}
-
-func (s *ApptioServiceImpl) UploadToCustomS3(payload UploadPayload) error {
-	var err error
-
-	// Create s3 session on first custom s3 upload
-	if s.S3Uploader == nil {
-		s.S3Uploader, err = s.CldyUploadClient.CustomS3Session(s.CustomS3Region)
-		if err != nil {
-			return err
-		}
-	}
-
-	fileReader, err := os.Open(payload.FilePath)
-	if err != nil {
-		return fmt.Errorf("Unable to open metric sample file %v", err)
-	}
-	defer fileReader.Close()
-
-	key, err := generateSampleKey(payload.FileName, payload.ClusterUID)
-	if err != nil {
-		return err
-	} 
-
-	err = s.CldyUploadClient.CustomS3Upload(s.CustomS3Bucket, key, fileReader, s.S3Uploader)
-	if err != nil {
-		return err
-	} 
-
-	log.Infof("successfully uploaded metric sample %s to custom S3 bucket: %s",
-		payload.FileName, s.CustomS3Bucket)
-	return nil
+	return s.sendData(payload, presignedURL)
 }
 
 // login gathers the opentoken required to make requests to Cloudability by hitting Frontdoor's apikeylogin endpoint
@@ -429,6 +347,77 @@ func getURLsFromRegion(region string) (string, string) {
 		log.Warnf("customer region is invalid. Defaulting to US region.")
 		return usFrontdoorURL, usCloudabilityURL
 	}
+}
+
+type CustomS3Client struct {
+	S3Bucket string
+	S3Region string
+	Uploader *s3manager.Uploader
+}
+
+func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageService, error) {
+	// Config is not set, silently omit custom s3
+	if customS3Bucket == "" && customS3Region == "" {
+		return nil, nil
+	}
+
+	if customS3Bucket == "" || customS3Region == "" {
+		log.Warnf("both custom bucket and custom region must be set for custom s3 configuration.")
+		return nil, nil
+	}
+
+	
+	uploader, err := newS3Session(customS3Region)
+	if err != nil {
+		return nil, err
+	}
+
+	return CustomS3Client{
+		S3Bucket:   customS3Bucket,
+		S3Region:   customS3Region,
+		Uploader:   uploader,
+	}, nil
+}
+
+func newS3Session(s3Region string) (*s3manager.Uploader, error) {
+	sess, err := session.NewSession(&aws.Config{
+		Region:     aws.String(s3Region),
+		MaxRetries: aws.Int(3)},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("Could not establish AWS Session, " +
+			"ensure AWS environment variables are set correctly: %s", err)
+	}
+	svc := s3.New(sess)
+	return s3manager.NewUploaderWithClient(svc), nil
+}
+
+func (cs3c CustomS3Client) Upload(payload UploadPayload) error {
+	fileReader, err := os.Open(payload.FilePath)
+	if err != nil {
+		return fmt.Errorf("Unable to open metric sample file %v", err)
+	}
+	defer fileReader.Close()
+
+	key, err := generateSampleKey(payload.FileName, payload.ClusterUID)
+	if err != nil {
+		return err
+	} 
+	
+	sampleToUpload := &s3manager.UploadInput{
+		Bucket: aws.String(cs3c.S3Bucket),
+		Key:    aws.String(key),
+		Body:   fileReader,
+	}
+
+	_, err = cs3c.Uploader.Upload(sampleToUpload)
+	if err != nil {
+		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
+	}
+
+	log.Infof("successfully uploaded metric sample %s to custom S3 bucket: %s",
+		payload.FileName, cs3c.S3Bucket)
+	return nil
 }
 
 // generateSampleKey creates a key (location) for s3 to upload the sample to. Example of s3 location format

@@ -33,7 +33,7 @@ type CldyUploader struct {
 	clusterID        string
 	agentVersion     string
 	uploadPathDir    string
-	StorageService   StorageService
+	StorageServices  []StorageService
 	RecoveredSamples int
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
@@ -45,6 +45,18 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	if err != nil {
 		panic("failed to create upload directory: " + err.Error())
 	}
+
+	var storageServices []StorageService
+	storageServices = append(storageServices, NewApptioSerivce(config.ApptioConfig))
+
+	s3Client, err := NewCustomS3Client(config.CustomS3UploadBucket, config.CustomS3UploadRegion)
+	if err != nil {
+		log.Warnf("failed to create custom s3 uploader: %v", err)
+	}
+	if s3Client != nil {
+		storageServices = append(storageServices, s3Client)
+	}
+
 	uploader := CldyUploader{
 		config:        config,
 		sampleSet:     newSet(),
@@ -52,7 +64,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		stop:          stop,
 		uploadPathDir: uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
-		StorageService: NewApptioSerivce(config.ApptioConfig),
+		StorageServices: storageServices,
 		recoveryPeriod: config.RecoveryPeriod,
 	}
 	err = uploader.recoverDataOnStartup()
@@ -308,10 +320,13 @@ func (ce *CldyUploader) uploadData(path string) error {
 		FilePath:     path,
 	}
 
-	err = ce.StorageService.Upload(payload)
-	if err != nil {
-		return err
+	for _, service := range ce.StorageServices {
+		err = service.Upload(payload)
+		if err != nil {
+			return err
+		}
 	}
+
 	// uploads data, then removes tar from path if successful
 	return os.Remove(path)
 }
