@@ -1,10 +1,11 @@
 package cluster
 
 import (
-	"github.com/spf13/viper"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/spf13/viper"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -56,37 +57,20 @@ var (
 		reflect.TypeOf(batchv1.Job{}):                  {Group: "batch", Version: "v1", Resource: "jobs"},
 		reflect.TypeOf(policyv1.PodDisruptionBudget{}): {Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"},
 	}
-	gvkToGvr = map[schema.GroupVersionKind]schema.GroupVersionResource{
-		{Group: "apps", Version: "v1", Kind: "Deployment"}:            {Group: "apps", Version: "v1", Resource: "deployments"},
-		{Group: "apps", Version: "v1", Kind: "StatefulSet"}:           {Group: "apps", Version: "v1", Resource: "statefulsets"},
-		{Group: "apps", Version: "v1", Kind: "DaemonSet"}:             {Group: "apps", Version: "v1", Resource: "daemonsets"},
-		{Group: "apps", Version: "v1", Kind: "ReplicaSet"}:            {Group: "apps", Version: "v1", Resource: "replicasets"},
-		{Group: "apps", Version: "v1", Kind: "ReplicationController"}: {Group: "apps", Version: "v1", Resource: "replicationcontrollers"},
-		{Group: "batch", Version: "v1", Kind: "Job"}:                  {Group: "batch", Version: "v1", Resource: "jobs"},
-		{Group: "batch", Version: "v1", Kind: "CronJob"}:              {Group: "batch", Version: "v1", Resource: "cronjobs"},
-		{Version: "v1", Kind: "Node"}:                                 {Group: "v1", Resource: "nodes"},
-		{Version: "v1", Kind: "Namespace"}:                            {Group: "v1", Resource: "namespaces"},
-		{Version: "v1", Kind: "Service"}:                              {Group: "v1", Resource: "services"},
-		{Version: "v1", Kind: "Pod"}:                                  {Group: "v1", Resource: "pods"},
-		{Version: "v1", Kind: "PersistentVolumeClaim"}:                {Group: "v1", Resource: "persistentvolumeclaims"},
-		{Version: "v1", Kind: "PersistentVolume"}:                     {Group: "v1", Resource: "persistentvolumes"},
-		{Version: "v1", Kind: "Container"}:                            {Group: "v1", Resource: "containers"},
-	}
-	containerGVR = schema.GroupVersionResource{Group: "v1", Resource: "containers"}
 	// fields to trim on specific resources if parseMetricsData is enabled
-	gvrToSanitizePaths = map[schema.GroupVersionResource][]string{
-		{Group: "apps", Version: "v1", Resource: "deployments"}: {"spec.progressDeadlineSeconds"},
-		{Group: "apps", Version: "v1", Resource: "daemonsets"}:  {"spec.updateStrategy"},
-		{Group: "batch", Version: "v1", Resource: "jobs"}:       {"spec.parallelism", "spec.completions", "spec.activeDeadlineSeconds", "spec.backoffLimit", "spec.manualSelector", "spec.ttlSecondsAfterFinished", "spec.completionMode", "spec.suspend"},
-		{Group: "batch", Version: "v1", Resource: "cronjobs"}:   {"spec"},
-		{Group: "v1", Resource: "containers"}:                   {"command", "args", "imagePullPolicy", "livenessProbe", "readinessProbe", "startupProbe", "terminationMessagePath", "terminationMessagePolicy", "securityContext"},
-		{Version: "v1", Resource: "services"}:                   {"spec.ports", "spec.clusterIPs", "spec.externalIPs", "spec.sessionAffinity", "spec.loadBalancerIP", "spec.loadBalancerSourceRanges", "spec.externalName", "spec.externalTrafficPolicy", "spec.healthCheckNodePort", "spec.sessionAffinityConfig", "spec.ipFamilies", "spec.ipFamilyPolicy", "spec.allocatedLoadBalancerNodePorts", "spec.loadBalancerClass", "spec.internalTrafficPolicy"},
+	gvkToSanitizePaths = map[schema.GroupVersionKind][]string{
+		{Group: "apps", Version: "v1", Kind: "Deployment"}: {"spec.progressDeadlineSeconds"},
+		{Group: "apps", Version: "v1", Kind: "Daemonset"}:  {"spec.updateStrategy"},
+		{Group: "batch", Version: "v1", Kind: "Job"}:       {"spec.parallelism", "spec.completions", "spec.activeDeadlineSeconds", "spec.backoffLimit", "spec.manualSelector", "spec.ttlSecondsAfterFinished", "spec.completionMode", "spec.suspend"},
+		{Group: "batch", Version: "v1", Kind: "Cronjob"}:   {"spec"},
+		{Group: "v1", Kind: "Container"}:                   {"command", "args", "imagePullPolicy", "livenessProbe", "readinessProbe", "startupProbe", "terminationMessagePath", "terminationMessagePolicy", "securityContext"},
+		{Version: "v1", Kind: "Service"}:                   {"spec.ports", "spec.clusterIPs", "spec.externalIPs", "spec.sessionAffinity", "spec.loadBalancerIP", "spec.loadBalancerSourceRanges", "spec.externalName", "spec.externalTrafficPolicy", "spec.healthCheckNodePort", "spec.sessionAffinityConfig", "spec.ipFamilies", "spec.ipFamilyPolicy", "spec.allocatedLoadBalancerNodePorts", "spec.loadBalancerClass", "spec.internalTrafficPolicy"},
 	}
 	// common fields to trim on all resources if parseMetricsData is enabled
 	commonSanitizePaths = []string{"spec.revisionHistoryLimit", "spec.minReadySeconds", "metadata.finalizers"}
 	// fields to trim on specific resources by default
-	gvrToTrimPaths = map[schema.GroupVersionResource][]string{
-		{Group: "v1", Resource: "containers"}: {"env"},
+	gvkToTrimPaths = map[schema.GroupVersionKind][]string{
+		{Group: "v1", Kind: "Container"}: {"env"},
 	}
 	// common fields to trim on all resources by default
 	commonTrimPaths = []string{"metadata.managedFields", annotationsPath}
@@ -134,20 +118,18 @@ func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interfa
 
 func cleanResource(resource *unstructured.Unstructured, parseMetricsData bool) *unstructured.Unstructured {
 	gvk := resource.GetObjectKind().GroupVersionKind()
-	gvr := gvkToGvr[gvk]
 	// for resources with containers separate container cleaning needs to be done
-	if gvr.Resource == "pods" || gvr.Resource == "deployments" || gvr.Resource == "replicasets" ||
-		gvr.Resource == "replicationcontrollers" || gvr.Resource == "jobs" || gvr.Resource == "daemonsets" {
-		cleanContainers(resource, gvr, parseMetricsData)
+	if gvk.Group == "apps" || gvk.Kind == "Pod" || gvk.Kind == "Job" {
+		cleanContainers(resource, gvk, parseMetricsData)
 	}
 	// remove fields (if any) that are specific to the resource
-	cleanResourceFieldsFromPath(resource, gvrToTrimPaths[gvr])
+	cleanResourceFieldsFromPath(resource, gvkToTrimPaths[gvk])
 	// remove common fields for all resources
 	cleanResourceFieldsFromPath(resource, commonTrimPaths)
 	// perform further sanitization of resource if enabled
 	if parseMetricsData {
 		// remove fields (if any) that are specific to the resource
-		cleanResourceFieldsFromPath(resource, gvrToSanitizePaths[gvr])
+		cleanResourceFieldsFromPath(resource, gvkToSanitizePaths[gvk])
 		// remove common fields for all resources
 		cleanResourceFieldsFromPath(resource, commonSanitizePaths)
 	}
@@ -167,13 +149,13 @@ func cleanResourceFieldsFromPath(resource *unstructured.Unstructured, paths []st
 	}
 }
 
-func cleanContainers(resource *unstructured.Unstructured, gvr schema.GroupVersionResource, parseMetricsData bool) {
+func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersionKind, parseMetricsData bool) {
 	var pathsToContainers []string
-	if gvr.Resource == "pods" {
-		pathsToContainers = append(pathsToContainers, "spec.containers", "spec.initContainers")
+	if gvk.Kind == "Pod" {
+		pathsToContainers = []string{"spec.containers", "spec.initContainers"}
 	} else {
-		// deployments, daemonsets, replicasets, replicationcontrollers, & jobs
-		pathsToContainers = append(pathsToContainers, "spec.template.spec.containers", "spec.template.spec.initContainers")
+		// Deployment, DaemonSet, ReplicaSet, ReplicationController, & Job
+		pathsToContainers = []string{"spec.template.spec.containers", "spec.template.spec.initContainers"}
 	}
 
 	for _, path := range pathsToContainers {
@@ -193,11 +175,11 @@ func cleanContainers(resource *unstructured.Unstructured, gvr schema.GroupVersio
 		}
 		for i := 0; i < len(containers); i++ {
 			if parseMetricsData {
-				for _, pathToContainer := range gvrToSanitizePaths[containerGVR] {
+				for _, pathToContainer := range gvkToSanitizePaths[schema.GroupVersionKind{Group: "v1", Kind: "Container"}] {
 					unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
 				}
 			}
-			for _, pathToContainer := range gvrToTrimPaths[containerGVR] {
+			for _, pathToContainer := range gvkToTrimPaths[schema.GroupVersionKind{Group: "v1", Kind: "Container"}] {
 				unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
 			}
 		}
