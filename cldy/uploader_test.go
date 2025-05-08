@@ -6,15 +6,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/ibm/finops-agent/cldy"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/ibm/finops-agent/cldy"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("Uploader", func() {
@@ -34,6 +36,9 @@ var _ = Describe("Uploader", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -57,6 +62,10 @@ var _ = Describe("Uploader", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -68,7 +77,7 @@ var _ = Describe("Uploader", func() {
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)
 			mockService := cldy.ApptioServiceImpl{}
-			actualUploader.StorageService = &mockService
+			actualUploader.StorageServices[0] = &mockService
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			time.Sleep(time.Second)
 			fileInfo, err := os.Stat(tempDir + "/upload")
@@ -83,6 +92,9 @@ var _ = Describe("Uploader", func() {
 				ScratchDir:      tempDir,
 				// 100 years (should recover all samples)
 				RecoveryPeriod: 1000000 * time.Hour,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
 			}
 			// copy over data before creating uploader simulating recovery state
 			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
@@ -105,6 +117,9 @@ var _ = Describe("Uploader", func() {
 				ScratchDir:      tempDir,
 				// 1 hour (will not recover as agent-measurement timestamp is old)
 				RecoveryPeriod: 1 * time.Hour,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
 			}
 			// copy over data before creating uploader simulating recovery state
 			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
@@ -127,6 +142,9 @@ var _ = Describe("Uploader", func() {
 				ScratchDir:      tempDir,
 				// 100 years (should recover all samples if complete)
 				RecoveryPeriod: 1000000 * time.Hour,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
 			}
 			// copy over data before creating uploader simulating recovery state
 			err := copyIncompleteData(tempDir+"/scratch/temp_test_data", "testdata", []string{"deployments.jsonl"})
@@ -149,6 +167,9 @@ var _ = Describe("Uploader", func() {
 				ScratchDir:      tempDir,
 				// 100 years (should recover all samples)
 				RecoveryPeriod: 1000000 * time.Hour,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
 			}
 			// copy over data before creating uploader simulating recovery state
 			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
@@ -179,6 +200,10 @@ var _ = Describe("Uploader", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -191,7 +216,7 @@ var _ = Describe("Uploader", func() {
 				CldyUploadClient: &mockClientService{},
 				SecretManager:    cldy.NewKeyValueSecretManager("bad-key", ""),
 			}
-			actualUploader.StorageService = &service
+			actualUploader.StorageServices[0] = &service
 			payload := cldy.UploadPayload{
 				ClusterUID:   "bad-cluster",
 				FileName:     "temp_test_data",
@@ -200,23 +225,27 @@ var _ = Describe("Uploader", func() {
 				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
 			}
 			// upload with bad froontdoor credentials
-			err = actualUploader.StorageService.Upload(payload)
+			err = actualUploader.StorageServices[0].Upload(payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("frontdoor service login call failed"))
 			service.SecretManager = cldy.NewKeyValueSecretManager("good-key", "")
 			// upload with good key but bad clusterUID
-			err = actualUploader.StorageService.Upload(payload)
+			err = actualUploader.StorageServices[0].Upload(payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("cloudability clusters/upload request call failed with status"))
 			// upload with successful login and successful url generation
 			payload.ClusterUID = "good-cluster"
-			err = actualUploader.StorageService.Upload(payload)
+			err = actualUploader.StorageServices[0].Upload(payload)
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("should only login once", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: 250 * time.Millisecond,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -231,7 +260,7 @@ var _ = Describe("Uploader", func() {
 				CldyUploadClient: &mcs,
 				SecretManager:    cldy.NewKeyValueSecretManager("good-key", ""),
 			}
-			actualUploader.StorageService = &service
+			actualUploader.StorageServices[0] = &service
 
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			time.Sleep(500 * time.Millisecond)
@@ -252,6 +281,10 @@ var _ = Describe("Uploader", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: 250 * time.Millisecond,
 				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -266,7 +299,7 @@ var _ = Describe("Uploader", func() {
 				CldyUploadClient: &mcs,
 				SecretManager:    cldy.NewKeyValueSecretManager("short-lived-token", ""),
 			}
-			actualUploader.StorageService = &service
+			actualUploader.StorageServices[0] = &service
 
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			time.Sleep(500 * time.Millisecond)
@@ -281,6 +314,44 @@ var _ = Describe("Uploader", func() {
 			Expect(mcs.countByPath["/service/apikeylogin"]).To(Equal(2))
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(2))
 			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(2))
+		})
+		It("should upload to custom bucket", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: time.Hour,
+				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
+			}
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			uploader.SetClusterID("test_id")
+			actualUploader := uploader.(*cldy.CldyUploader)
+			service := cldy.CustomS3Client{
+				UploadClient: &mockUploadService{},
+			}
+			actualUploader.StorageServices[0] = &service
+
+			// Succeed on a good filename
+			payload := cldy.UploadPayload{
+				ClusterUID:   "good-cluster",
+				FileName:     "8604469a-1368-44ee-9f1c-c5cc8c2121c1_2025-05-05-18-05-17.tgz",
+				AgentVersion: "1.0.0",
+				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
+				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
+			}
+			err = actualUploader.StorageServices[0].Upload(payload)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Error on an unparseable filename
+			payload.FileName = "badFileName"
+			err = actualUploader.StorageServices[0].Upload(payload)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("error parsing name from sample filename"))
 		})
 	})
 })
@@ -422,4 +493,10 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response,
 		return &http.Response{StatusCode: 200, Body: r.Body, Header: http.Header{}}, nil
 	}
 	return &http.Response{}, fmt.Errorf("unknown request")
+}
+
+type mockUploadService struct{}
+
+func (mcs *mockUploadService) Do(sampleToUpload *s3manager.UploadInput) error {
+	return nil
 }
