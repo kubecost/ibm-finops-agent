@@ -278,7 +278,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values["upload_region"] = ce.config.Region
 	values["custom_s3_bucket"] = "TODO"
 	values["custom_s3_region"] = "TODO"
-	metrics["up_time"] = int(now.UTC().Sub(ce.startTime).Seconds())
+	metrics["uptime"] = int(now.UTC().Sub(ce.startTime).Seconds())
 	agent := agentData{
 		Name:    "cldy_agent_status",
 		Metrics: metrics,
