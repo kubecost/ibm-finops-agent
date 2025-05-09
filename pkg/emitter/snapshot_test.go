@@ -33,7 +33,10 @@ func TestSnapshottingTemporaryCache(t *testing.T) {
 	}()
 
 	ds := NewMockDataSource()
-	snapshotProvider := NewConcurrentSnapshotProvider(DefaultSnapshotConfig())
+	config := DefaultSnapshotConfig()
+	config.UseMetricsCache = true
+
+	snapshotProvider := NewConcurrentSnapshotProvider(config)
 
 	snapshot, err := snapshotProvider.SnapshotOf(ds)
 	if err != nil {
