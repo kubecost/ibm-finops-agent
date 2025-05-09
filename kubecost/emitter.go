@@ -14,6 +14,7 @@ import (
 	heartbeatexporter "github.com/opencost/opencost/core/pkg/heartbeat/exporter"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/storage"
+	"github.com/opencost/opencost/core/pkg/version"
 	"github.com/opencost/opencost/pkg/cloud/models"
 	"github.com/opencost/opencost/pkg/cloud/provider"
 	"github.com/opencost/opencost/pkg/config"
@@ -119,11 +120,11 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 
 	// agent presence and heartbeat
 	heartbeatMetadata := heartbeatexporter.NewClusterInfoMetadataProvider(clusterInfo)
-	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.ClusterID, bucketStore, heartbeatMetadata)
+	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.ClusterID, string(emitter.KubecostEmitterID), version.FriendlyVersion(), bucketStore, heartbeatMetadata)
 	agentHeartbeat.Start(5 * time.Minute)
 
 	// diagnostics exporter
-	diagnosticsExporter := diagexporter.NewDiagnosticsExportController(ke.config.ClusterID, bucketStore, ke.diag)
+	diagnosticsExporter := diagexporter.NewDiagnosticsExportController(ke.config.ClusterID, string(emitter.KubecostEmitterID), bucketStore, ke.diag)
 	diagnosticsExporter.Start(time.Minute)
 
 	// initialize emitter's internal state
