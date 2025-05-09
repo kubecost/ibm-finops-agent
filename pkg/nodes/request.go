@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/opencost/opencost/core/pkg/log"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -23,7 +24,9 @@ func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) 
 		if err == nil {
 			return data, nil
 		}
+		log.Warnf("Error making request to %s: %s", URL, err)
 	}
+
 	return nil, fmt.Errorf("requests to %v failed", URL)
 }
 
@@ -36,7 +39,7 @@ func (c *Client) makeRequest(method string, URL string, bearerToken string) (*ht
 	}
 
 	if bearerToken != "" {
-		request.Header.Add("Authorization", "bearer " + bearerToken)
+		request.Header.Add("Authorization", "bearer "+bearerToken)
 	}
 
 	resp, err := c.HTTPClient.Do(request)

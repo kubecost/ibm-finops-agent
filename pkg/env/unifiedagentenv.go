@@ -17,21 +17,22 @@ const (
 
 	// Snapshot Configuration
 	MinuteMetricsEnabledEnvVar = "MINUTE_METRICS_ENABLED"
+	PromlessEnvVar             = "PROMLESS"
 
 	// Node Stats Client Configuration (can be prefixed)
-	NodeStatsForceKubeProxyEnvVar     = "FORCE_KUBE_PROXY"
-	NodeStatsLocalProxyEnvVar         = "LOCAL_PROXY"
-	NodeStatsConcurrentPollersEnvVar  = "NUMBER_OF_CONCURRENT_NODE_POLLERS"
-	NodeStatsInsecureEnvVar           = "INSECURE"
-	NodeStatsCertFileEnvVar           = "CERT_FILE"
-	NodeStatsKeyFileEnvVar            = "KEY_FILE"
-	
-	// Name and ID represent the same identifier for the cluster
-	NodeStatsClusterNameEnvVar        = "CLUSTER_NAME"
-	NodeStatsClusterIDEnvVar          = "CLUSTER_ID"
+	NodeStatsForceKubeProxyEnvVar    = "FORCE_KUBE_PROXY"
+	NodeStatsLocalProxyEnvVar        = "LOCAL_PROXY"
+	NodeStatsConcurrentPollersEnvVar = "NUMBER_OF_CONCURRENT_NODE_POLLERS"
+	NodeStatsInsecureEnvVar          = "INSECURE"
+	NodeStatsCertFileEnvVar          = "CERT_FILE"
+	NodeStatsKeyFileEnvVar           = "KEY_FILE"
 
-	// Prefixes for 
-	CloudabilityPrefix  = "CLOUDABILITY_"
+	// Name and ID represent the same identifier for the cluster
+	NodeStatsClusterNameEnvVar = "CLUSTER_NAME"
+	NodeStatsClusterIDEnvVar   = "CLUSTER_ID"
+
+	// Prefixes for
+	CloudabilityPrefix = "CLOUDABILITY_"
 )
 
 func IsKubecostEmitterEnabled() bool {
@@ -48,6 +49,12 @@ func IsTurboEmitterEnabled() bool {
 
 func IsOpenCostDataSourceEnabled() bool {
 	return env.GetBool(OpenCostDataSourceEnabledEnvVar, true)
+}
+
+// IsPromless returns true if the agent should run without a dependency on Prometheus. This
+// is the default mode of operation.
+func IsPromless() bool {
+	return env.GetBool(PromlessEnvVar, true)
 }
 
 // IsMinuteMetricsEnabled returns true if the 10m resolution metrics snapshot
