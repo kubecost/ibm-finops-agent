@@ -6,14 +6,15 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
-	"github.com/opencost/opencost/core/pkg/log"
-	"github.com/opencost/opencost/core/pkg/util/json"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/opencost/opencost/core/pkg/util/json"
 )
 
 var requiredFiles = []string{"baseline-summary", "stats-summary", "statefulsets", "services", "replicationcontrollers", "replicasets", "pods", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces", "jobs", "deployments", "daemonsets", "agent-measurement"}
@@ -32,7 +33,7 @@ type CldyUploader struct {
 	clusterID        string
 	agentVersion     string
 	uploadPathDir    string
-	StorageService   StorageService
+	StorageServices  []StorageService
 	RecoveredSamples int
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
@@ -44,6 +45,29 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	if err != nil {
 		panic("failed to create upload directory: " + err.Error())
 	}
+
+	var storageServices []StorageService
+	apptioService, err := NewApptioSerivce(config.ApptioConfig)
+	if err != nil {
+		log.Warnf("failed to create cloudability uploader: %v", err)
+	}
+	if apptioService != nil {
+		storageServices = append(storageServices, apptioService)
+	}
+
+	s3Client, err := NewCustomS3Client(config.CustomS3UploadBucket, config.CustomS3UploadRegion)
+	if err != nil {
+		log.Warnf("failed to create custom s3 uploader: %v", err)
+	}
+	if s3Client != nil {
+		storageServices = append(storageServices, s3Client)
+	}
+
+	// Check if no upload paths were configured
+	if len(storageServices) == 0 {
+		log.Errorf("no complete upload configurations were detected")
+	}
+
 	uploader := CldyUploader{
 		config:        config,
 		sampleSet:     newSet(),
@@ -51,8 +75,8 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		stop:          stop,
 		uploadPathDir: uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
-		StorageService: NewApptioSerivce(config.ApptioConfig),
-		recoveryPeriod: config.RecoveryPeriod,
+		StorageServices: storageServices,
+		recoveryPeriod:  config.RecoveryPeriod,
 	}
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
@@ -249,7 +273,7 @@ func (ce *CldyUploader) uploadLoop() {
 			ce.uploadSet.add(path)
 			err = ce.uploadSet.operateAndRemove(ce.uploadData)
 			if err != nil {
-				// TODO: logging
+				log.Warnf("error uploading: %s", err.Error())
 			}
 		}
 	}
@@ -306,10 +330,14 @@ func (ce *CldyUploader) uploadData(path string) error {
 		UploadHash:   hash,
 		FilePath:     path,
 	}
-	err = ce.StorageService.Upload(payload)
-	if err != nil {
-		return err
+
+	for _, service := range ce.StorageServices {
+		err = service.Upload(payload)
+		if err != nil {
+			return err
+		}
 	}
+
 	// uploads data, then removes tar from path if successful
 	return os.Remove(path)
 }

@@ -29,6 +29,9 @@ var _ = Describe("Emitter", func() {
 			config := cldy.EmitterConfig{
 				UploaderConfig: cldy.UploaderConfig{
 					ScratchDir: tempDir,
+					ApptioConfig: cldy.ApptioConfig{
+						SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					},
 				},
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
@@ -86,8 +89,13 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer os.RemoveAll(tempDir)
 			config := cldy.EmitterConfig{
-				UploaderConfig: cldy.UploaderConfig{ScratchDir: tempDir},
-				EmitAsJson:     true,
+				UploaderConfig: cldy.UploaderConfig{
+					ScratchDir: tempDir,
+					ApptioConfig: cldy.ApptioConfig{
+						SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					},
+				},
+				EmitAsJson: true,
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
@@ -144,7 +152,7 @@ var _ = Describe("Emitter", func() {
 		It("should load defaults", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).ToNot(HaveOccurred())
-			
+
 			defer os.RemoveAll(tempDir)
 			config, err := cldy.NewEmitterConfigFromEnv()
 			Expect(err).ToNot(HaveOccurred())
@@ -156,7 +164,7 @@ var _ = Describe("Emitter", func() {
 		It("should load and parse custom outbound config", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).ToNot(HaveOccurred())
-			
+
 			t := GinkgoT()
 			t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "1.1.1.1")
 
@@ -169,7 +177,7 @@ var _ = Describe("Emitter", func() {
 		It("should throw error on improper outbound format", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).ToNot(HaveOccurred())
-			
+
 			t := GinkgoT()
 			t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "2.2.2.2:2")
 

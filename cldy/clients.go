@@ -11,8 +11,13 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
@@ -78,7 +83,27 @@ type CloudabilityClustersUploadInfo struct {
 	RequestID string `json:"requestId"`
 }
 
-func NewApptioSerivce(config ApptioConfig) StorageService {
+func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
+	body, err := config.SecretManager.GetSecret()
+	if err != nil {
+		return nil, err
+	}
+	// remove secret from memory
+	defer func() {
+		for i := range body {
+			body[i] = 0
+		}
+	}()
+
+	// Cloudability upload configuration not set, silently skip
+	if len(body) == 0 && config.EnvID == "" {
+		return nil, nil
+	}
+
+	if len(body) == 0 || config.EnvID == "" {
+		return nil, fmt.Errorf("key access, key secret, and env id must all be set to upload to cloudability.")
+	}
+
 	frontdoorURL, cloudabilityURL := getURLsFromRegion(config.Region)
 
 	return &ApptioServiceImpl{
@@ -88,7 +113,7 @@ func NewApptioSerivce(config ApptioConfig) StorageService {
 		CldyUploadClient: NewApptioClient(config),
 		FrontdoorURL:     frontdoorURL,
 		CloudabilityURL:  cloudabilityURL,
-	}
+	}, nil
 }
 
 // ApptioClient is the client used in the cloudability uploader
@@ -341,6 +366,117 @@ func getURLsFromRegion(region string) (string, string) {
 		log.Warnf("customer region is invalid. Defaulting to US region.")
 		return usFrontdoorURL, usCloudabilityURL
 	}
+}
+
+type CustomS3Client struct {
+	S3Bucket     string
+	S3Region     string
+	UploadClient CustomS3UploadService
+}
+
+func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageService, error) {
+	// Config is not set, silently skip custom s3 setup
+	if customS3Bucket == "" && customS3Region == "" {
+		return nil, nil
+	}
+
+	if customS3Bucket == "" || customS3Region == "" {
+		log.Warnf("both custom bucket and custom region must be set for custom s3 configuration.")
+		return nil, nil
+	}
+
+	uploadClient, err := newUploadClient(customS3Region)
+	if err != nil {
+		return nil, err
+	}
+
+	return CustomS3Client{
+		S3Bucket:     customS3Bucket,
+		S3Region:     customS3Region,
+		UploadClient: uploadClient,
+	}, nil
+}
+
+type CustomS3UploadService interface {
+	Do(sampleToUpload *s3manager.UploadInput) error
+}
+
+type CustomS3Uploader struct {
+	Uploader *s3manager.Uploader
+}
+
+func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
+	sess, err := session.NewSession(&aws.Config{
+		Region:     aws.String(s3Region),
+		MaxRetries: aws.Int(3)},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("Could not establish AWS Session, "+
+			"ensure AWS environment variables are set correctly: %s", err)
+	}
+	svc := s3.New(sess)
+
+	return &CustomS3Uploader{
+		Uploader: s3manager.NewUploaderWithClient(svc),
+	}, nil
+}
+
+func (cs3c CustomS3Client) Upload(payload UploadPayload) error {
+	fileReader, err := os.Open(payload.FilePath)
+	if err != nil {
+		return fmt.Errorf("Unable to open metric sample file %v", err)
+	}
+	defer fileReader.Close()
+
+	key, err := generateSampleKey(payload.FileName, payload.ClusterUID)
+	if err != nil {
+		return err
+	}
+
+	sampleToUpload := &s3manager.UploadInput{
+		Bucket: aws.String(cs3c.S3Bucket),
+		Key:    aws.String(key),
+		Body:   fileReader,
+	}
+
+	err = cs3c.UploadClient.Do(sampleToUpload)
+	if err != nil {
+		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
+	}
+
+	log.Infof("successfully uploaded metric sample %s to custom S3 bucket: %s",
+		payload.FileName, cs3c.S3Bucket)
+	return nil
+}
+
+func (cs3u CustomS3Uploader) Do(sampleToUpload *s3manager.UploadInput) error {
+	_, err := cs3u.Uploader.Upload(sampleToUpload)
+	return err
+}
+
+// generateSampleKey creates a key (location) for s3 to upload the sample to. Example of s3 location format
+// /production/data/metrics-agent/<YYYY>/<MM>/<DD>/<CLUSTER_UID>/<CLUSTER_UID>-<YYYYMMDD>-<HH>-<MM>.tgz
+func generateSampleKey(fileName string, clusterUID string) (string, error) {
+	withoutID := strings.Split(fileName, "_")
+	if len(withoutID) < 2 {
+		return "", fmt.Errorf("error parsing name from sample filename")
+	}
+
+	segments := strings.Split(withoutID[1], "-")
+	numSegments := len(segments)
+
+	// Filename should be comprised of at least 6 segments
+	if numSegments < 5 {
+		return "", fmt.Errorf("error parsing timestamp from sample filename")
+	}
+	minute := segments[numSegments-2]
+	hour := segments[numSegments-3]
+	day := segments[numSegments-4]
+	month := segments[numSegments-5]
+	year := segments[numSegments-6]
+
+	return fmt.Sprintf("/production/data/metrics-agent/%s/%s/%s/%s/%s-%s%s%s-%s-%s.tgz", year,
+		month, day, clusterUID, clusterUID, year, month, day, hour, minute), nil
 }
 
 // SecretManager is an abstraction that allows for an api key to not be held in memory
