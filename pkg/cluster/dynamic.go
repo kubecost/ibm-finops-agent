@@ -1,11 +1,10 @@
 package cluster
 
 import (
+	"github.com/ibm/finops-agent/pkg/env"
 	"reflect"
 	"strings"
 	"time"
-
-	"github.com/spf13/viper"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -35,8 +34,8 @@ type InformerConfig struct {
 // LoadInformerConfig returns configs related to informer settings
 func LoadInformerConfig() InformerConfig {
 	return InformerConfig{
-		ResyncInterval: time.Duration(viper.GetInt("INFORMER_RESYNC_INTERVAL")) * time.Hour,
-		SanitizeData:   viper.GetBool("PARSE_METRICS_DATA"),
+		ResyncInterval: env.GetInformerReSyncInterval(),
+		SanitizeData:   env.GetSanitizeData(),
 	}
 }
 
