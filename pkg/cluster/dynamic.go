@@ -23,7 +23,6 @@ import (
 
 const (
 	KubernetesLastAppliedConfig = "kubectl.kubernetes.io/last-applied-configuration"
-	annotationsPath             = "metadata.annotations"
 )
 
 type InformerConfig struct {
@@ -58,21 +57,71 @@ var (
 	}
 	// fields to trim on specific resources if parseMetricsData is enabled
 	gvkToSanitizePaths = map[schema.GroupVersionKind][]string{
-		{Group: "apps", Version: "v1", Kind: "Deployment"}: {"spec.progressDeadlineSeconds"},
-		{Group: "apps", Version: "v1", Kind: "Daemonset"}:  {"spec.updateStrategy"},
-		{Group: "batch", Version: "v1", Kind: "Job"}:       {"spec.parallelism", "spec.completions", "spec.activeDeadlineSeconds", "spec.backoffLimit", "spec.manualSelector", "spec.ttlSecondsAfterFinished", "spec.completionMode", "spec.suspend"},
-		{Group: "batch", Version: "v1", Kind: "Cronjob"}:   {"spec"},
-		{Group: "v1", Kind: "Container"}:                   {"command", "args", "imagePullPolicy", "livenessProbe", "readinessProbe", "startupProbe", "terminationMessagePath", "terminationMessagePolicy", "securityContext"},
-		{Version: "v1", Kind: "Service"}:                   {"spec.ports", "spec.clusterIPs", "spec.externalIPs", "spec.sessionAffinity", "spec.loadBalancerIP", "spec.loadBalancerSourceRanges", "spec.externalName", "spec.externalTrafficPolicy", "spec.healthCheckNodePort", "spec.sessionAffinityConfig", "spec.ipFamilies", "spec.ipFamilyPolicy", "spec.allocatedLoadBalancerNodePorts", "spec.loadBalancerClass", "spec.internalTrafficPolicy"},
+		{Group: "apps", Version: "v1", Kind: "Deployment"}: {
+			"spec.progressDeadlineSeconds",
+		},
+		{Group: "apps", Version: "v1", Kind: "Daemonset"}: {
+			"spec.updateStrategy",
+		},
+		{Group: "batch", Version: "v1", Kind: "Job"}: {
+			"spec.parallelism",
+			"spec.completions",
+			"spec.activeDeadlineSeconds",
+			"spec.backoffLimit",
+			"spec.manualSelector",
+			"spec.ttlSecondsAfterFinished",
+			"spec.completionMode",
+			"spec.suspend",
+		},
+		{Group: "batch", Version: "v1", Kind: "Cronjob"}: {
+			"spec",
+		},
+		// custom gvk based on common nested k8s resources
+		{Version: "v1", Kind: "Container"}: {
+			"command",
+			"args",
+			"imagePullPolicy",
+			"livenessProbe",
+			"readinessProbe",
+			"startupProbe",
+			"terminationMessagePath",
+			"terminationMessagePolicy",
+			"securityContext",
+		},
+		{Version: "v1", Kind: "Service"}: {
+			"spec.ports",
+			"spec.clusterIPs",
+			"spec.externalIPs",
+			"spec.sessionAffinity",
+			"spec.loadBalancerIP",
+			"spec.loadBalancerSourceRanges",
+			"spec.externalName",
+			"spec.externalTrafficPolicy",
+			"spec.healthCheckNodePort",
+			"spec.sessionAffinityConfig",
+			"spec.ipFamilies",
+			"spec.ipFamilyPolicy",
+			"spec.allocatedLoadBalancerNodePorts",
+			"spec.loadBalancerClass",
+			"spec.internalTrafficPolicy",
+		},
 	}
 	// common fields to trim on all resources if parseMetricsData is enabled
-	commonSanitizePaths = []string{"spec.revisionHistoryLimit", "spec.minReadySeconds", "metadata.finalizers"}
+	commonSanitizePaths = []string{
+		"spec.revisionHistoryLimit",
+		"spec.minReadySeconds",
+		"metadata.finalizers",
+	}
 	// fields to trim on specific resources by default
 	gvkToTrimPaths = map[schema.GroupVersionKind][]string{
-		{Group: "v1", Kind: "Container"}: {"env"},
+		{Version: "v1", Kind: "Container"}: {
+			"env",
+		},
 	}
 	// common fields to trim on all resources by default
-	commonTrimPaths = []string{"metadata.managedFields", annotationsPath}
+	commonTrimPaths = []string{"metadata.managedFields"}
+
+	containerGVK = schema.GroupVersionKind{Version: "v1", Kind: "Container"}
 )
 
 // DynamicClusterCache is the implementation of ClusterCache with dynamic informers
@@ -136,14 +185,12 @@ func cleanResource(resource *unstructured.Unstructured, parseMetricsData bool) *
 }
 
 func cleanResourceFieldsFromPath(resource *unstructured.Unstructured, paths []string) {
+	// remove specific junk annotation
+	annotations := resource.GetAnnotations()
+	delete(annotations, KubernetesLastAppliedConfig)
+	resource.SetAnnotations(annotations)
+
 	for _, path := range paths {
-		// for annotations only remove default junk annotation
-		if path == annotationsPath {
-			annotations := resource.GetAnnotations()
-			delete(annotations, KubernetesLastAppliedConfig)
-			resource.SetAnnotations(annotations)
-			continue
-		}
 		unstructured.RemoveNestedField(resource.Object, strings.Split(path, ".")...)
 	}
 }
@@ -174,11 +221,11 @@ func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersio
 		}
 		for i := 0; i < len(containers); i++ {
 			if parseMetricsData {
-				for _, pathToContainer := range gvkToSanitizePaths[schema.GroupVersionKind{Group: "v1", Kind: "Container"}] {
+				for _, pathToContainer := range gvkToSanitizePaths[containerGVK] {
 					unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
 				}
 			}
-			for _, pathToContainer := range gvkToTrimPaths[schema.GroupVersionKind{Group: "v1", Kind: "Container"}] {
+			for _, pathToContainer := range gvkToTrimPaths[containerGVK] {
 				unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
 			}
 		}
