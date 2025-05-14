@@ -18,6 +18,7 @@ const (
 
 	// Snapshot Configuration
 	MinuteMetricsEnabledEnvVar = "MINUTE_METRICS_ENABLED"
+	PromlessEnvVar             = "PROMLESS"
 
 	// Node Stats Client Configuration (can be prefixed)
 	NodeStatsForceKubeProxyEnvVar    = "FORCE_KUBE_PROXY"
@@ -30,7 +31,7 @@ const (
 	// Name and ID represent the same identifier for the cluster
 	NodeStatsClusterNameEnvVar = "CLUSTER_NAME"
 	NodeStatsClusterIDEnvVar   = "CLUSTER_ID"
-
+	
 	// InformerResyncIntervalEnvVar is the resync interval for informers
 	InformerResyncIntervalEnvVar = "INFORMER_RESYNC_INTERVAL"
 
@@ -55,6 +56,12 @@ func IsTurboEmitterEnabled() bool {
 
 func IsOpenCostDataSourceEnabled() bool {
 	return env.GetBool(OpenCostDataSourceEnabledEnvVar, true)
+}
+
+// IsPromless returns true if the agent should run without a dependency on Prometheus. This
+// is the default mode of operation.
+func IsPromless() bool {
+	return env.GetBool(PromlessEnvVar, true)
 }
 
 // IsMinuteMetricsEnabled returns true if the 10m resolution metrics snapshot

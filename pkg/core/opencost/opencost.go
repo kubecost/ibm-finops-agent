@@ -17,6 +17,7 @@ import (
 	"github.com/opencost/opencost/pkg/config"
 	"github.com/opencost/opencost/pkg/costmodel"
 
+	"github.com/opencost/opencost/modules/collector-source/pkg/collector"
 	"github.com/opencost/opencost/modules/prometheus-source/pkg/prom"
 
 	"github.com/opencost/opencost/pkg/cloud/provider"
@@ -53,21 +54,33 @@ func NewOpenCostDataSource(
 	var fatalErr error
 
 	ctx, cancel := context.WithCancel(context.Background())
+	fn := func() (source.OpenCostDataSource, error) {
+		ds, e := prom.NewDefaultPrometheusDataSource(clusterInfoProvider)
+		if e != nil {
+			if source.IsRetryable(e) {
+				return nil, e
+			}
+			fatalErr = e
+			cancel()
+		}
+
+		return ds, e
+	}
+	if conf.Promless {
+		fn = func() (source.OpenCostDataSource, error) {
+			ds := collector.NewDefaultCollectorDataSource(
+				clusterInfoProvider,
+				clusterCache,
+				nil,
+				nodeClient,
+			)
+			return ds, nil
+		}
+	}
+
 	dataSource, _ := retry.Retry(
 		ctx,
-		func() (source.OpenCostDataSource, error) {
-			// FIXME: Pass nodeClient to the collector data source on initialization
-			ds, e := prom.NewDefaultPrometheusDataSource(clusterInfoProvider)
-			if e != nil {
-				if source.IsRetryable(e) {
-					return nil, e
-				}
-				fatalErr = e
-				cancel()
-			}
-
-			return ds, e
-		},
+		fn,
 		maxRetries,
 		retryInterval,
 	)

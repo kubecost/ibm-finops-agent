@@ -129,6 +129,8 @@ func retrieveNodeData(endpoint string, connectionMethods []connectionMethod, bea
 		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(endpoint), bearerToken)
 		if err == nil {
 			return data, err
+		} else {
+			log.Warnf("failed to connect to node: %s, error: %s", cm.API.formatEndpoint(endpoint), err)
 		}
 	}
 
