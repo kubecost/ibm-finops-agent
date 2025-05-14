@@ -2,6 +2,7 @@ package cldy
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
@@ -14,6 +15,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -165,18 +170,23 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 }
 
 type ApptioConfig struct {
-	SecretManager        SecretManager
-	EnvID                string
-	OpenToken            string
-	CustomerType         string
-	Timeout              time.Duration
-	Retries              int
-	ProxyURL             *url.URL
-	ProxyAuth            string
-	ProxyInsecure        bool
-	Region               string
-	CustomS3UploadBucket string
-	CustomS3UploadRegion string
+	SecretManager                SecretManager
+	EnvID                        string
+	OpenToken                    string
+	CustomerType                 string
+	Timeout                      time.Duration
+	Retries                      int
+	ProxyURL                     *url.URL
+	ProxyAuth                    string
+	ProxyInsecure                bool
+	Region                       string
+	CustomS3UploadBucket         string
+	CustomS3UploadRegion         string
+	CustomAzureBlobContainerName string
+	CustomAzureBlobUrl           string
+	CustomAzureTenantID          string
+	CustomAzureClientID          string
+	CustomAzureClientSecret      string
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -381,8 +391,7 @@ func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageSer
 	}
 
 	if customS3Bucket == "" || customS3Region == "" {
-		log.Warnf("both custom bucket and custom region must be set for custom s3 configuration.")
-		return nil, nil
+		return nil, fmt.Errorf("both custom bucket and custom region must be set for custom s3 configuration.")
 	}
 
 	uploadClient, err := newUploadClient(customS3Region)
@@ -451,6 +460,137 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) error {
 
 func (cs3u CustomS3Uploader) Do(sampleToUpload *s3manager.UploadInput) error {
 	_, err := cs3u.Uploader.Upload(sampleToUpload)
+	return err
+}
+
+type CustomBlobClient struct {
+	BlobContainerName string
+	UploadClient      CustomBlobUploadService
+}
+
+func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTenantID string, azureClientID string,
+	azureClientSecret string) (StorageService, error) {
+	// Essential config is not set; silently skip custom blob setup
+	if blobContainerName == "" && customBlobUrl == "" {
+		return nil, nil
+	}
+
+	if blobContainerName == "" || customBlobUrl == "" {
+		return nil, fmt.Errorf("both container name and blob url must be set for custom azure blob configuration.")
+	}
+
+	uploadClient, err := newBlobManagedIdentityClient(customBlobUrl)
+	if err != nil {
+		log.Warnf("Could not establish Azure client with managed identity, "+
+			"ensure Azure environment variables are set correctly: %s", err)
+	}
+	if uploadClient != nil {
+		return CustomBlobClient{
+			BlobContainerName: blobContainerName,
+			UploadClient:      uploadClient,
+		}, nil
+	}
+
+	uploadClient, err = newBlobServicePrincipalClient(customBlobUrl, azureTenantID, azureClientID, azureClientSecret)
+	if err != nil {
+		log.Warnf("Could not establish Azure client with environment, "+
+			"ensure all Azure environment variables are set correctly: %s", err)
+	}
+	if uploadClient != nil {
+		return CustomBlobClient{
+			BlobContainerName: blobContainerName,
+			UploadClient:      uploadClient,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("could not establish any azure clients.") // Alex TODO: Better message
+}
+
+type CustomBlobUploadService interface {
+	Do(sampleToUpload *BlobUploadInput) error
+}
+
+type CustomBlobUploader struct {
+	Uploader *azblob.Client
+}
+
+func newBlobManagedIdentityClient(customBlobUrl string) (*CustomBlobUploader, error) {
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	azureClient, err := azblob.NewClient(customBlobUrl, cred, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CustomBlobUploader{
+		Uploader: azureClient,
+	}, nil
+}
+
+func newBlobServicePrincipalClient(customBlobUrl string, azureTentantID string, azureClientID string,
+	azureClientSecret string) (*CustomBlobUploader, error) {
+	cred, err := azidentity.NewClientSecretCredential(azureTentantID, azureClientID, azureClientSecret,
+		nil)
+	if err != nil {
+		return nil, err
+	}
+
+	retryConfig := azblob.ClientOptions{
+		ClientOptions: azcore.ClientOptions{
+			Retry: policy.RetryOptions{
+				MaxRetries: 3,
+			},
+		},
+	}
+	azureClient, err := azblob.NewClient(customBlobUrl, cred, &retryConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CustomBlobUploader{
+		Uploader: azureClient,
+	}, nil
+}
+
+type BlobUploadInput struct {
+	ContainerName string
+	BlobName      string
+	Body          *os.File
+}
+
+func (cbc CustomBlobClient) Upload(payload UploadPayload) error {
+	fileReader, err := os.Open(payload.FilePath)
+	if err != nil {
+		return fmt.Errorf("Unable to open metric sample file %v", err)
+	}
+	defer fileReader.Close()
+
+	key, err := generateSampleKey(payload.FileName, payload.ClusterUID)
+	if err != nil {
+		return err
+	}
+
+	sampleToUpload := &BlobUploadInput{
+		ContainerName: cbc.BlobContainerName,
+		BlobName:      key,
+		Body:          fileReader,
+	}
+
+	err = cbc.UploadClient.Do(sampleToUpload)
+	if err != nil {
+		return fmt.Errorf("failed to put Object to custom azure blob with error: %s", err)
+	}
+
+	log.Infof("successfully uploaded metric sample %s to custom azure blob: %s",
+		payload.FileName, cbc.BlobContainerName)
+	return nil
+}
+
+func (cbu CustomBlobUploader) Do(sampleToUpload *BlobUploadInput) error {
+	_, err := cbu.Uploader.UploadFile(context.TODO(), sampleToUpload.ContainerName, sampleToUpload.BlobName, sampleToUpload.Body, nil)
 	return err
 }
 

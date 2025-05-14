@@ -315,7 +315,7 @@ var _ = Describe("Uploader", func() {
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(2))
 			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(2))
 		})
-		It("should upload to custom bucket", func() {
+		It("should upload to custom s3 bucket", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
@@ -332,7 +332,45 @@ var _ = Describe("Uploader", func() {
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)
 			service := cldy.CustomS3Client{
-				UploadClient: &mockUploadService{},
+				UploadClient: &mockS3UploadService{},
+			}
+			actualUploader.StorageServices[0] = &service
+
+			// Succeed on a good filename
+			payload := cldy.UploadPayload{
+				ClusterUID:   "good-cluster",
+				FileName:     "8604469a-1368-44ee-9f1c-c5cc8c2121c1_2025-05-05-18-05-17.tgz",
+				AgentVersion: "1.0.0",
+				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
+				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
+			}
+			err = actualUploader.StorageServices[0].Upload(payload)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Error on an unparseable filename
+			payload.FileName = "badFileName"
+			err = actualUploader.StorageServices[0].Upload(payload)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("error parsing name from sample filename"))
+		})
+		It("should upload to custom azure blob", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: time.Hour,
+				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					EnvID:         "1",
+				},
+			}
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			uploader.SetClusterID("test_id")
+			actualUploader := uploader.(*cldy.CldyUploader)
+			service := cldy.CustomBlobClient{
+				UploadClient: &mockBlobUploadService{},
 			}
 			actualUploader.StorageServices[0] = &service
 
@@ -495,8 +533,14 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response,
 	return &http.Response{}, fmt.Errorf("unknown request")
 }
 
-type mockUploadService struct{}
+type mockS3UploadService struct{}
 
-func (mcs *mockUploadService) Do(sampleToUpload *s3manager.UploadInput) error {
+func (mcs *mockS3UploadService) Do(sampleToUpload *s3manager.UploadInput) error {
+	return nil
+}
+
+type mockBlobUploadService struct{}
+
+func (mcs *mockBlobUploadService) Do(sampleToUpload *cldy.BlobUploadInput) error {
 	return nil
 }
