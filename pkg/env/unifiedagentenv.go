@@ -4,6 +4,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/env"
 	"github.com/spf13/cast"
 	"github.com/spf13/viper"
+	"time"
 )
 
 const (
@@ -30,6 +31,12 @@ const (
 	// Name and ID represent the same identifier for the cluster
 	NodeStatsClusterNameEnvVar = "CLUSTER_NAME"
 	NodeStatsClusterIDEnvVar   = "CLUSTER_ID"
+	
+	// InformerResyncIntervalEnvVar is the resync interval for informers
+	InformerResyncIntervalEnvVar = "INFORMER_RESYNC_INTERVAL"
+
+	// ParseMetricsDataEnvVar env var for sanitizing k8s resources
+	ParseMetricsDataEnvVar = "PARSE_METRICS_DATA"
 
 	// Prefixes for
 	CloudabilityPrefix = "CLOUDABILITY_"
@@ -103,6 +110,16 @@ func GetNodeStatsClusterIDName() string {
 		idName = getValueWithPotentialPrefixOrDefault(NodeStatsClusterNameEnvVar, CloudabilityPrefix, "", cast.ToString)
 	}
 	return idName
+}
+
+// GetInformerReSyncInterval returns the informer resync interval
+func GetInformerReSyncInterval() time.Duration {
+	return getValueWithPotentialPrefixOrDefault(InformerResyncIntervalEnvVar, CloudabilityPrefix, 24*time.Hour, cast.ToDuration)
+}
+
+// GetSanitizeData returns bool that further sanitizes k8s resources if true
+func GetSanitizeData() bool {
+	return getValueWithPotentialPrefixOrDefault(ParseMetricsDataEnvVar, CloudabilityPrefix, false, cast.ToBool)
 }
 
 // getValueWithPotentialPrefixOrDefault attempts to read the environment variable raw and then with the specified prefix,

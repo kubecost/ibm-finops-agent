@@ -48,8 +48,9 @@ func NewAgentDataSource(router *httprouter.Router, diag diagnostics.DiagnosticSe
 	if err != nil {
 		log.Fatalf("Failed to load Kubernetes config: %s", err.Error())
 	}
+	informerCfg := cluster.LoadInformerConfig()
 	// Create Kubernetes Cluster Cache + Watchers
-	k8sCache, err := cluster.NewDynamicClusterCache(cfg, defaultCacheResyncDuration)
+	k8sCache, err := cluster.NewDynamicClusterCache(cfg, informerCfg.ResyncInterval, informerCfg.SanitizeData)
 	if err != nil {
 		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
 	}

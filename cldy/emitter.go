@@ -7,6 +7,7 @@ import (
 	"fmt"
 	url "net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -78,6 +79,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 				Region:               viper.GetString("UPLOAD_REGION"),
 				CustomS3UploadBucket: viper.GetString("CUSTOM_S3_UPLOAD_BUCKET"),
 				CustomS3UploadRegion: viper.GetString("CUSTOM_S3_UPLOAD_REGION"),
+				ClusterName:          viper.GetString("CLUSTER_NAME"),
 			},
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),
@@ -263,15 +265,28 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	if err != nil {
 		return err
 	}
+	now := time.Now()
+	values := map[string]string{}
+	metrics := map[string]int{}
+	values["agent_version"] = "TODO"
+	values["cluster_name"] = ce.config.ApptioConfig.ClusterName
+	if ce.config.ProxyURL != nil {
+		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
+	}
+	values["insecure"] = strconv.FormatBool(ce.config.ApptioConfig.ProxyInsecure)
+	values["parse_metrics_data"] = strconv.FormatBool(ce.config.ParseMetricData)
+	values["upload_region"] = ce.config.Region
+	values["custom_s3_bucket"] = "TODO"
+	values["custom_s3_region"] = "TODO"
+	metrics["uptime"] = int(now.UTC().Sub(ce.startTime).Seconds())
 	agent := agentData{
-		Name: "cldy_agent_status",
-		// put uptime in here
-		Metrics: nil,
+		Name:    "cldy_agent_status",
+		Metrics: metrics,
 		Tags: map[string]string{
 			"cluster_uid": *ce.ClusterID,
 		},
-		Ts:     time.Now().UTC().UnixMilli() / 1000,
-		Values: nil,
+		Ts:     now.UTC().UnixMilli() / 1000,
+		Values: values,
 	}
 	agentBytes, err := json.Marshal(agent)
 	if err != nil {
