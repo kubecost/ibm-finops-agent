@@ -31,6 +31,7 @@ var _ = Describe("Emitter", func() {
 					ScratchDir: tempDir,
 					ApptioConfig: cldy.ApptioConfig{
 						SecretManager: cldy.NewKeyValueSecretManager("", ""),
+						EnvID:         "1",
 					},
 				},
 			}
@@ -84,7 +85,7 @@ var _ = Describe("Emitter", func() {
 				Expect(seenFiles).To(HaveKey(path))
 			}
 		})
-		It("should load data as JSON", func() {
+		It("should load data as JSON and skip un-allocatable resources", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
 			defer os.RemoveAll(tempDir)
@@ -93,8 +94,8 @@ var _ = Describe("Emitter", func() {
 					ScratchDir: tempDir,
 					ApptioConfig: cldy.ApptioConfig{
 						SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					},
-				},
+						EnvID:         "1",
+					}},
 				EmitAsJson: true,
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
@@ -137,9 +138,21 @@ var _ = Describe("Emitter", func() {
 			seenFiles := map[string]struct{}{}
 			filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
 				if !info.IsDir() {
+					switch {
+					case strings.Contains(path, "replicasets"):
+						err = checkForDeadReplicaSets(path)
+						Expect(err).NotTo(HaveOccurred())
+					case strings.Contains(path, "pods"):
+						err = checkForDeadPods(path)
+						Expect(err).NotTo(HaveOccurred())
+					case strings.Contains(path, "jobs"):
+						err = checkForDeadJobs(path)
+						Expect(err).NotTo(HaveOccurred())
+					}
 					parts := strings.Split(path, "/")
 					name := parts[len(parts)-1]
 					seenFiles[name] = struct{}{}
+
 				}
 				return nil
 			})
@@ -199,6 +212,66 @@ func (m *mockUploader) SetClusterID(id string) {
 
 func (m *mockUploader) AddSample(sample string) {
 	m.data = append(m.data, sample)
+}
+
+// ensure replicaSets with zero replicas are not emitted
+func checkForDeadReplicaSets(path string) error {
+	var rs *appsv1.ReplicaSet
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	for decoder.More() {
+		err = decoder.Decode(&rs)
+		if err != nil {
+			return err
+		}
+		// ensure replicaset with zero replicas is not present in emitted data
+		Expect(rs.Name).ToNot(Equal("dead-cloudability-metrics-agent-9b5b46685"))
+	}
+	return nil
+}
+
+// ensure pods that are not running are not emitted
+func checkForDeadPods(path string) error {
+	var pod *v1.Pod
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	for decoder.More() {
+		err = decoder.Decode(&pod)
+		if err != nil {
+			return err
+		}
+		// ensure terminated pod is not emitted
+		Expect(pod.Name).ToNot(Equal("completed-cloudability-metrics-agent-2-84775d78df-9qh4d"))
+	}
+	return nil
+}
+
+// ensure jobs completed for over an hour are not emitted
+func checkForDeadJobs(path string) error {
+	var job *batchv1.Job
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	for decoder.More() {
+		err = decoder.Decode(&job)
+		if err != nil {
+			return err
+		}
+		// ensure old, completed job is not emitted
+		Expect(job.Name).ToNot(Equal("my-dead-job"))
+	}
+	return nil
 }
 
 func buildTestData() (*emitter.ClusterSnapshot, error) {
