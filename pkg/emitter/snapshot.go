@@ -95,6 +95,10 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 // temporary caching of metrics summary every 5 minutes to avoid overloading the prometheus data source until
 // prometheus can be replaced.
 func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.MetricsQuerier, config *SnapshotConfig) (*MetricsSummary, error) {
+	if !config.UseMetricsCache {
+		return snapshotMetricsSummary(querier, config)
+	}
+
 	now := time.Now().UTC()
 
 	// FIXME: (bolt) use a metrics summary cache duration of 5 minutes while we're using a prometheus data source.
