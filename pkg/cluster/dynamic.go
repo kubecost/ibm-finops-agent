@@ -1,8 +1,9 @@
 package cluster
 
 import (
-	"log"
+	"github.com/ibm/finops-agent/pkg/env"
 	"reflect"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -11,6 +12,7 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	stv1 "k8s.io/api/storage/v1"
 
+	"github.com/opencost/opencost/core/pkg/log"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -19,7 +21,23 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// TODO: Cloudy/Turbo needs filtering functionality for specific k8s resources!
+const (
+	KubernetesLastAppliedConfig = "kubectl.kubernetes.io/last-applied-configuration"
+)
+
+type InformerConfig struct {
+	ResyncInterval time.Duration
+	SanitizeData   bool
+}
+
+// LoadInformerConfig returns configs related to informer settings
+func LoadInformerConfig() InformerConfig {
+	return InformerConfig{
+		ResyncInterval: env.GetInformerReSyncInterval(),
+		SanitizeData:   env.GetSanitizeData(),
+	}
+}
+
 var (
 	cacheResourceMap = map[reflect.Type]schema.GroupVersionResource{
 		reflect.TypeOf(corev1.Namespace{}):             {Version: "v1", Resource: "namespaces"},
@@ -37,6 +55,73 @@ var (
 		reflect.TypeOf(batchv1.Job{}):                  {Group: "batch", Version: "v1", Resource: "jobs"},
 		reflect.TypeOf(policyv1.PodDisruptionBudget{}): {Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"},
 	}
+	// fields to trim on specific resources if parseMetricsData is enabled
+	gvkToSanitizePaths = map[schema.GroupVersionKind][]string{
+		{Group: "apps", Version: "v1", Kind: "Deployment"}: {
+			"spec.progressDeadlineSeconds",
+		},
+		{Group: "apps", Version: "v1", Kind: "Daemonset"}: {
+			"spec.updateStrategy",
+		},
+		{Group: "batch", Version: "v1", Kind: "Job"}: {
+			"spec.parallelism",
+			"spec.completions",
+			"spec.activeDeadlineSeconds",
+			"spec.backoffLimit",
+			"spec.manualSelector",
+			"spec.ttlSecondsAfterFinished",
+			"spec.completionMode",
+			"spec.suspend",
+		},
+		{Group: "batch", Version: "v1", Kind: "Cronjob"}: {
+			"spec",
+		},
+		// custom gvk based on common nested k8s resources
+		{Version: "v1", Kind: "Container"}: {
+			"command",
+			"args",
+			"imagePullPolicy",
+			"livenessProbe",
+			"readinessProbe",
+			"startupProbe",
+			"terminationMessagePath",
+			"terminationMessagePolicy",
+			"securityContext",
+		},
+		{Version: "v1", Kind: "Service"}: {
+			"spec.ports",
+			"spec.clusterIPs",
+			"spec.externalIPs",
+			"spec.sessionAffinity",
+			"spec.loadBalancerIP",
+			"spec.loadBalancerSourceRanges",
+			"spec.externalName",
+			"spec.externalTrafficPolicy",
+			"spec.healthCheckNodePort",
+			"spec.sessionAffinityConfig",
+			"spec.ipFamilies",
+			"spec.ipFamilyPolicy",
+			"spec.allocatedLoadBalancerNodePorts",
+			"spec.loadBalancerClass",
+			"spec.internalTrafficPolicy",
+		},
+	}
+	// common fields to trim on all resources if parseMetricsData is enabled
+	commonSanitizePaths = []string{
+		"spec.revisionHistoryLimit",
+		"spec.minReadySeconds",
+		"metadata.finalizers",
+	}
+	// fields to trim on specific resources by default
+	gvkToTrimPaths = map[schema.GroupVersionKind][]string{
+		{Version: "v1", Kind: "Container"}: {
+			"env",
+		},
+	}
+	// common fields to trim on all resources by default
+	commonTrimPaths = []string{"metadata.managedFields"}
+
+	containerGVK = schema.GroupVersionKind{Version: "v1", Kind: "Container"}
 )
 
 // DynamicClusterCache is the implementation of ClusterCache with dynamic informers
@@ -44,8 +129,7 @@ type DynamicClusterCache struct {
 	dynamicinformer.DynamicSharedInformerFactory
 }
 
-func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration) (ClusterCache, error) {
-
+func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanitizeData bool) (ClusterCache, error) {
 	client, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -56,10 +140,96 @@ func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration) (Clus
 	}
 
 	for _, gvr := range cacheResourceMap {
-		cache.ForResource(gvr)
+		transformErr := cache.ForResource(gvr).Informer().SetTransform(GetTransformFunc(sanitizeData))
+		if transformErr != nil {
+			return nil, transformErr
+		}
 	}
 
 	return &cache, nil
+}
+
+// GetTransformFunc returns the correct transform to apply based on parseMetricsData flag
+// when enabled, sensitive information from k8s resources will be stripped
+func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interface{}, error) {
+	return func(resource interface{}) (interface{}, error) {
+		var casted *unstructured.Unstructured
+		var ok bool
+		if casted, ok = resource.(*unstructured.Unstructured); !ok {
+			log.Warnf("Not trimming or sanitizing non-unstructured resource: %s", reflect.TypeOf(resource))
+			return resource, nil
+		}
+		casted = cleanResource(casted, parseMetricsData)
+		return resource, nil
+	}
+}
+
+func cleanResource(resource *unstructured.Unstructured, parseMetricsData bool) *unstructured.Unstructured {
+	gvk := resource.GetObjectKind().GroupVersionKind()
+	// for resources with containers separate container cleaning needs to be done
+	if gvk.Group == "apps" || gvk.Kind == "Pod" || gvk.Kind == "Job" {
+		cleanContainers(resource, gvk, parseMetricsData)
+	}
+	// remove fields (if any) that are specific to the resource
+	cleanResourceFieldsFromPath(resource, gvkToTrimPaths[gvk])
+	// remove common fields for all resources
+	cleanResourceFieldsFromPath(resource, commonTrimPaths)
+	// perform further sanitization of resource if enabled
+	if parseMetricsData {
+		// remove fields (if any) that are specific to the resource
+		cleanResourceFieldsFromPath(resource, gvkToSanitizePaths[gvk])
+		// remove common fields for all resources
+		cleanResourceFieldsFromPath(resource, commonSanitizePaths)
+	}
+	return resource
+}
+
+func cleanResourceFieldsFromPath(resource *unstructured.Unstructured, paths []string) {
+	// remove specific junk annotation
+	annotations := resource.GetAnnotations()
+	delete(annotations, KubernetesLastAppliedConfig)
+	resource.SetAnnotations(annotations)
+
+	for _, path := range paths {
+		unstructured.RemoveNestedField(resource.Object, strings.Split(path, ".")...)
+	}
+}
+
+func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersionKind, parseMetricsData bool) {
+	var pathsToContainers []string
+	if gvk.Kind == "Pod" {
+		pathsToContainers = []string{"spec.containers", "spec.initContainers"}
+	} else {
+		// Deployment, DaemonSet, ReplicaSet, ReplicationController, & Job
+		pathsToContainers = []string{"spec.template.spec.containers", "spec.template.spec.initContainers"}
+	}
+
+	for _, path := range pathsToContainers {
+		containersUnstructured, found, err := unstructured.NestedFieldNoCopy(resource.Object, strings.Split(path, ".")...)
+		// some kubernetes resources will not have initContainers, we can just skip if so
+		if !found {
+			continue
+		}
+		if err != nil {
+			log.Warnf("an error occurred getting resources containers %v", err)
+			continue
+		}
+		containers, ok := containersUnstructured.([]interface{})
+		if !ok {
+			log.Warnf("containers field is not a list. Not cleaning resource")
+			continue
+		}
+		for i := 0; i < len(containers); i++ {
+			if parseMetricsData {
+				for _, pathToContainer := range gvkToSanitizePaths[containerGVK] {
+					unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
+				}
+			}
+			for _, pathToContainer := range gvkToTrimPaths[containerGVK] {
+				unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
+			}
+		}
+	}
 }
 
 // Note: t is the actual struct not pointer
@@ -74,7 +244,7 @@ func ConvertUnstructuredArrayToTypedArray[T any](uObjs []*unstructured.Unstructu
 		var obj T
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.Object, &obj)
 		if err != nil {
-			log.Printf("failed to convert object. err: %s, obj: %v", err.Error(), obj)
+			log.Warnf("failed to convert object. err: %s, obj: %v", err.Error(), obj)
 			return nil
 		}
 		array = append(array, &obj)
@@ -82,7 +252,6 @@ func ConvertUnstructuredArrayToTypedArray[T any](uObjs []*unstructured.Unstructu
 
 	return array
 }
-
 func (dcc *DynamicClusterCache) Start(stopCh <-chan struct{}) {
 
 	dcc.DynamicSharedInformerFactory.Start(stopCh)

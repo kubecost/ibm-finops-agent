@@ -4,6 +4,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/env"
 	"github.com/spf13/cast"
 	"github.com/spf13/viper"
+	"time"
 )
 
 const (
@@ -19,19 +20,25 @@ const (
 	MinuteMetricsEnabledEnvVar = "MINUTE_METRICS_ENABLED"
 
 	// Node Stats Client Configuration (can be prefixed)
-	NodeStatsForceKubeProxyEnvVar     = "FORCE_KUBE_PROXY"
-	NodeStatsLocalProxyEnvVar         = "LOCAL_PROXY"
-	NodeStatsConcurrentPollersEnvVar  = "NUMBER_OF_CONCURRENT_NODE_POLLERS"
-	NodeStatsInsecureEnvVar           = "INSECURE"
-	NodeStatsCertFileEnvVar           = "CERT_FILE"
-	NodeStatsKeyFileEnvVar            = "KEY_FILE"
-	
-	// Name and ID represent the same identifier for the cluster
-	NodeStatsClusterNameEnvVar        = "CLUSTER_NAME"
-	NodeStatsClusterIDEnvVar          = "CLUSTER_ID"
+	NodeStatsForceKubeProxyEnvVar    = "FORCE_KUBE_PROXY"
+	NodeStatsLocalProxyEnvVar        = "LOCAL_PROXY"
+	NodeStatsConcurrentPollersEnvVar = "NUMBER_OF_CONCURRENT_NODE_POLLERS"
+	NodeStatsInsecureEnvVar          = "INSECURE"
+	NodeStatsCertFileEnvVar          = "CERT_FILE"
+	NodeStatsKeyFileEnvVar           = "KEY_FILE"
 
-	// Prefixes for 
-	CloudabilityPrefix  = "CLOUDABILITY_"
+	// Name and ID represent the same identifier for the cluster
+	NodeStatsClusterNameEnvVar = "CLUSTER_NAME"
+	NodeStatsClusterIDEnvVar   = "CLUSTER_ID"
+
+	// InformerResyncIntervalEnvVar is the resync interval for informers
+	InformerResyncIntervalEnvVar = "INFORMER_RESYNC_INTERVAL"
+
+	// ParseMetricsDataEnvVar env var for sanitizing k8s resources
+	ParseMetricsDataEnvVar = "PARSE_METRICS_DATA"
+
+	// Prefixes for
+	CloudabilityPrefix = "CLOUDABILITY_"
 )
 
 func IsKubecostEmitterEnabled() bool {
@@ -96,6 +103,16 @@ func GetNodeStatsClusterIDName() string {
 		idName = getValueWithPotentialPrefixOrDefault(NodeStatsClusterNameEnvVar, CloudabilityPrefix, "", cast.ToString)
 	}
 	return idName
+}
+
+// GetInformerReSyncInterval returns the informer resync interval
+func GetInformerReSyncInterval() time.Duration {
+	return getValueWithPotentialPrefixOrDefault(InformerResyncIntervalEnvVar, CloudabilityPrefix, 24*time.Hour, cast.ToDuration)
+}
+
+// GetSanitizeData returns bool that further sanitizes k8s resources if true
+func GetSanitizeData() bool {
+	return getValueWithPotentialPrefixOrDefault(ParseMetricsDataEnvVar, CloudabilityPrefix, false, cast.ToBool)
 }
 
 // getValueWithPotentialPrefixOrDefault attempts to read the environment variable raw and then with the specified prefix,
