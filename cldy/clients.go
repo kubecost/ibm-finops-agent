@@ -477,34 +477,41 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 	}
 
 	if blobContainerName == "" || customBlobUrl == "" {
-		return nil, fmt.Errorf("both container name and blob url must be set for custom azure blob configuration.")
+		return nil, fmt.Errorf("both container name and blob url must be set for all custom azure blob configurations.")
 	}
 
-	uploadClient, err := newBlobManagedIdentityClient(customBlobUrl)
-	if err != nil {
-		log.Warnf("Could not establish Azure client with managed identity, "+
-			"ensure Azure environment variables are set correctly: %s", err)
-	}
-	if uploadClient != nil {
-		return CustomBlobClient{
-			BlobContainerName: blobContainerName,
-			UploadClient:      uploadClient,
-		}, nil
+	// Use managed identity if secondary env variables aren't set
+	if azureTenantID == "" && azureClientID == "" && azureClientSecret == "" {
+		uploadClient, err := newBlobManagedIdentityClient(customBlobUrl)
+		if err != nil {
+			log.Warnf("Could not establish Azure client with managed identity, "+
+				"ensure Azure environment variables are set correctly: %s", err)
+		}
+		if uploadClient != nil {
+			return CustomBlobClient{
+				BlobContainerName: blobContainerName,
+				UploadClient:      uploadClient,
+			}, nil
+		}
+	} else {
+		if azureTenantID == "" || azureClientID == "" || azureClientSecret == "" {
+			return nil, fmt.Errorf("tenant id, client id, and client secret must be set for azure client.")
+		}
+
+		uploadClient, err := newBlobServicePrincipalClient(customBlobUrl, azureTenantID, azureClientID, azureClientSecret)
+		if err != nil {
+			log.Warnf("Could not establish Azure client with environment, "+
+				"ensure all Azure environment variables are set correctly: %s", err)
+		}
+		if uploadClient != nil {
+			return CustomBlobClient{
+				BlobContainerName: blobContainerName,
+				UploadClient:      uploadClient,
+			}, nil
+		}
 	}
 
-	uploadClient, err = newBlobServicePrincipalClient(customBlobUrl, azureTenantID, azureClientID, azureClientSecret)
-	if err != nil {
-		log.Warnf("Could not establish Azure client with environment, "+
-			"ensure all Azure environment variables are set correctly: %s", err)
-	}
-	if uploadClient != nil {
-		return CustomBlobClient{
-			BlobContainerName: blobContainerName,
-			UploadClient:      uploadClient,
-		}, nil
-	}
-
-	return nil, fmt.Errorf("could not establish any azure clients.") // Alex TODO: Better message
+	return nil, fmt.Errorf("could not establish any azure clients.")
 }
 
 type CustomBlobUploadService interface {
