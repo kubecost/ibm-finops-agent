@@ -12,7 +12,7 @@ type EmitterConfig struct {
 	ClusterID                      string // env.GetClusterID()
 	ConfigPath                     string // env.GetConfigPathWithDefault("/var/configs/")
 	CloudProviderAPIKey            string // env.GetCloudProviderAPIKey()
-	KubecostNamespace              string // env.GetKubecostNamespace()
+	InstallNamespace               string // env.GetInstallNamespace()
 	BucketConfigFile               string // env.GetExportBucketConfigFile()
 	ExportInterval                 time.Duration
 	QueryResolution                time.Duration
@@ -26,7 +26,7 @@ func NewEmitterConfigFromEnv() *EmitterConfig {
 		ClusterID:                      env.GetClusterID(),
 		ConfigPath:                     env.GetConfigPathWithDefault("/var/configs/"),
 		CloudProviderAPIKey:            env.GetCloudProviderAPIKey(),
-		KubecostNamespace:              env.GetInstallNamespace(), // this is used to receive configmap updates -- poorly named
+		InstallNamespace:               env.GetInstallNamespace(), // this is used to receive configmap updates -- poorly named
 		BucketConfigFile:               env.GetExportBucketConfigFile(),
 		ExportInterval:                 10 * time.Minute, // may want to make all pipelines configurable
 		QueryResolution:                env.GetETLResolution(),
