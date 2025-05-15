@@ -20,7 +20,7 @@ import (
 	"github.com/opencost/opencost/pkg/config"
 	"github.com/opencost/opencost/pkg/costmodel"
 
-	"github.com/opencost/opencost/pkg/exporter"
+	"github.com/opencost/opencost/core/pkg/opencost/exporter"
 )
 
 type KubecostEmitter struct {
