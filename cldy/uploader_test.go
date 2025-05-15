@@ -360,6 +360,11 @@ var _ = Describe("Uploader", func() {
 				ApptioConfig: cldy.ApptioConfig{
 					SecretManager: cldy.NewKeyValueSecretManager("", ""),
 					EnvID:         "1",
+					CustomAzureBlobContainerName: "a",
+					CustomAzureBlobUrl: "testurl",
+					CustomAzureTenantID: "1",
+					CustomAzureClientID: "1",
+					CustomAzureClientSecret: "1",
 				},
 			}
 			stopCh := make(chan struct{})
