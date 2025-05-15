@@ -471,11 +471,10 @@ type CustomBlobClient struct {
 
 func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTenantID string, azureClientID string,
 	azureClientSecret string) (StorageService, error) {
-	// Essential config is not set; silently skip custom blob setup
+	// Primary env variables are not set; silently skip custom blob setup
 	if blobContainerName == "" && customBlobUrl == "" {
 		return nil, nil
 	}
-
 	if blobContainerName == "" || customBlobUrl == "" {
 		return nil, fmt.Errorf("both container name and blob url must be set for all custom azure blob configurations.")
 	}
@@ -495,7 +494,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		}
 	} else {
 		if azureTenantID == "" || azureClientID == "" || azureClientSecret == "" {
-			return nil, fmt.Errorf("tenant id, client id, and client secret must be set for azure client.")
+			return nil, fmt.Errorf("tenant id, client id, and client secret must be set for azure client creation.")
 		}
 
 		uploadClient, err := newBlobServicePrincipalClient(customBlobUrl, azureTenantID, azureClientID, azureClientSecret)
@@ -511,7 +510,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		}
 	}
 
-	return nil, fmt.Errorf("could not establish any azure clients.")
+	return nil, fmt.Errorf("unspecified error generating azure client.")
 }
 
 type CustomBlobUploadService interface {
@@ -603,7 +602,7 @@ func (cbu CustomBlobUploader) Do(sampleToUpload *BlobUploadInput) error {
 }
 
 // generateSampleKey creates a key (location) for s3 to upload the sample to. Example of s3 location format
-// /production/data/metrics-agent/<YYYY>/<MM>/<DD>/<CLUSTER_UID>/<CLUSTER_UID>-<YYYYMMDD>-<HH>-<MM>.tgz
+// production/data/metrics-agent/<YYYY>/<MM>/<DD>/<CLUSTER_UID>/<CLUSTER_UID>-<YYYYMMDD>-<HH>-<MM>.tgz
 func generateSampleKey(fileName string, clusterUID string) (string, error) {
 	withoutID := strings.Split(fileName, "_")
 	if len(withoutID) < 2 {
