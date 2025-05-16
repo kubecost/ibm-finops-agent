@@ -25,10 +25,14 @@ const stats = "stats"
 const scratchPath = "scratch"
 const uploadPath = "upload"
 
+// Should this be configurable but default to 2?
+const emitEveryN = 2
+
 type Emitter struct {
 	config      EmitterConfig
 	startTime   time.Time
 	sampleCt    int
+	intervalCt  int
 	Uploader    Uploader
 	ClusterID   *string
 	ScratchPath string
@@ -91,10 +95,11 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 	return &Emitter{
-		config:    config,
-		Uploader:  NewCldyUploader(config.UploaderConfig, stop),
-		sampleCt:  initialSampleCt,
-		startTime: time.Now().UTC(),
+		config:     config,
+		Uploader:   NewCldyUploader(config.UploaderConfig, stop),
+		sampleCt:   initialSampleCt,
+		intervalCt: emitEveryN,
+		startTime:  time.Now().UTC(),
 	}
 }
 
@@ -138,6 +143,14 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 }
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
+	// Emit on the nth sample
+	if ce.intervalCt < emitEveryN - 1 {
+		ce.intervalCt += 1
+		return nil
+	} else {
+		ce.intervalCt = 0
+	}
+
 	log.Infof("emitting sample to Cldy %d", ce.sampleCt)
 	err := os.Mkdir(ce.nextSamplePath(), os.ModePerm)
 	if err != nil {
