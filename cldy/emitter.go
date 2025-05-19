@@ -25,23 +25,22 @@ const stats = "stats"
 const scratchPath = "scratch"
 const uploadPath = "upload"
 
-// Should this be configurable but default to 2?
-const emitEveryN = 2
-
 type Emitter struct {
-	config      EmitterConfig
-	startTime   time.Time
-	sampleCt    int
-	intervalCt  int
-	Uploader    Uploader
-	ClusterID   *string
-	ScratchPath string
+	config           EmitterConfig
+	startTime        time.Time
+	lastEmission     time.Time
+	emissionInterval int
+	sampleCt         int
+	Uploader         Uploader
+	ClusterID        *string
+	ScratchPath      string
 }
 
 type EmitterConfig struct {
 	UploaderConfig
-	EmitAsJson      bool
-	ParseMetricData bool
+	EmitAsJson       bool
+	ParseMetricData  bool
+	EmissionInterval int
 }
 
 const UPLOAD_FREQUENCY = 10
@@ -59,6 +58,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("SCRATCH_DIR", "/tmp")
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
+	viper.SetDefault("EMISSION_INTERVAL", 3)
 
 	var outboundProxyUrl *url.URL
 	proxyURL := viper.GetString("OUTBOUND_PROXY")
@@ -88,18 +88,22 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),
 		},
-		EmitAsJson:      viper.GetBool("EMIT_AS_JSON"),
-		ParseMetricData: viper.GetBool("PARSE_METRIC_DATA"),
+		EmitAsJson:       viper.GetBool("EMIT_AS_JSON"),
+		ParseMetricData:  viper.GetBool("PARSE_METRIC_DATA"),
+		EmissionInterval: viper.GetInt("EMISSION_INTERVAL"),
 	}, nil
 }
 
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
+	currentTime := time.Now().UTC()
+
 	return &Emitter{
-		config:     config,
-		Uploader:   NewCldyUploader(config.UploaderConfig, stop),
-		sampleCt:   initialSampleCt,
-		intervalCt: emitEveryN,
-		startTime:  time.Now().UTC(),
+		config:           config,
+		Uploader:         NewCldyUploader(config.UploaderConfig, stop),
+		sampleCt:         initialSampleCt,
+		startTime:        currentTime,
+		lastEmission:     currentTime,
+		emissionInterval: config.EmissionInterval,
 	}
 }
 
@@ -143,12 +147,9 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 }
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
-	// Emit on the nth sample
-	if ce.intervalCt < emitEveryN - 1 {
-		ce.intervalCt += 1
+	// Emit only after enough time
+	if !ce.downsample() {
 		return nil
-	} else {
-		ce.intervalCt = 0
 	}
 
 	log.Infof("emitting sample to Cldy %d", ce.sampleCt)
@@ -359,4 +360,15 @@ func getClusterID(namespaces []*v1.Namespace) string {
 	}
 	// should probably error?
 	return ""
+}
+
+func (ce *Emitter) downsample() bool {
+	emissionThreshold := ce.lastEmission.Add(time.Duration(ce.emissionInterval) * time.Minute)
+	currentTime := time.Now().UTC()
+
+	if currentTime.After(emissionThreshold) || currentTime.Equal(emissionThreshold) {
+		ce.lastEmission = emissionThreshold
+		return true
+	}
+	return false
 }
