@@ -11,6 +11,7 @@ import (
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 
 	"github.com/opencost/opencost/core/pkg/clusters"
+	"github.com/opencost/opencost/core/pkg/opencost"
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
@@ -46,6 +47,7 @@ type MetricsSummary struct {
 
 // MetricsSnapshot contains the metrics results from opencost data source queries.
 type MetricsSnapshot struct {
+	Window                       opencost.Window
 	PVActiveMinutes              []*source.PVActiveMinutesResult
 	PVUsedAverage                []*source.PVUsedAvgResult
 	PVUsedMax                    []*source.PVUsedMaxResult
