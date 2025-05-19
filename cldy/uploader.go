@@ -65,12 +65,12 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	}
 
 	blobClient, err := NewCustomBlobClient(config.CustomAzureBlobContainerName, config.CustomAzureBlobUrl, config.CustomAzureTenantID,
-		config.CustomAzureClientID, config.CustomAzureClientSecret) // Alex TODO: Fix secret in memory issue
+		config.CustomAzureClientID, config.CustomAzureClientSecret)
 	if err != nil {
-		log.Warnf("failed to create custom azure uploader: %v", err)
+		log.Warnf("failed to create custom azure blob uploader: %v", err)
 	}
 	if blobClient != nil {
-		log.Infof("successfully created custom s3 uploader")
+		log.Infof("successfully created custom azure blob uploader")
 		storageServices = append(storageServices, blobClient)
 	}
 
