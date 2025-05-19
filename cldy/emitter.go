@@ -102,7 +102,7 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 		Uploader:         NewCldyUploader(config.UploaderConfig, stop),
 		sampleCt:         initialSampleCt,
 		startTime:        currentTime,
-		lastEmission:     currentTime,
+		lastEmission:     time.Time{},
 		emissionInterval: config.EmissionInterval,
 	}
 }
