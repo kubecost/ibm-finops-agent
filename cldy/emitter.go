@@ -84,7 +84,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 				CustomAzureBlobUrl:           viper.GetString("CUSTOM_AZURE_BLOB_URL"),
 				CustomAzureTenantID:          viper.GetString("CUSTOM_AZURE_BLOB_TENANT_ID"),
 				CustomAzureClientID:          viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
-				CustomAzureClientSecret:      viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_SECRET"),
+				CustomAzureClientSecret:      NewValueSecretManager(viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_SECRET")),
 			},
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),

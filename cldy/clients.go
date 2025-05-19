@@ -187,7 +187,7 @@ type ApptioConfig struct {
 	CustomAzureBlobUrl           string
 	CustomAzureTenantID          string
 	CustomAzureClientID          string
-	CustomAzureClientSecret      string
+	CustomAzureClientSecret      SecretManager
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -470,7 +470,7 @@ type CustomBlobClient struct {
 }
 
 func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTenantID string, azureClientID string,
-	azureClientSecret string) (StorageService, error) {
+	azureClientSecret SecretManager) (StorageService, error) {
 	// Primary env variables are not set; silently skip custom blob setup
 	if blobContainerName == "" && customBlobUrl == "" {
 		return nil, nil
@@ -479,8 +479,19 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		return nil, fmt.Errorf("both container name and blob url must be set for all custom azure blob configurations.")
 	}
 
+	body, err := azureClientSecret.GetSecret()
+	if err != nil {
+		return nil, err
+	}
+	// remove secret from memory
+	defer func() {
+		for i := range body {
+			body[i] = 0
+		}
+	}()
+
 	// Use managed identity if secondary env variables aren't set
-	if azureTenantID == "" && azureClientID == "" && azureClientSecret == "" {
+	if azureTenantID == "" && azureClientID == "" && len(body) == 0 {
 		uploadClient, err := newBlobManagedIdentityClient(customBlobUrl)
 		if err != nil {
 			log.Warnf("Could not establish Azure client with managed identity, "+
@@ -493,7 +504,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 			}, nil
 		}
 	} else {
-		if azureTenantID == "" || azureClientID == "" || azureClientSecret == "" {
+		if azureTenantID == "" || azureClientID == "" || len(body) == 0 {
 			return nil, fmt.Errorf("tenant id, client id, and client secret must be set for azure client creation.")
 		}
 
@@ -538,8 +549,19 @@ func newBlobManagedIdentityClient(customBlobUrl string) (*CustomBlobUploader, er
 }
 
 func newBlobServicePrincipalClient(customBlobUrl string, azureTentantID string, azureClientID string,
-	azureClientSecret string) (*CustomBlobUploader, error) {
-	cred, err := azidentity.NewClientSecretCredential(azureTentantID, azureClientID, azureClientSecret,
+	azureClientSecret SecretManager) (*CustomBlobUploader, error) {
+	body, err := azureClientSecret.GetSecret()
+	if err != nil {
+		return nil, err
+	}
+	// remove secret from memory
+	defer func() {
+		for i := range body {
+			body[i] = 0
+		}
+	}()
+	
+	cred, err := azidentity.NewClientSecretCredential(azureTentantID, azureClientID, string(body),
 		nil)
 	if err != nil {
 		return nil, err
@@ -646,4 +668,21 @@ func NewKeyValueSecretManager(keyAccess string, keySecret string) SecretManager 
 
 func (s *keyValueSecretManager) GetSecret() ([]byte, error) {
 	return json.Marshal(map[string]string{"keyAccess": s.keyAccess, "keySecret": s.keySecret})
+}
+
+type valueSecretManager struct {
+	keySecret string
+}
+
+func NewValueSecretManager(keySecret string) SecretManager {
+	return &valueSecretManager{
+		keySecret: keySecret,
+	}
+}
+
+func (s *valueSecretManager) GetSecret() ([]byte, error) {
+	if s.keySecret == "" {
+		return nil, fmt.Errorf("no secret value provided")
+	}
+	return []byte(s.keySecret), nil
 }

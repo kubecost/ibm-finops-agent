@@ -364,7 +364,7 @@ var _ = Describe("Uploader", func() {
 					CustomAzureBlobUrl: "testurl",
 					CustomAzureTenantID: "1",
 					CustomAzureClientID: "1",
-					CustomAzureClientSecret: "1",
+					CustomAzureClientSecret: cldy.NewValueSecretManager("1"),
 				},
 			}
 			stopCh := make(chan struct{})
