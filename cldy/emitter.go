@@ -28,7 +28,7 @@ const uploadPath = "upload"
 type Emitter struct {
 	config           EmitterConfig
 	startTime        time.Time
-	lastEmission     time.Time
+	lastEmission     int
 	emissionInterval int
 	sampleCt         int
 	Uploader         Uploader
@@ -102,7 +102,7 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 		Uploader:         NewCldyUploader(config.UploaderConfig, stop),
 		sampleCt:         initialSampleCt,
 		startTime:        currentTime,
-		lastEmission:     time.Time{},
+		lastEmission:     0,
 		emissionInterval: config.EmissionInterval,
 	}
 }
@@ -147,7 +147,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 }
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
-	// Emit only after enough time
+	// Emit only after the emission interval has been met
 	if !ce.downsample() {
 		return nil
 	}
@@ -362,11 +362,12 @@ func getClusterID(namespaces []*v1.Namespace) string {
 	return ""
 }
 
+// Checks sample count and emits sample only if it equals or exceeds the emission interval plus
+// the count of the last emission
 func (ce *Emitter) downsample() bool {
-	emissionThreshold := ce.lastEmission.Add(time.Duration(ce.emissionInterval) * time.Minute)
-	currentTime := time.Now().UTC()
+	emissionThreshold := ce.lastEmission + ce.emissionInterval
 
-	if currentTime.After(emissionThreshold) || currentTime.Equal(emissionThreshold) {
+	if ce.sampleCt >= emissionThreshold {
 		ce.lastEmission = emissionThreshold
 		return true
 	}
