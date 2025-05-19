@@ -9,6 +9,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/clusters"
+	"github.com/opencost/opencost/core/pkg/opencost"
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
@@ -348,6 +349,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	}
 
 	return &MetricsSnapshot{
+		Window:                       opencost.NewClosedWindow(start, end),
 		PVActiveMinutes:              pvActiveMinutes,
 		PVUsedAverage:                pvUsedAverage,
 		PVUsedMax:                    pvUsedMax,
