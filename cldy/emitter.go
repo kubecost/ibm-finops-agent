@@ -26,16 +26,16 @@ const scratchPath = "scratch"
 const uploadPath = "upload"
 
 type Emitter struct {
-	config           EmitterConfig
-	startTime        time.Time
-	lastEmission     int64
-	emissionInterval int
-	sampleCt         int
+	config            EmitterConfig
+	startTime         time.Time
+	lastEmission      int64
+	emissionInterval  int
+	sampleCt          int
 	currentSamplePath string
 	nextSamplePath    string
-	Uploader         Uploader
-	ClusterID        *string
-	ScratchPath      string
+	Uploader          Uploader
+	ClusterID         *string
+	ScratchPath       string
 }
 
 type EmitterConfig struct {
@@ -370,7 +370,7 @@ func getClusterID(namespaces []*v1.Namespace) string {
 // Checks sample count and emits sample only if it equals or exceeds the emission interval plus
 // the count of the last emission.
 func (ce *Emitter) shouldEmitWithDownsample() bool {
-	emissionThreshold := ce.lastEmission + int64(ce.emissionInterval * 60000)
+	emissionThreshold := ce.lastEmission + int64(ce.emissionInterval*60000)
 
 	if time.Now().UTC().UnixMilli() >= emissionThreshold {
 		ce.lastEmission = emissionThreshold
