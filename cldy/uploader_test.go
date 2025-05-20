@@ -337,16 +337,17 @@ var _ = Describe("Uploader", func() {
 			actualUploader.StorageServices[0] = &service
 
 			// Succeed on a good filename
+			filename := "8604469a-1368-44ee-9f1c-c5cc8c2121c1_2025-05-05-18-05-17.tgz"
 			payload := cldy.UploadPayload{
 				ClusterUID:   "good-cluster",
-				FileName:     "8604469a-1368-44ee-9f1c-c5cc8c2121c1_2025-05-05-18-05-17.tgz",
+				FileName:     filename,
 				AgentVersion: "1.0.0",
 				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
 			}
 			err = actualUploader.StorageServices[0].Upload(payload)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(payload.FileName)).To(BeNumerically(">", 0))
+			Expect(payload.FileName).To(Equal(filename))
 			Expect(len(payload.FilePath)).To(BeNumerically(">", 0))
 
 			// Error on an unparseable filename
@@ -382,16 +383,17 @@ var _ = Describe("Uploader", func() {
 			actualUploader.StorageServices[0] = &service
 
 			// Succeed on a good filename
+			filename := "8604469a-1368-44ee-9f1c-c5cc8c2121c1_2025-05-05-18-05-17.tgz"
 			payload := cldy.UploadPayload{
 				ClusterUID:   "good-cluster",
-				FileName:     "8604469a-1368-44ee-9f1c-c5cc8c2121c1_2025-05-05-18-05-17.tgz",
+				FileName:     filename,
 				AgentVersion: "1.0.0",
 				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
 			}
 			err = actualUploader.StorageServices[0].Upload(payload)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(len(payload.FileName)).To(BeNumerically(">", 0))
+			Expect(payload.FileName).To(Equal(filename))
 			Expect(len(payload.FilePath)).To(BeNumerically(">", 0))
 
 			// Error on an unparseable filename
