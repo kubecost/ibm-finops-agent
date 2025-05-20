@@ -104,7 +104,7 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 		Uploader:         NewCldyUploader(config.UploaderConfig, stop),
 		sampleCt:         initialSampleCt,
 		startTime:        currentTime,
-		lastEmission:     0,
+		lastEmission:     time.Now().UTC().UnixMilli(),
 		emissionInterval: config.EmissionInterval,
 	}
 }
