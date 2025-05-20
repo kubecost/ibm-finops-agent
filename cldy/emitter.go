@@ -28,7 +28,7 @@ const uploadPath = "upload"
 type Emitter struct {
 	config           EmitterConfig
 	startTime        time.Time
-	lastEmission     int
+	lastEmission     int64
 	emissionInterval int
 	sampleCt         int
 	currentSamplePath string
@@ -135,7 +135,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	}
 
 	ce.currentSamplePath = ce.newCurrentSamplePath()
-	err = os.Mkdir(ce.nextSamplePath, os.ModePerm)
+	err = os.Mkdir(ce.currentSamplePath, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -202,11 +202,11 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
 	var fileName string
 	if outputPrefix == stats {
+		fileName = ce.currentSamplePath
+	} else {
 		if ce.sampleCt == -1 {
 			return nil
 		}
-		fileName = ce.currentSamplePath
-	} else {
 		fileName = ce.nextSamplePath
 	}
 	fileName = fileName + fmt.Sprintf(statsFileTemplate, outputPrefix, nodeName)
@@ -368,11 +368,11 @@ func getClusterID(namespaces []*v1.Namespace) string {
 }
 
 // Checks sample count and emits sample only if it equals or exceeds the emission interval plus
-// the count of the last emission
+// the count of the last emission.
 func (ce *Emitter) shouldEmitWithDownsample() bool {
-	emissionThreshold := ce.lastEmission + ce.emissionInterval
+	emissionThreshold := ce.lastEmission + int64(ce.emissionInterval * 60000)
 
-	if ce.sampleCt >= emissionThreshold {
+	if time.Now().UTC().UnixMilli() >= emissionThreshold {
 		ce.lastEmission = emissionThreshold
 		return true
 	}
