@@ -148,7 +148,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
 	// Emit only after the emission interval has been met
-	if !ce.downsample() {
+	if !ce.shouldEmitWithDownsample() {
 		return nil
 	}
 
@@ -364,7 +364,7 @@ func getClusterID(namespaces []*v1.Namespace) string {
 
 // Checks sample count and emits sample only if it equals or exceeds the emission interval plus
 // the count of the last emission
-func (ce *Emitter) downsample() bool {
+func (ce *Emitter) shouldEmitWithDownsample() bool {
 	emissionThreshold := ce.lastEmission + ce.emissionInterval
 
 	if ce.sampleCt >= emissionThreshold {
