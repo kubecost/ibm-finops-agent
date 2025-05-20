@@ -346,6 +346,8 @@ var _ = Describe("Uploader", func() {
 			}
 			err = actualUploader.StorageServices[0].Upload(payload)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(len(payload.FileName)).To(BeNumerically(">", 0))
+			Expect(len(payload.FilePath)).To(BeNumerically(">", 0))
 
 			// Error on an unparseable filename
 			payload.FileName = "badFileName"
@@ -389,6 +391,8 @@ var _ = Describe("Uploader", func() {
 			}
 			err = actualUploader.StorageServices[0].Upload(payload)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(len(payload.FileName)).To(BeNumerically(">", 0))
+			Expect(len(payload.FilePath)).To(BeNumerically(">", 0))
 
 			// Error on an unparseable filename
 			payload.FileName = "badFileName"

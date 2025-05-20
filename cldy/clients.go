@@ -494,7 +494,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 	if azureTenantID == "" && azureClientID == "" && len(body) == 0 {
 		uploadClient, err := newBlobManagedIdentityClient(customBlobUrl)
 		if err != nil {
-			log.Warnf("Could not establish Azure client with managed identity, "+
+			return nil, fmt.Errorf("Could not establish Azure client with managed identity, "+
 				"ensure Azure environment variables are set correctly: %s", err)
 		}
 		if uploadClient != nil {
@@ -510,7 +510,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 
 		uploadClient, err := newBlobServicePrincipalClient(customBlobUrl, azureTenantID, azureClientID, azureClientSecret)
 		if err != nil {
-			log.Warnf("Could not establish Azure client with environment, "+
+			return nil, fmt.Errorf("Could not establish Azure client with environment, "+
 				"ensure all Azure environment variables are set correctly: %s", err)
 		}
 		if uploadClient != nil {
@@ -644,7 +644,7 @@ func generateSampleKey(fileName string, clusterUID string) (string, error) {
 	month := segments[numSegments-5]
 	year := segments[numSegments-6]
 
-	return fmt.Sprintf("production/data/metrics-agent/%s/%s/%s/%s/%s-%s%s%s-%s-%s.tgz", year,
+	return fmt.Sprintf("alex-filepath-test/%s/%s/%s/%s/%s-%s%s%s-%s-%s.tgz", year,
 		month, day, clusterUID, clusterUID, year, month, day, hour, minute), nil
 }
 
