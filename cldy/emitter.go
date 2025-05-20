@@ -31,6 +31,8 @@ type Emitter struct {
 	lastEmission     int
 	emissionInterval int
 	sampleCt         int
+	currentSamplePath string
+	nextSamplePath    string
 	Uploader         Uploader
 	ClusterID        *string
 	ScratchPath      string
@@ -132,7 +134,8 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 		return fmt.Errorf("failed to create scratch directory: %s", err.Error())
 	}
 
-	err = os.Mkdir(ce.nextSamplePath(), os.ModePerm)
+	ce.currentSamplePath = ce.newCurrentSamplePath()
+	err = os.Mkdir(ce.nextSamplePath, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -153,7 +156,8 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 	}
 
 	log.Infof("emitting sample to Cldy %d", ce.sampleCt)
-	err := os.Mkdir(ce.nextSamplePath(), os.ModePerm)
+	ce.nextSamplePath = ce.newNextSamplePath()
+	err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -167,8 +171,9 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 		return err
 	}
 
-	ce.Uploader.AddSample(ce.currentSamplePath())
+	ce.Uploader.AddSample(ce.currentSamplePath)
 	ce.sampleCt++
+	ce.currentSamplePath = ce.nextSamplePath
 	log.Info("added sample to Cldy")
 	return nil
 }
@@ -200,9 +205,9 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 		if ce.sampleCt == -1 {
 			return nil
 		}
-		fileName = ce.currentSamplePath()
+		fileName = ce.currentSamplePath
 	} else {
-		fileName = ce.nextSamplePath()
+		fileName = ce.nextSamplePath
 	}
 	fileName = fileName + fmt.Sprintf(statsFileTemplate, outputPrefix, nodeName)
 	file, err := os.Create(fileName)
@@ -253,7 +258,7 @@ func convertObj[T proto.Message](objs []T) []proto.Message {
 }
 
 func (ce *Emitter) writeObjects(name string, data []proto.Message) (err error) {
-	outputPath := ce.currentSamplePath() + name + ce.getSuffix()
+	outputPath := ce.currentSamplePath + name + ce.getSuffix()
 	outFile, err := os.Create(outputPath)
 	defer safeClose(outFile.Close, &err)
 	if err != nil {
@@ -273,7 +278,7 @@ func (ce *Emitter) writeObjects(name string, data []proto.Message) (err error) {
 }
 
 func (ce *Emitter) writeAgentFile() (err error) {
-	outputPath := ce.currentSamplePath() + "agent-measurement.json"
+	outputPath := ce.currentSamplePath + "agent-measurement.json"
 	outFile, err := os.Create(outputPath)
 	defer safeClose(outFile.Close, &err)
 	if err != nil {
@@ -325,12 +330,12 @@ func (ce *Emitter) getSuffix() string {
 	return ".proto"
 }
 
-func (ce *Emitter) currentSamplePath() string {
-	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", ce.startTime.UnixMilli(), ce.sampleCt))
+func (ce *Emitter) newCurrentSamplePath() string {
+	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt))
 }
 
-func (ce *Emitter) nextSamplePath() string {
-	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", ce.startTime.UnixMilli(), ce.sampleCt+1))
+func (ce *Emitter) newNextSamplePath() string {
+	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt+1))
 }
 
 func (ce *Emitter) marshalObject(object proto.Message) ([]byte, error) {
