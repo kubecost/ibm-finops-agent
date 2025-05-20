@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	url "net/url"
 	"os"
 	"strconv"
@@ -231,11 +233,58 @@ func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]proto.Mess
 }
 
 func convertObj[T proto.Message](objs []T) []proto.Message {
-	data := make([]proto.Message, len(objs), len(objs))
-	for i, obj := range objs {
-		data[i] = obj
+	var data []proto.Message
+	for _, obj := range objs {
+		if shouldSkipResource(obj) {
+			continue
+		}
+		data = append(data, obj)
 	}
 	return data
+}
+
+func shouldSkipResource[T proto.Message](obj T) bool {
+	// safe buffer to allow for longer lived resources to be ingested correctly
+	previousHour := time.Now().UTC().Add(-1 * time.Hour)
+	switch resource := any(obj).(type) {
+	case *batchv1.Job:
+		return shouldSkipJob(previousHour, resource)
+	case *v1.Pod:
+		return shouldSkipPod(previousHour, resource)
+	case *appsv1.ReplicaSet:
+		return resource.Status.Replicas == 0 && previousHour.After(resource.CreationTimestamp.Time)
+	}
+	return false
+}
+
+func shouldSkipJob(previousHour time.Time, resource *batchv1.Job) bool {
+	if resource.Status.CompletionTime != nil &&
+		previousHour.After(resource.Status.CompletionTime.Time) {
+		return true
+	}
+	if resource.Status.Failed > 0 {
+		for _, condition := range resource.Status.Conditions {
+			if condition.Type == batchv1.JobFailed {
+				if previousHour.After(condition.LastTransitionTime.Time) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func shouldSkipPod(previousHour time.Time, resource *v1.Pod) bool {
+	if resource.Status.Phase == v1.PodSucceeded || resource.Status.Phase == v1.PodFailed {
+		canSkip := true
+		for _, v := range resource.Status.ContainerStatuses {
+			if v.State.Terminated != nil && v.State.Terminated.FinishedAt.After(previousHour) {
+				canSkip = false
+			}
+		}
+		return canSkip
+	}
+	return false
 }
 
 func (ce *Emitter) writeObjects(name string, data []proto.Message) (err error) {
