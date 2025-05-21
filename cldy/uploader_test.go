@@ -333,8 +333,9 @@ var _ = Describe("Uploader", func() {
 			Expect(err).ToNot(HaveOccurred())
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)
+			uploadClient := &mockS3UploadService{}
 			service := cldy.CustomS3Client{
-				UploadClient: &mockS3UploadService{},
+				UploadClient: uploadClient,
 			}
 			actualUploader.StorageServices[0] = &service
 
@@ -348,6 +349,7 @@ var _ = Describe("Uploader", func() {
 			}
 			err = actualUploader.StorageServices[0].Upload(payload)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(uploadClient.UploadedSampleName).To(Equal("production/data/metrics-agent/2025/05/05/good-cluster/good-cluster-20250505-18-05.tgz"))
 
 			// Error on an unparseable filename
 			payload.FileName = "badFileName"
@@ -376,8 +378,9 @@ var _ = Describe("Uploader", func() {
 			Expect(err).ToNot(HaveOccurred())
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)
+			uploadClient := &MockBlobUploadService{}
 			service := cldy.CustomBlobClient{
-				UploadClient: &mockBlobUploadService{},
+				UploadClient: uploadClient,
 			}
 			actualUploader.StorageServices[0] = &service
 
@@ -391,6 +394,7 @@ var _ = Describe("Uploader", func() {
 			}
 			err = actualUploader.StorageServices[0].Upload(payload)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(uploadClient.UploadedSampleName).To(Equal("production/data/metrics-agent/2025/05/05/good-cluster/good-cluster-20250505-18-05.tgz"))
 
 			// Error on an unparseable filename
 			payload.FileName = "badFileName"
@@ -540,26 +544,28 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response,
 	return &http.Response{}, fmt.Errorf("unknown request")
 }
 
-type mockS3UploadService struct{}
+type mockS3UploadService struct{
+	UploadedSampleName string
+}
 
 func (mcs *mockS3UploadService) Do(sampleToUpload *s3manager.UploadInput) error {
 	if sampleToUpload.Body == nil {
 		return fmt.Errorf("No sample detected")
 	}
-	if sampleToUpload.Key == nil {
-		return fmt.Errorf("Key was not generated")
-	}
+	
+	mcs.UploadedSampleName = *sampleToUpload.Key
 	return nil
 }
 
-type mockBlobUploadService struct{}
+type MockBlobUploadService struct{
+	UploadedSampleName string
+}
 
-func (mcs *mockBlobUploadService) Do(sampleToUpload *cldy.BlobUploadInput) error {
+func (mcs *MockBlobUploadService) Do(sampleToUpload *cldy.BlobUploadInput) error {
 	if sampleToUpload.Body == nil {
 		return fmt.Errorf("No sample detected")
 	}
-	if sampleToUpload.BlobName != "production/data/metrics-agent/2025/05/05/good-cluster/good-cluster-20250505-18-05.tgz" {
-		return fmt.Errorf("Key generated does not match input")
-	}
+
+	mcs.UploadedSampleName = sampleToUpload.BlobName
 	return nil
 }
