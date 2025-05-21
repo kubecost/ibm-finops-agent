@@ -28,8 +28,8 @@ const uploadPath = "upload"
 type Emitter struct {
 	config            EmitterConfig
 	startTime         time.Time
-	lastEmission      int64
-	emissionInterval  int
+	lastEmission      time.Time
+	emissionInterval  time.Duration
 	sampleCt          int
 	currentSamplePath string
 	nextSamplePath    string
@@ -42,7 +42,7 @@ type EmitterConfig struct {
 	UploaderConfig
 	EmitAsJson       bool
 	ParseMetricData  bool
-	EmissionInterval int
+	EmissionInterval time.Duration
 }
 
 const UPLOAD_FREQUENCY = 10
@@ -60,7 +60,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("SCRATCH_DIR", "/tmp")
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
-	viper.SetDefault("EMISSION_INTERVAL", 3)
+	viper.SetDefault("EMISSION_INTERVAL", "3m")
 
 	var outboundProxyUrl *url.URL
 	proxyURL := viper.GetString("OUTBOUND_PROXY")
@@ -92,7 +92,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		},
 		EmitAsJson:       viper.GetBool("EMIT_AS_JSON"),
 		ParseMetricData:  viper.GetBool("PARSE_METRIC_DATA"),
-		EmissionInterval: viper.GetInt("EMISSION_INTERVAL"),
+		EmissionInterval: viper.GetDuration("EMISSION_INTERVAL"),
 	}, nil
 }
 
@@ -104,7 +104,7 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 		Uploader:         NewCldyUploader(config.UploaderConfig, stop),
 		sampleCt:         initialSampleCt,
 		startTime:        currentTime,
-		lastEmission:     time.Now().UTC().UnixMilli(),
+		lastEmission:     currentTime,
 		emissionInterval: config.EmissionInterval,
 	}
 }
@@ -151,7 +151,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
 	// Emit only after the emission interval has been met
-	if !ce.shouldEmitWithDownsample() {
+	if !ce.shouldDownsample() {
 		return nil
 	}
 
@@ -367,13 +367,14 @@ func getClusterID(namespaces []*v1.Namespace) string {
 	return ""
 }
 
-// Checks sample count and emits sample only if it equals or exceeds the emission interval plus
-// the count of the last emission.
-func (ce *Emitter) shouldEmitWithDownsample() bool {
-	emissionThreshold := ce.lastEmission + int64(ce.emissionInterval*60000)
+// Checks sample count and emits sample only if it equals or exceeds the emission interval
+// (trimmed down to 90%) plus the time of the last emission 
+func (ce *Emitter) shouldDownsample() bool {
+	bufferedEmissionInterval := float32(ce.emissionInterval) * .9
+	emissionThreshold := ce.lastEmission.Add(time.Duration(bufferedEmissionInterval))
 
-	if time.Now().UTC().UnixMilli() >= emissionThreshold {
-		ce.lastEmission = emissionThreshold
+	if time.Now().UTC().After(emissionThreshold) {
+		ce.lastEmission = ce.lastEmission.Add(ce.emissionInterval)
 		return true
 	}
 	return false

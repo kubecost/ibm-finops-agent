@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ibm/finops-agent/cldy"
 
@@ -146,6 +147,43 @@ var _ = Describe("Emitter", func() {
 			for _, path := range expectedData {
 				Expect(seenFiles).To(HaveKey(path))
 			}
+		})
+		// Note: This test operates on a timer, so it could fail in a scenario where its execution
+		// is halted or slowed
+		It("should emit each time emission interval is satisifed", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).NotTo(HaveOccurred())
+			defer os.RemoveAll(tempDir)
+			config := cldy.EmitterConfig{
+				UploaderConfig: cldy.UploaderConfig{
+					ScratchDir: tempDir,
+					ApptioConfig: cldy.ApptioConfig{
+						SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					},
+				},
+				EmissionInterval: time.Duration(3) * time.Second,
+			}
+			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
+			actualEmitter := cldyEmitter.(*cldy.Emitter)
+
+			mockUpload := mockUploader{data: []string{}}
+
+			data, err := buildTestData()
+			Expect(err).NotTo(HaveOccurred())
+			err = cldyEmitter.Init(data)
+			Expect(err).NotTo(HaveOccurred())
+			actualEmitter.Uploader = &mockUpload
+
+			// Should not emit before interval has been satisfied (<3 seconds)
+			err = cldyEmitter.Emit(context.TODO(), data)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(mockUpload.data)).To(Equal(0))
+
+			time.Sleep(time.Duration(3) * time.Second)
+			// Should emit after interval has been satisfied (>=3 seconds)
+			err = cldyEmitter.Emit(context.TODO(), data)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(mockUpload.data)).To(Equal(1))
 		})
 	})
 	Context("Config", func() {
