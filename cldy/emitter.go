@@ -151,30 +151,29 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
 	// Emit only after the emission interval has been met
-	if !ce.shouldDownsample() {
-		return nil
+	if ce.shouldDownsample() {
+		log.Infof("emitting sample to Cldy %d", ce.sampleCt)
+		ce.nextSamplePath = ce.newNextSamplePath()
+		err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
+		if err != nil {
+			return err
+		}
+
+		err = ce.writeStatsData(cs.NodeStats)
+		if err != nil {
+			return err
+		}
+		err = ce.writeMetadata(cs.Kubernetes)
+		if err != nil {
+			return err
+		}
+
+		ce.Uploader.AddSample(ce.currentSamplePath)
+		ce.sampleCt++
+		ce.currentSamplePath = ce.nextSamplePath
+		log.Info("added sample to Cldy")
 	}
 
-	log.Infof("emitting sample to Cldy %d", ce.sampleCt)
-	ce.nextSamplePath = ce.newNextSamplePath()
-	err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
-	if err != nil {
-		return err
-	}
-
-	err = ce.writeStatsData(cs.NodeStats)
-	if err != nil {
-		return err
-	}
-	err = ce.writeMetadata(cs.Kubernetes)
-	if err != nil {
-		return err
-	}
-
-	ce.Uploader.AddSample(ce.currentSamplePath)
-	ce.sampleCt++
-	ce.currentSamplePath = ce.nextSamplePath
-	log.Info("added sample to Cldy")
 	return nil
 }
 

@@ -161,7 +161,7 @@ var _ = Describe("Emitter", func() {
 						SecretManager: cldy.NewKeyValueSecretManager("", ""),
 					},
 				},
-				EmissionInterval: time.Duration(3) * time.Second,
+				EmissionInterval: time.Duration(200) * time.Millisecond,
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
@@ -179,7 +179,7 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(mockUpload.data)).To(Equal(0))
 
-			time.Sleep(time.Duration(3) * time.Second)
+			time.Sleep(time.Duration(200) * time.Millisecond)
 			// Should emit after interval has been satisfied (>=3 seconds)
 			err = cldyEmitter.Emit(context.TODO(), data)
 			Expect(err).NotTo(HaveOccurred())
