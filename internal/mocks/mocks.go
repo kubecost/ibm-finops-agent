@@ -247,6 +247,10 @@ func (m *MockClusterCache) GetAllPodDisruptionBudgets() []*policyv1.PodDisruptio
 	return m.PodDisruptionBudgets
 }
 
+func (m *MockClusterCache) ClearShortLivedPods() {
+	m.recordCall("ClearShortLivedPods")
+}
+
 // GetAllReplicationControllers implements ClusterCache interface
 func (m *MockClusterCache) GetAllReplicationControllers() []*v1.ReplicationController {
 	m.recordCall("GetAllReplicationControllers")

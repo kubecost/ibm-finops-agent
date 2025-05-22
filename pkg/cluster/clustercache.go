@@ -65,4 +65,7 @@ type ClusterCache interface {
 
 	// ListUnstructuredByGroupVersionResource returns array of unstructured objects by group version resource
 	ListUnstructuredByGroupVersionResource(gvr schema.GroupVersionResource) []*unstructured.Unstructured
+
+	// ClearShortLivedPods empties the captured shortLivedPods in the ClusterCache
+	ClearShortLivedPods()
 }

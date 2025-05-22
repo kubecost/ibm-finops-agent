@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"github.com/ibm/finops-agent/pkg/env"
+	cache2 "k8s.io/client-go/tools/cache"
 	"reflect"
 	"strings"
 	"time"
@@ -127,6 +128,7 @@ var (
 // DynamicClusterCache is the implementation of ClusterCache with dynamic informers
 type DynamicClusterCache struct {
 	dynamicinformer.DynamicSharedInformerFactory
+	shortLivedPods *[]interface{}
 }
 
 func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanitizeData bool) (ClusterCache, error) {
@@ -144,6 +146,19 @@ func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanit
 		if transformErr != nil {
 			return nil, transformErr
 		}
+	}
+
+	cache.shortLivedPods = &[]interface{}{}
+	// add delete event on pods informer to track short-lived pods
+	_, eventErr := cache.ForResource(cacheResourceMap[reflect.TypeOf(corev1.Pod{})]).Informer().
+		AddEventHandler(cache2.ResourceEventHandlerFuncs{
+			DeleteFunc: func(pod interface{}) {
+				*cache.shortLivedPods = append(*cache.shortLivedPods, pod)
+				return
+			},
+		})
+	if eventErr != nil {
+		return nil, eventErr
 	}
 
 	return &cache, nil
@@ -273,7 +288,18 @@ func (dcc *DynamicClusterCache) ListUnstructuredByGroupVersionResource(gvr schem
 		objs = append(objs, o.(*unstructured.Unstructured).DeepCopy())
 	}
 
+	// append short-lived pods
+	if gvr.Resource == "pods" {
+		for _, o := range *dcc.shortLivedPods {
+			objs = append(objs, o.(*unstructured.Unstructured).DeepCopy())
+		}
+	}
+
 	return objs
+}
+
+func (dcc *DynamicClusterCache) ClearShortLivedPods() {
+	*dcc.shortLivedPods = []interface{}{}
 }
 
 func (dcc *DynamicClusterCache) GetAllNamespaces() []*corev1.Namespace {
@@ -287,7 +313,6 @@ func (dcc *DynamicClusterCache) GetAllNodes() []*corev1.Node {
 }
 
 func (dcc *DynamicClusterCache) GetAllPods() []*corev1.Pod {
-
 	return ConvertUnstructuredArrayToTypedArray[corev1.Pod](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.Pod{})]))
 }
 
