@@ -152,27 +152,29 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
 	// Emit only after the emission interval has been met
 	if ce.shouldDownsample() {
-		log.Infof("emitting sample to Cldy %d", ce.sampleCt)
-		ce.nextSamplePath = ce.newNextSamplePath()
-		err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
-		if err != nil {
-			return err
-		}
-
-		err = ce.writeStatsData(cs.NodeStats)
-		if err != nil {
-			return err
-		}
-		err = ce.writeMetadata(cs.Kubernetes)
-		if err != nil {
-			return err
-		}
-
-		ce.Uploader.AddSample(ce.currentSamplePath)
-		ce.sampleCt++
-		ce.currentSamplePath = ce.nextSamplePath
-		log.Info("added sample to Cldy")
+		return nil
 	}
+
+	log.Infof("emitting sample to Cldy %d", ce.sampleCt)
+	ce.nextSamplePath = ce.newNextSamplePath()
+	err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
+	if err != nil {
+		return err
+	}
+
+	err = ce.writeStatsData(cs.NodeStats)
+	if err != nil {
+		return err
+	}
+	err = ce.writeMetadata(cs.Kubernetes)
+	if err != nil {
+		return err
+	}
+
+	ce.Uploader.AddSample(ce.currentSamplePath)
+	ce.sampleCt++
+	ce.currentSamplePath = ce.nextSamplePath
+	log.Info("added sample to Cldy")
 
 	return nil
 }
@@ -367,14 +369,14 @@ func getClusterID(namespaces []*v1.Namespace) string {
 }
 
 // Checks sample count and emits sample only if it equals or exceeds the emission interval
-// (trimmed down to 90%) plus the time of the last emission 
+// (trimmed down to 90%) plus the time of the last emission
 func (ce *Emitter) shouldDownsample() bool {
 	bufferedEmissionInterval := float32(ce.emissionInterval) * .9
 	emissionThreshold := ce.lastEmission.Add(time.Duration(bufferedEmissionInterval))
 
 	if time.Now().UTC().After(emissionThreshold) {
 		ce.lastEmission = ce.lastEmission.Add(ce.emissionInterval)
-		return true
+		return false
 	}
-	return false
+	return true
 }
