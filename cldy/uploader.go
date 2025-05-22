@@ -60,7 +60,18 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		log.Warnf("failed to create custom s3 uploader: %v", err)
 	}
 	if s3Client != nil {
+		log.Infof("successfully created custom s3 uploader")
 		storageServices = append(storageServices, s3Client)
+	}
+
+	blobClient, err := NewCustomBlobClient(config.CustomAzureBlobContainerName, config.CustomAzureBlobUrl, config.CustomAzureTenantID,
+		config.CustomAzureClientID, config.CustomAzureClientSecret)
+	if err != nil {
+		log.Warnf("failed to create custom azure blob uploader: %v", err)
+	}
+	if blobClient != nil {
+		log.Infof("successfully created custom azure blob uploader")
+		storageServices = append(storageServices, blobClient)
 	}
 
 	// Check if no upload paths were configured

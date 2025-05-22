@@ -2,6 +2,7 @@ package cldy
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
@@ -14,6 +15,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -165,19 +170,24 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 }
 
 type ApptioConfig struct {
-	ClusterName          string
-	SecretManager        SecretManager
-	EnvID                string
-	OpenToken            string
-	CustomerType         string
-	Timeout              time.Duration
-	Retries              int
-	ProxyURL             *url.URL
-	ProxyAuth            string
-	ProxyInsecure        bool
-	Region               string
-	CustomS3UploadBucket string
-	CustomS3UploadRegion string
+	ClusterName                  string
+	SecretManager                SecretManager
+	EnvID                        string
+	OpenToken                    string
+	CustomerType                 string
+	Timeout                      time.Duration
+	Retries                      int
+	ProxyURL                     *url.URL
+	ProxyAuth                    string
+	ProxyInsecure                bool
+	Region                       string
+	CustomS3UploadBucket         string
+	CustomS3UploadRegion         string
+	CustomAzureBlobContainerName string
+	CustomAzureBlobUrl           string
+	CustomAzureTenantID          string
+	CustomAzureClientID          string
+	CustomAzureClientSecret      SecretManager
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -382,8 +392,7 @@ func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageSer
 	}
 
 	if customS3Bucket == "" || customS3Region == "" {
-		log.Warnf("both custom bucket and custom region must be set for custom s3 configuration.")
-		return nil, nil
+		return nil, fmt.Errorf("both custom bucket and custom region must be set for custom s3 configuration.")
 	}
 
 	uploadClient, err := newUploadClient(customS3Region)
@@ -455,8 +464,167 @@ func (cs3u CustomS3Uploader) Do(sampleToUpload *s3manager.UploadInput) error {
 	return err
 }
 
+type CustomBlobClient struct {
+	BlobContainerName string
+	UploadClient      CustomBlobUploadService
+}
+
+func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTenantID string, azureClientID string,
+	azureClientSecret SecretManager) (StorageService, error) {
+	// Primary env variables are not set; silently skip custom blob setup
+	if blobContainerName == "" && customBlobUrl == "" {
+		return nil, nil
+	}
+	if blobContainerName == "" || customBlobUrl == "" {
+		return nil, fmt.Errorf("both container name and blob url must be set for all custom azure blob configurations.")
+	}
+
+	body, err := azureClientSecret.GetSecret()
+	if err != nil {
+		return nil, err
+	}
+	// remove secret from memory
+	defer func() {
+		for i := range body {
+			body[i] = 0
+		}
+	}()
+
+	// Use managed identity if secondary env variables aren't set
+	if azureTenantID == "" && azureClientID == "" && len(body) == 0 {
+		uploadClient, err := newBlobManagedIdentityClient(customBlobUrl)
+		if err != nil {
+			return nil, fmt.Errorf("Could not establish Azure client with managed identity, "+
+				"ensure Azure environment variables are set correctly: %s", err)
+		}
+		if uploadClient != nil {
+			return CustomBlobClient{
+				BlobContainerName: blobContainerName,
+				UploadClient:      uploadClient,
+			}, nil
+		}
+	} else {
+		if azureTenantID == "" || azureClientID == "" || len(body) == 0 {
+			return nil, fmt.Errorf("tenant id, client id, and client secret must be set for azure client creation.")
+		}
+
+		uploadClient, err := newBlobServicePrincipalClient(customBlobUrl, azureTenantID, azureClientID, azureClientSecret)
+		if err != nil {
+			return nil, fmt.Errorf("Could not establish Azure client with environment, "+
+				"ensure all Azure environment variables are set correctly: %s", err)
+		}
+		if uploadClient != nil {
+			return CustomBlobClient{
+				BlobContainerName: blobContainerName,
+				UploadClient:      uploadClient,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("unspecified error generating azure client.")
+}
+
+type CustomBlobUploadService interface {
+	Do(sampleToUpload *BlobUploadInput) error
+}
+
+type CustomBlobUploader struct {
+	Uploader *azblob.Client
+}
+
+func newBlobManagedIdentityClient(customBlobUrl string) (*CustomBlobUploader, error) {
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	azureClient, err := azblob.NewClient(customBlobUrl, cred, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CustomBlobUploader{
+		Uploader: azureClient,
+	}, nil
+}
+
+func newBlobServicePrincipalClient(customBlobUrl string, azureTentantID string, azureClientID string,
+	azureClientSecret SecretManager) (*CustomBlobUploader, error) {
+	body, err := azureClientSecret.GetSecret()
+	if err != nil {
+		return nil, err
+	}
+	// remove secret from memory
+	defer func() {
+		for i := range body {
+			body[i] = 0
+		}
+	}()
+	
+	cred, err := azidentity.NewClientSecretCredential(azureTentantID, azureClientID, string(body),
+		nil)
+	if err != nil {
+		return nil, err
+	}
+
+	retryConfig := azblob.ClientOptions{
+		ClientOptions: azcore.ClientOptions{
+			Retry: policy.RetryOptions{
+				MaxRetries: 3,
+			},
+		},
+	}
+	azureClient, err := azblob.NewClient(customBlobUrl, cred, &retryConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CustomBlobUploader{
+		Uploader: azureClient,
+	}, nil
+}
+
+type BlobUploadInput struct {
+	ContainerName string
+	BlobName      string
+	Body          *os.File
+}
+
+func (cbc CustomBlobClient) Upload(payload UploadPayload) error {
+	fileReader, err := os.Open(payload.FilePath)
+	if err != nil {
+		return fmt.Errorf("Unable to open metric sample file %v", err)
+	}
+	defer fileReader.Close()
+
+	key, err := generateSampleKey(payload.FileName, payload.ClusterUID)
+	if err != nil {
+		return err
+	}
+
+	sampleToUpload := &BlobUploadInput{
+		ContainerName: cbc.BlobContainerName,
+		BlobName:      key,
+		Body:          fileReader,
+	}
+
+	err = cbc.UploadClient.Do(sampleToUpload)
+	if err != nil {
+		return fmt.Errorf("failed to put Object to custom azure blob with error: %s", err)
+	}
+
+	log.Infof("successfully uploaded metric sample %s to custom azure blob: %s",
+		payload.FileName, cbc.BlobContainerName)
+	return nil
+}
+
+func (cbu CustomBlobUploader) Do(sampleToUpload *BlobUploadInput) error {
+	_, err := cbu.Uploader.UploadFile(context.TODO(), sampleToUpload.ContainerName, sampleToUpload.BlobName, sampleToUpload.Body, nil)
+	return err
+}
+
 // generateSampleKey creates a key (location) for s3 to upload the sample to. Example of s3 location format
-// /production/data/metrics-agent/<YYYY>/<MM>/<DD>/<CLUSTER_UID>/<CLUSTER_UID>-<YYYYMMDD>-<HH>-<MM>.tgz
+// production/data/metrics-agent/<YYYY>/<MM>/<DD>/<CLUSTER_UID>/<CLUSTER_UID>-<YYYYMMDD>-<HH>-<MM>.tgz
 func generateSampleKey(fileName string, clusterUID string) (string, error) {
 	withoutID := strings.Split(fileName, "_")
 	if len(withoutID) < 2 {
@@ -476,7 +644,7 @@ func generateSampleKey(fileName string, clusterUID string) (string, error) {
 	month := segments[numSegments-5]
 	year := segments[numSegments-6]
 
-	return fmt.Sprintf("/production/data/metrics-agent/%s/%s/%s/%s/%s-%s%s%s-%s-%s.tgz", year,
+	return fmt.Sprintf("production/data/metrics-agent/%s/%s/%s/%s/%s-%s%s%s-%s-%s.tgz", year,
 		month, day, clusterUID, clusterUID, year, month, day, hour, minute), nil
 }
 
@@ -500,4 +668,21 @@ func NewKeyValueSecretManager(keyAccess string, keySecret string) SecretManager 
 
 func (s *keyValueSecretManager) GetSecret() ([]byte, error) {
 	return json.Marshal(map[string]string{"keyAccess": s.keyAccess, "keySecret": s.keySecret})
+}
+
+type valueSecretManager struct {
+	keySecret string
+}
+
+func NewValueSecretManager(keySecret string) SecretManager {
+	return &valueSecretManager{
+		keySecret: keySecret,
+	}
+}
+
+func (s *valueSecretManager) GetSecret() ([]byte, error) {
+	if s.keySecret == "" {
+		return nil, fmt.Errorf("no secret value provided")
+	}
+	return []byte(s.keySecret), nil
 }
