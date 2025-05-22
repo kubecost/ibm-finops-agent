@@ -174,13 +174,13 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			actualEmitter.Uploader = &mockUpload
 
-			// Should not emit before interval has been satisfied (<3 seconds)
+			// Should not emit before interval has been satisfied (<200 milliseconds)
 			err = cldyEmitter.Emit(context.TODO(), data)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(mockUpload.data)).To(Equal(0))
 
 			time.Sleep(time.Duration(200) * time.Millisecond)
-			// Should emit after interval has been satisfied (>=3 seconds)
+			// Should emit after interval has been satisfied (>=200 milliseconds)
 			err = cldyEmitter.Emit(context.TODO(), data)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(mockUpload.data)).To(Equal(1))
