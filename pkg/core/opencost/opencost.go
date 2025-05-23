@@ -71,7 +71,6 @@ func NewOpenCostDataSource(
 			ds := collector.NewDefaultCollectorDataSource(
 				clusterInfoProvider,
 				clusterCache,
-				nil,
 				nodeClient,
 			)
 			return ds, nil
