@@ -28,18 +28,23 @@ const scratchPath = "scratch"
 const uploadPath = "upload"
 
 type Emitter struct {
-	config      EmitterConfig
-	startTime   time.Time
-	sampleCt    int
-	Uploader    Uploader
-	ClusterID   *string
-	ScratchPath string
+	config            EmitterConfig
+	startTime         time.Time
+	lastEmission      time.Time
+	emissionInterval  time.Duration
+	sampleCt          int
+	currentSamplePath string
+	nextSamplePath    string
+	Uploader          Uploader
+	ClusterID         *string
+	ScratchPath       string
 }
 
 type EmitterConfig struct {
 	UploaderConfig
-	EmitAsJson      bool
-	ParseMetricData bool
+	EmitAsJson       bool
+	ParseMetricData  bool
+	EmissionInterval time.Duration
 }
 
 const UPLOAD_FREQUENCY = 10
@@ -57,6 +62,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("SCRATCH_DIR", "/tmp")
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
+	viper.SetDefault("EMISSION_INTERVAL", "3m")
 
 	var outboundProxyUrl *url.URL
 	proxyURL := viper.GetString("OUTBOUND_PROXY")
@@ -91,17 +97,22 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),
 		},
-		EmitAsJson:      viper.GetBool("EMIT_AS_JSON"),
-		ParseMetricData: viper.GetBool("PARSE_METRIC_DATA"),
+		EmitAsJson:       viper.GetBool("EMIT_AS_JSON"),
+		ParseMetricData:  viper.GetBool("PARSE_METRIC_DATA"),
+		EmissionInterval: viper.GetDuration("EMISSION_INTERVAL"),
 	}, nil
 }
 
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
+	currentTime := time.Now().UTC()
+
 	return &Emitter{
-		config:    config,
-		Uploader:  NewCldyUploader(config.UploaderConfig, stop),
-		sampleCt:  initialSampleCt,
-		startTime: time.Now().UTC(),
+		config:           config,
+		Uploader:         NewCldyUploader(config.UploaderConfig, stop),
+		sampleCt:         initialSampleCt,
+		startTime:        currentTime,
+		lastEmission:     currentTime,
+		emissionInterval: config.EmissionInterval,
 	}
 }
 
@@ -130,7 +141,8 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 		return fmt.Errorf("failed to create scratch directory: %s", err.Error())
 	}
 
-	err = os.Mkdir(ce.nextSamplePath(), os.ModePerm)
+	ce.currentSamplePath = ce.newCurrentSamplePath()
+	err = os.Mkdir(ce.currentSamplePath, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -145,8 +157,14 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 }
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
+	// Emit only after the emission interval has been met
+	if ce.shouldDownsample() {
+		return nil
+	}
+
 	log.Infof("emitting sample to Cldy %d", ce.sampleCt)
-	err := os.Mkdir(ce.nextSamplePath(), os.ModePerm)
+	ce.nextSamplePath = ce.newNextSamplePath()
+	err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -160,9 +178,11 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 		return err
 	}
 
-	ce.Uploader.AddSample(ce.currentSamplePath())
+	ce.Uploader.AddSample(ce.currentSamplePath)
 	ce.sampleCt++
+	ce.currentSamplePath = ce.nextSamplePath
 	log.Info("added sample to Cldy")
+
 	return nil
 }
 
@@ -190,12 +210,12 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
 	var fileName string
 	if outputPrefix == stats {
+		fileName = ce.currentSamplePath
+	} else {
 		if ce.sampleCt == -1 {
 			return nil
 		}
-		fileName = ce.currentSamplePath()
-	} else {
-		fileName = ce.nextSamplePath()
+		fileName = ce.nextSamplePath
 	}
 	fileName = fileName + fmt.Sprintf(statsFileTemplate, outputPrefix, nodeName)
 	file, err := os.Create(fileName)
@@ -293,7 +313,7 @@ func shouldSkipPod(previousHour time.Time, resource *v1.Pod) bool {
 }
 
 func (ce *Emitter) writeObjects(name string, data []proto.Message) (err error) {
-	outputPath := ce.currentSamplePath() + name + ce.getSuffix()
+	outputPath := ce.currentSamplePath + name + ce.getSuffix()
 	outFile, err := os.Create(outputPath)
 	defer safeClose(outFile.Close, &err)
 	if err != nil {
@@ -313,7 +333,7 @@ func (ce *Emitter) writeObjects(name string, data []proto.Message) (err error) {
 }
 
 func (ce *Emitter) writeAgentFile() (err error) {
-	outputPath := ce.currentSamplePath() + "agent-measurement.json"
+	outputPath := ce.currentSamplePath + "agent-measurement.json"
 	outFile, err := os.Create(outputPath)
 	defer safeClose(outFile.Close, &err)
 	if err != nil {
@@ -365,12 +385,12 @@ func (ce *Emitter) getSuffix() string {
 	return ".proto"
 }
 
-func (ce *Emitter) currentSamplePath() string {
-	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", ce.startTime.UnixMilli(), ce.sampleCt))
+func (ce *Emitter) newCurrentSamplePath() string {
+	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt))
 }
 
-func (ce *Emitter) nextSamplePath() string {
-	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", ce.startTime.UnixMilli(), ce.sampleCt+1))
+func (ce *Emitter) newNextSamplePath() string {
+	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt+1))
 }
 
 func (ce *Emitter) marshalObject(object proto.Message) ([]byte, error) {
@@ -400,4 +420,17 @@ func getClusterID(namespaces []*v1.Namespace) string {
 	}
 	// should probably error?
 	return ""
+}
+
+// Checks sample count and emits sample only if it equals or exceeds the emission interval
+// (trimmed down to 90%) plus the time of the last emission
+func (ce *Emitter) shouldDownsample() bool {
+	bufferedEmissionInterval := float32(ce.emissionInterval) * .9
+	emissionThreshold := ce.lastEmission.Add(time.Duration(bufferedEmissionInterval))
+
+	if time.Now().UTC().After(emissionThreshold) {
+		ce.lastEmission = ce.lastEmission.Add(ce.emissionInterval)
+		return false
+	}
+	return true
 }
