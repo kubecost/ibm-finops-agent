@@ -10,8 +10,8 @@ import (
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
+	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/source"
-	"github.com/opencost/opencost/pkg/kubeconfig"
 
 	"github.com/julienschmidt/httprouter"
 )
