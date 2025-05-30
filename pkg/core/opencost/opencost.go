@@ -2,6 +2,8 @@ package opencost
 
 import (
 	"context"
+	"github.com/opencost/opencost/core/pkg/storage"
+	"os"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
@@ -66,9 +68,23 @@ func NewOpenCostDataSource(
 
 		return ds, e
 	}
-	if conf.Promless {
+	if conf.CollectorDataSourceEnabled {
 		fn = func() (source.OpenCostDataSource, error) {
+			var store storage.Storage
+			if conf.BucketConfigFile != "" {
+				bucketConfig, err := os.ReadFile(conf.BucketConfigFile)
+				if err != nil {
+					log.Errorf("Failed to initialize bucket output storage, please check your configuration and bucket security settings: %s", err)
+				} else {
+					store, err = storage.NewBucketStorage(bucketConfig)
+					if err != nil {
+						log.Errorf("Failed to create bucket storage, please check your configuration and bucket security settings: %s", err)
+					}
+				}
+			}
+
 			ds := collector.NewDefaultCollectorDataSource(
+				store,
 				clusterInfoProvider,
 				clusterCache,
 				nodeClient,
