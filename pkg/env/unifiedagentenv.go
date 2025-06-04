@@ -1,10 +1,11 @@
 package env
 
 import (
+	"time"
+
 	"github.com/opencost/opencost/core/pkg/env"
 	"github.com/spf13/cast"
 	"github.com/spf13/viper"
-	"time"
 )
 
 const (
@@ -12,6 +13,9 @@ const (
 	KubecostEmitterEnabledEnvVar = "KUBECOST_EMITTER_ENABLED"
 	CloudyEmitterEnabledEnvVar   = "CLOUDY_EMITTER_ENABLED"
 	TurboEmitterEnabledEnvVar    = "TURBO_EMITTER_ENABLED"
+
+	// Go Debug
+	PProfEnabledEnvVar = "PPROF_ENABLED"
 
 	// Agent DataSource Configuration
 	OpenCostDataSourceEnabledEnvVar = "OPENCOST_SOURCE_ENABLED"
@@ -31,7 +35,7 @@ const (
 	// Name and ID represent the same identifier for the cluster
 	NodeStatsClusterNameEnvVar = "CLUSTER_NAME"
 	NodeStatsClusterIDEnvVar   = "CLUSTER_ID"
-	
+
 	// InformerResyncIntervalEnvVar is the resync interval for informers
 	InformerResyncIntervalEnvVar = "INFORMER_RESYNC_INTERVAL"
 
@@ -56,6 +60,10 @@ func IsTurboEmitterEnabled() bool {
 
 func IsOpenCostDataSourceEnabled() bool {
 	return env.GetBool(OpenCostDataSourceEnabledEnvVar, true)
+}
+
+func IsPProfEnabled() bool {
+	return env.GetBool(PProfEnabledEnvVar, false)
 }
 
 // IsPromless returns true if the agent should run without a dependency on Prometheus. This

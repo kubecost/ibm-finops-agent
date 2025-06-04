@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	gohttp "net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -44,6 +46,18 @@ func main() {
 
 	// Shared application utilities (http router, diagnostics, etc...)
 	router := httprouter.New()
+
+	// Add profiling endpoints if enabled
+	if env.IsPProfEnabled() {
+		router.HandlerFunc(gohttp.MethodGet, "/debug/pprof/", pprof.Index)
+		router.HandlerFunc(gohttp.MethodGet, "/debug/pprof/cmdline", pprof.Cmdline)
+		router.HandlerFunc(gohttp.MethodGet, "/debug/pprof/profile", pprof.Profile)
+		router.HandlerFunc(gohttp.MethodGet, "/debug/pprof/symbol", pprof.Symbol)
+		router.HandlerFunc(gohttp.MethodGet, "/debug/pprof/trace", pprof.Trace)
+		router.Handler(gohttp.MethodGet, "/debug/pprof/goroutine", pprof.Handler("goroutine"))
+		router.Handler(gohttp.MethodGet, "/debug/pprof/heap", pprof.Handler("heap"))
+	}
+
 	diag := diagnostics.NewDiagnosticService()
 
 	// Initialize/Bootstrap the Agent Data Source
