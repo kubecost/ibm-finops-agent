@@ -42,7 +42,7 @@ func (c *Client) makeRequest(method string, URL string, bearerToken string) (*ht
 		request.Header.Add("Authorization", "bearer "+bearerToken)
 	}
 
-	resp, err := c.HTTPClient.Do(request)
+	resp, err := c.client.Do(request)
 	if err != nil {
 		return nil, err
 	}
@@ -60,14 +60,14 @@ type HTTPClient interface {
 
 // Client defines an HTTP Client with specified retries
 type Client struct {
-	HTTPClient HTTPClient
-	retries    uint
+	client  HTTPClient
+	retries uint
 }
 
-func NewClient(HTTPClient http.Client, retries uint) Client {
+func NewClient(client *http.Client, retries uint) Client {
 	return Client{
-		HTTPClient: &HTTPClient,
-		retries:    retries,
+		client:  client,
+		retries: retries,
 	}
 }
 

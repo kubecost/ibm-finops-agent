@@ -82,13 +82,13 @@ func setupTestNodeStatSummaryClient(tempBearerFile string, failDirect bool, fail
 	ncc, err := NewNodeClientConfigFromEnv()
 	Expect(err).ToNot(HaveOccurred())
 
-	ncc.DirectNodeClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), true, failDirect, failProxy)
-	ncc.InClusterClient.HTTPClient = NewHTTPMockClient(NewClient(http.Client{}, 0), false, failDirect, failProxy)
-	
+	ncc.DirectNodeClient.client = NewHTTPMockClient(NewClient(&http.Client{}, 0), true, failDirect, failProxy)
+	ncc.InClusterClient.client = NewHTTPMockClient(NewClient(&http.Client{}, 0), false, failDirect, failProxy)
+
 	mockCache := NewMockClusterCache()
 	mockInClusterConfig := &rest.Config{
 		BearerTokenFile: tempBearerFile,
-		Host: "testHost",
+		Host:            "testHost",
 	}
 	return NewNodeStatsSummaryClient(mockCache, ncc, mockInClusterConfig)
 }
@@ -108,16 +108,16 @@ func (m mockClusterCache) GetAllNodes() []*v1.Node {
 
 // Note: mockHTTPClient mocks statSummary data specifically, but can be changed later
 type mockHTTPClient struct {
-	isDirect		bool
-	failDirect		bool
-	failProxy		bool
+	isDirect   bool
+	failDirect bool
+	failProxy  bool
 }
 
 func NewHTTPMockClient(c Client, isDirect bool, failDirect bool, failProxy bool) *mockHTTPClient {
 	return &mockHTTPClient{
-		isDirect:	isDirect,
+		isDirect:   isDirect,
 		failDirect: failDirect,
-		failProxy: 	failProxy,
+		failProxy:  failProxy,
 	}
 }
 
