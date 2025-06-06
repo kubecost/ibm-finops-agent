@@ -62,6 +62,18 @@ func main() {
 
 	// Initialize/Bootstrap the Agent Data Source
 	dataSource := core.NewAgentDataSource(router, diag)
+
+	// Setup the HTTP server
+	server := http.NewHttpServer(router, 9003)
+	go func() {
+		err := server.ListenAndServe()
+		if err != nil {
+			log.Errorf("Error starting HTTP server: %s", err)
+		}
+	}()
+
+	defer server.Shutdown(context.Background())
+
 	var emitters []emitter.Emitter
 
 	if env.IsKubecostEmitterEnabled() {
@@ -92,16 +104,6 @@ func main() {
 		panic("Failed to start exporter")
 	}
 
-	// Setup the HTTP server
-	server := http.NewHttpServer(router, 9003)
-	go func() {
-		err := server.ListenAndServe()
-		if err != nil {
-			log.Errorf("Error starting HTTP server: %s", err)
-		}
-	}()
-
-	defer server.Shutdown(context.Background())
 	defer exporter.Stop()
 
 	WaitForSignal()
