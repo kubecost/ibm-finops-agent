@@ -3,6 +3,7 @@ package emitter
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/core"
@@ -117,11 +118,11 @@ func emit(ctx context.Context, emitter Emitter, snapshot *ClusterSnapshot) (err 
 	defer func() {
 		if r := recover(); r != nil {
 			if e, ok := r.(error); ok {
-				err = fmt.Errorf("unexpected panic: %w", e)
+				err = fmt.Errorf("unexpected panic: %w\n%s", e, debug.Stack())
 			} else if s, ok := r.(string); ok {
-				err = fmt.Errorf("unexpected panic: %s", s)
+				err = fmt.Errorf("unexpected panic: %s\n%s", s, debug.Stack())
 			} else {
-				err = fmt.Errorf("unexpected panic: %+v", r)
+				err = fmt.Errorf("unexpected panic: %+v\n%s", r, debug.Stack())
 			}
 		}
 	}()
