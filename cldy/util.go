@@ -3,12 +3,16 @@ package cldy
 import (
 	"crypto/md5"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
+
+	"github.com/opencost/opencost/core/pkg/log"
 )
 
 func safeClose(closer func() error, err *error) {
@@ -105,4 +109,34 @@ func SafePath(elements ...string) string {
 		return path + string(filepath.Separator)
 	}
 	return path
+}
+
+func IsAvailableDiskSpace(dataSize uint64) bool {
+	var stat syscall.Statfs_t
+    syscall.Statfs("/", &stat)
+	
+	// Check if adding the new data will not exceed available space
+	return stat.Bavail * uint64(stat.Bsize) - dataSize >= 0
+}
+
+func (uc UploaderConfig) ClearAndRecreateScratchDir() error {
+	log.Infof("disk space threshold met. attempting to clean scratch directory.") // Alex TODO: 
+	err := os.RemoveAll(uc.ScratchDir)
+	if err != nil {
+		return err
+	}
+	// Recreate scratch path
+	err = createIfNotExists(uc.ScratchPath)
+	if err != nil {
+		return fmt.Errorf("failed to recreate scratch directory: %s", err.Error())
+	}
+
+	// Recreate upload scratch
+	uploadPathDir := uc.ScratchDir + "/" + uploadPath
+	err = createIfNotExists(uploadPathDir)
+	if err != nil {
+		return fmt.Errorf("failed to recreate upload directory: " + err.Error())
+	}
+
+	return nil
 }

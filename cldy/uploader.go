@@ -106,6 +106,7 @@ type UploaderConfig struct {
 	ApptioConfig
 	UploadFrequency time.Duration
 	ScratchDir      string
+	ScratchPath     string
 	RecoveryPeriod  time.Duration
 }
 
@@ -132,7 +133,7 @@ func (ce *CldyUploader) recoverCompleteSamples() error {
 	first := true
 	hasShipped := false
 	filesNeeded := getNeededFiles()
-	err := filepath.WalkDir(ce.config.ScratchDir+"/"+scratchPath, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(ce.config.ScratchDir+"/"+ce.config.ScratchPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -314,7 +315,7 @@ func (ce *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 	if err != nil {
 		return "", err
 	}
-	err = createTGZ(ce.clusterID, tw, files...)
+	err = createTGZ(ce.config, ce.clusterID, tw, files...)
 	if err != nil {
 		return "", err
 	}
@@ -356,7 +357,7 @@ func (ce *CldyUploader) uploadData(path string) error {
 // createTGZ takes a source and variable writers and walks 'source' writing each file
 // found to the tar writer; the purpose for accepting multiple writers is to allow
 // for multiple outputs
-func createTGZ(clusterID string, writer io.Writer, srcs ...*os.File) (rerr error) {
+func createTGZ(config UploaderConfig, clusterID string, writer io.Writer, srcs ...*os.File) (rerr error) {
 	gzw, _ := gzip.NewWriterLevel(writer, flate.BestCompression)
 	defer safeClose(gzw.Close, &rerr)
 	tw := tar.NewWriter(gzw)
@@ -403,6 +404,17 @@ func createTGZ(clusterID string, writer io.Writer, srcs ...*os.File) (rerr error
 			}
 
 			defer safeClose(f.Close, &rerr)
+
+			// check if there's enough space to add sample
+			fInfo, err := f.Stat()
+			if err != nil {
+				return err
+			}
+
+			if !IsAvailableDiskSpace(uint64(fInfo.Size())) {
+				config.ClearAndRecreateScratchDir()
+				return fmt.Errorf("") // Alex TODO: Not enough space, delete file
+			}
 
 			// copy file data into tar writer
 			if _, err := io.Copy(tw, f); err != nil {

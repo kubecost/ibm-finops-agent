@@ -5,12 +5,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
 	url "net/url"
 	"os"
 	"strconv"
 	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/ibm/finops-agent/pkg/emitter"
@@ -37,7 +38,6 @@ type Emitter struct {
 	nextSamplePath    string
 	Uploader          Uploader
 	ClusterID         *string
-	ScratchPath       string
 }
 
 type EmitterConfig struct {
@@ -135,8 +135,8 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	ce.ClusterID = &clusterID
 	ce.Uploader.SetClusterID(clusterID)
 
-	ce.ScratchPath = ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
-	err := createIfNotExists(ce.ScratchPath)
+	ce.config.ScratchPath = ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
+	err := createIfNotExists(ce.config.ScratchPath)
 	if err != nil {
 		return fmt.Errorf("failed to create scratch directory: %s", err.Error())
 	}
@@ -208,6 +208,13 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 }
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
+	if !IsAvailableDiskSpace(uint64(len(data))) {
+		err := ce.config.ClearAndRecreateScratchDir()
+		if err != nil {
+			return err
+		}
+	}
+
 	var fileName string
 	if outputPrefix == stats {
 		fileName = ce.currentSamplePath
@@ -386,11 +393,11 @@ func (ce *Emitter) getSuffix() string {
 }
 
 func (ce *Emitter) newCurrentSamplePath() string {
-	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt))
+	return SafePath(ce.config.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt))
 }
 
 func (ce *Emitter) newNextSamplePath() string {
-	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt+1))
+	return SafePath(ce.config.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt+1))
 }
 
 func (ce *Emitter) marshalObject(object proto.Message) ([]byte, error) {
