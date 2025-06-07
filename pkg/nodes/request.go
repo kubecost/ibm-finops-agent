@@ -50,8 +50,10 @@ func (c *Client) makeRequest(method string, URL string, bearerToken string) (*ht
 
 	if !(resp.StatusCode >= 200 && resp.StatusCode <= 299) {
 		// Drain and close the response body to prevent resource leaks
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		if resp.Body != nil {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}
 		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))
 	}
 
