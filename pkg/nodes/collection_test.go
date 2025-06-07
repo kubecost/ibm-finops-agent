@@ -130,7 +130,7 @@ func (m *mockHTTPClient) Do(request *http.Request) (*http.Response, error) {
 			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(directData)), Header: http.Header{}}
 			return resp, nil
 		} else {
-			resp := &http.Response{StatusCode: 400, Header: http.Header{}}
+			resp := &http.Response{StatusCode: 400, Body: io.NopCloser(bytes.NewBufferString("")), Header: http.Header{}}
 			return resp, nil
 		}
 	} else {
@@ -138,7 +138,7 @@ func (m *mockHTTPClient) Do(request *http.Request) (*http.Response, error) {
 			resp := &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(proxyData)), Header: http.Header{}}
 			return resp, nil
 		} else {
-			resp := &http.Response{StatusCode: 400, Header: http.Header{}}
+			resp := &http.Response{StatusCode: 400, Body: io.NopCloser(bytes.NewBufferString("")), Header: http.Header{}}
 			return resp, nil
 		}
 	}
