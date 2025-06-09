@@ -279,7 +279,8 @@ func (cu *CldyUploader) uploadLoop() {
 			path, err := cu.ConstructPayload(time.Now().UTC())
 			if err != nil {
 				// TODO: general error handling, maybe this can just be logged
-				panic("failed to construct cldy payload: " + err.Error())
+				log.Warnf("did not construct cldy payload: %s", err)
+				return
 			}
 			cu.uploadSet.add(path)
 			err = cu.uploadSet.operateAndRemove(cu.uploadData)
@@ -315,18 +316,41 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 		return "", err
 	}
 	err = cu.createTGZ(tw, files...)
+	if err != nil  && err.Error() != "upload directory cleaned due to disk space." {
+		return "", err
+	}
+	// if disk is maxed, delete sample set and problematic tar before returning error 
+	if err != nil && err.Error() == "upload directory cleaned due to disk space." {
+		sErr := os.RemoveAll(path)
+		if sErr != nil {
+			log.Warnf("failed to remove problematic tar: %s", sErr)
+		}
+		sErr = cu.removeSamples(files)
+		if sErr != nil {
+			log.Warnf("failed to remove samples: %s", sErr)
+		}
+		return "", err
+	}
+
+	err = cu.removeSamples(files)
 	if err != nil {
 		return "", err
 	}
+
+	return path, nil
+}
+
+func (cu *CldyUploader) removeSamples(files []*os.File) error {
 	for _, file := range files {
 		cu.sampleSet.remove(file.Name())
-		err = os.RemoveAll(file.Name())
+		err := os.RemoveAll(file.Name())
 		// TODO: eval this case, shouldn't happen
 		if err != nil {
-			return "", err
+			return err
 		}
 	}
-	return path, nil
+
+	return nil
 }
 
 func (cu *CldyUploader) uploadData(path string) error {
@@ -411,8 +435,11 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 			}
 
 			if !IsAvailableDiskSpace(uint64(fInfo.Size())) {
-				cu.ClearAndRecreateUploadDir()
-				return fmt.Errorf("") // Alex TODO: Not enough space, delete file
+				err := cu.ClearAndRecreateUploadDir()
+				if err != nil {
+					return err
+				}
+				return fmt.Errorf("upload directory cleaned due to disk space.")
 			}
 
 			// copy file data into tar writer
