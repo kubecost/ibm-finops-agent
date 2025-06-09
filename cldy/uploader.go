@@ -32,7 +32,7 @@ type CldyUploader struct {
 	stop             chan struct{}
 	clusterID        string
 	agentVersion     string
-	uploadPathDir    string
+	UploadPathDir    string
 	StorageServices  []StorageService
 	RecoveredSamples int
 	RecoveredUploads int
@@ -84,7 +84,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		sampleSet:     newSet(),
 		uploadSet:     newSet(),
 		stop:          stop,
-		uploadPathDir: uploadPathDir,
+		UploadPathDir: uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
 		StorageServices: storageServices,
 		recoveryPeriod:  config.RecoveryPeriod,
@@ -234,7 +234,7 @@ type agentMeasurement struct {
 }
 
 func (cu *CldyUploader) recoverUploadFiles() error {
-	err := filepath.WalkDir(cu.uploadPathDir, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(cu.UploadPathDir, func(path string, d fs.DirEntry, err error) error {
 		if !d.IsDir() {
 			parts := strings.Split(path, "_")
 			if len(parts) == 0 {
@@ -303,7 +303,7 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 	defer safeCloseFiles(files, &rerr)
 
 	path = SafePath(
-		cu.uploadPathDir,
+		cu.UploadPathDir,
 		fmt.Sprintf(
 			"%s_%s.tgz",
 			cu.clusterID,
@@ -316,10 +316,10 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 		return "", err
 	}
 	err = cu.createTGZ(tw, files...)
-	if err != nil  && err.Error() != "upload directory cleaned due to disk space." {
+	if err != nil && err.Error() != "upload directory cleaned due to disk space." {
 		return "", err
 	}
-	// if disk is maxed, delete sample set and problematic tar before returning error 
+	// if disk is maxed, delete sample set and problematic tar before returning error
 	if err != nil && err.Error() == "upload directory cleaned due to disk space." {
 		sErr := os.RemoveAll(path)
 		if sErr != nil {
@@ -453,5 +453,21 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 			return err
 		}
 	}
+	return nil
+}
+
+func (cu *CldyUploader) ClearAndRecreateUploadDir() error {
+	log.Infof("disk space threshold met. attempting to clean upload directory.")
+
+	err := os.RemoveAll(cu.UploadPathDir)
+	if err != nil {
+		return err
+	}
+
+	err = createIfNotExists(cu.UploadPathDir)
+	if err != nil {
+		return fmt.Errorf("failed to recreate scratch directory: %s", err.Error())
+	}
+
 	return nil
 }

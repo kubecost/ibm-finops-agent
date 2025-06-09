@@ -247,6 +247,22 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	return ce.writeAgentFile()
 }
 
+func (ce Emitter) ClearAndRecreateScratchDir() error {
+	log.Infof("disk space threshold met. attempting to clean scratch directory.")
+
+	err := os.RemoveAll(ce.ScratchPath)
+	if err != nil {
+		return err
+	}
+
+	err = createIfNotExists(ce.ScratchPath)
+	if err != nil {
+		return fmt.Errorf("failed to recreate scratch directory: %s", err.Error())
+	}
+
+	return nil
+}
+
 func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]proto.Message {
 	return map[string][]proto.Message{
 		//TODO: add cronjobs

@@ -28,6 +28,7 @@ var _ = Describe("Uploader", func() {
 		tempDir, err = os.MkdirTemp("", "")
 		Expect(err).ToNot(HaveOccurred())
 		err = os.Mkdir(tempDir+"/scratch", os.ModePerm)
+		Expect(err).ToNot(HaveOccurred())
 	})
 	AfterEach(func() {
 		err := os.RemoveAll(tempDir)
@@ -57,6 +58,38 @@ var _ = Describe("Uploader", func() {
 			fileInfo, err := os.Stat(path)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+		})
+		It("should clean unbuilt Tar on exceeded disk", func() {
+			config := cldy.UploaderConfig{
+				UploadFrequency: time.Hour,
+				ScratchDir:      tempDir,
+				ApptioConfig: cldy.ApptioConfig{
+					SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				},
+			}
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			uploader.SetClusterID("test_id")
+			actualUploader := uploader.(*cldy.CldyUploader)
+
+			// create existing tar in upload path
+			_, err := os.Create(actualUploader.UploadPathDir + "/test.tgz")
+			Expect(err).ToNot(HaveOccurred())
+
+			// check number of files in upload path
+			files, err := os.ReadDir(actualUploader.UploadPathDir)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(files)).To(BeNumerically("==", 1))
+
+			// purge upload path
+			err = actualUploader.ClearAndRecreateUploadDir()
+			Expect(err).ToNot(HaveOccurred())
+
+			// check there are no files in the upload path
+			files, err = os.ReadDir(actualUploader.UploadPathDir)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(files)).To(BeNumerically("==", 0))
 		})
 	})
 	Context("TestTarCleanup", func() {
@@ -362,13 +395,13 @@ var _ = Describe("Uploader", func() {
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
 				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					EnvID:         "1",
+					SecretManager:                cldy.NewKeyValueSecretManager("", ""),
+					EnvID:                        "1",
 					CustomAzureBlobContainerName: "a",
-					CustomAzureBlobUrl: "testurl",
-					CustomAzureTenantID: "1",
-					CustomAzureClientID: "1",
-					CustomAzureClientSecret: cldy.NewValueSecretManager("1"),
+					CustomAzureBlobUrl:           "testurl",
+					CustomAzureTenantID:          "1",
+					CustomAzureClientID:          "1",
+					CustomAzureClientSecret:      cldy.NewValueSecretManager("1"),
 				},
 			}
 			stopCh := make(chan struct{})
@@ -544,7 +577,7 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response,
 	return &http.Response{}, fmt.Errorf("unknown request")
 }
 
-type mockS3UploadService struct{
+type mockS3UploadService struct {
 	UploadedSampleName string
 }
 
@@ -552,12 +585,12 @@ func (mcs *mockS3UploadService) Do(sampleToUpload *s3manager.UploadInput) error 
 	if sampleToUpload.Body == nil {
 		return fmt.Errorf("No sample detected")
 	}
-	
+
 	mcs.UploadedSampleName = *sampleToUpload.Key
 	return nil
 }
 
-type MockBlobUploadService struct{
+type MockBlobUploadService struct {
 	UploadedSampleName string
 }
 

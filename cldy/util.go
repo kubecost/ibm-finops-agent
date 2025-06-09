@@ -3,7 +3,6 @@ package cldy
 import (
 	"crypto/md5"
 	"encoding/base64"
-	"fmt"
 	"io"
 	"os"
 	"path"
@@ -113,40 +112,12 @@ func SafePath(elements ...string) string {
 
 func IsAvailableDiskSpace(dataSize uint64) bool {
 	var stat syscall.Statfs_t
-	syscall.Statfs("/", &stat)
-	
+	err := syscall.Statfs("/", &stat)
+	if err != nil {
+		log.Errorf("error retrieving available disk space.")
+		return false
+	}
+
 	// Check if adding the new data will not exceed available space
-	return stat.Bavail * uint64(stat.Bsize) - dataSize >= 0
-}
-
-func (cu *CldyUploader) ClearAndRecreateUploadDir() error {
-	log.Infof("disk space threshold met. attempting to clean upload directory.")
-
-	err := os.RemoveAll(cu.uploadPathDir)
-	if err != nil {
-		return err
-	}
-
-	err = createIfNotExists(cu.uploadPathDir)
-	if err != nil {
-		return fmt.Errorf("failed to recreate scratch directory: %s", err.Error())
-	}
-
-	return nil
-}
-
-func (ce Emitter) ClearAndRecreateScratchDir() error {
-	log.Infof("disk space threshold met. attempting to clean scratch directory.")
-
-	err := os.RemoveAll(ce.ScratchPath)
-	if err != nil {
-		return err
-	}
-
-	err = createIfNotExists(ce.ScratchPath)
-	if err != nil {
-		return fmt.Errorf("failed to recreate scratch directory: %s", err.Error())
-	}
-
-	return nil
+	return stat.Bavail*uint64(stat.Bsize) >= dataSize
 }
