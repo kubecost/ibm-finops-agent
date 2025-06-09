@@ -118,11 +118,12 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		annotations := pods[0].GetAnnotations()
 		Expect(annotations[KubernetesLastAppliedConfig]).To(BeEmpty())
 		Expect(annotations["real-label"]).To(Equal("should_keep"))
-
+		Expect(cli.Delete(ctx, _testPod_.DeepCopy(), &client.DeleteOptions{})).Should(Succeed())
 		dccCancel()
 		dcc.Shutdown()
 	})
 	It("can correctly strip values from containers from Pod with parseMetric enabled", func() {
+		Expect(cli.Create(ctx, _testPod_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
 		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
@@ -142,6 +143,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		annotations := pods[0].GetAnnotations()
 		Expect(annotations[KubernetesLastAppliedConfig]).To(BeEmpty())
 		Expect(annotations["real-label"]).To(Equal("should_keep"))
+		Expect(cli.Delete(ctx, _testPod_.DeepCopy(), &client.DeleteOptions{})).Should(Succeed())
 		dccCancel()
 		dcc.Shutdown()
 	})

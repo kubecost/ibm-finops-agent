@@ -26,10 +26,10 @@ require (
 	github.com/rs/zerolog v1.26.1
 	github.com/spf13/cast v1.3.1
 	github.com/spf13/viper v1.8.1
-	k8s.io/api v0.33.0
-	k8s.io/apimachinery v0.33.0
-	k8s.io/client-go v0.33.0
-	k8s.io/kubelet v0.33.0
+	k8s.io/api v0.33.1
+	k8s.io/apimachinery v0.33.1
+	k8s.io/client-go v0.33.1
+	k8s.io/kubelet v0.33.1
 	sigs.k8s.io/controller-runtime v0.20.4
 )
 
