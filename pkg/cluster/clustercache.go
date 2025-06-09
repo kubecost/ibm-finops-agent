@@ -30,6 +30,9 @@ type ClusterCache interface {
 	// GetAllPods returns all the cached pods
 	GetAllPods() []*v1.Pod
 
+	// GetAllShortLivedPods returns all pods with short duration that were recently deleted
+	GetAllShortLivedPods() []*v1.Pod
+
 	// GetAllServices returns all the cached services
 	GetAllServices() []*v1.Service
 
@@ -65,7 +68,4 @@ type ClusterCache interface {
 
 	// ListUnstructuredByGroupVersionResource returns array of unstructured objects by group version resource
 	ListUnstructuredByGroupVersionResource(gvr schema.GroupVersionResource) []*unstructured.Unstructured
-
-	// ClearShortLivedPods empties the captured shortLivedPods in the ClusterCache
-	ClearShortLivedPods()
 }

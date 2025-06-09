@@ -187,6 +187,12 @@ func (m *MockClusterCache) GetAllPods() []*v1.Pod {
 	return m.Pods
 }
 
+// GetAllShortLivedPods implements ClusterCache interface
+func (m *MockClusterCache) GetAllShortLivedPods() []*v1.Pod {
+	m.recordCall("GetAllShortLivedPods")
+	return m.Pods
+}
+
 // GetAllServices implements ClusterCache interface
 func (m *MockClusterCache) GetAllServices() []*v1.Service {
 	m.recordCall("GetAllServices")
@@ -245,10 +251,6 @@ func (m *MockClusterCache) GetAllJobs() []*batchv1.Job {
 func (m *MockClusterCache) GetAllPodDisruptionBudgets() []*policyv1.PodDisruptionBudget {
 	m.recordCall("GetAllPodDisruptionBudgets")
 	return m.PodDisruptionBudgets
-}
-
-func (m *MockClusterCache) ClearShortLivedPods() {
-	m.recordCall("ClearShortLivedPods")
 }
 
 // GetAllReplicationControllers implements ClusterCache interface

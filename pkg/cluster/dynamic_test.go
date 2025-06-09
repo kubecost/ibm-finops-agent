@@ -188,18 +188,16 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		time.Sleep(500 * time.Millisecond)
 
 		pods := dcc.GetAllPods()
+		shortLivedPods := dcc.GetAllShortLivedPods()
 		// ensure slp is collected
-		Expect(len(pods)).Should(Equal(2))
-		Expect(pods[0].Name).Should(Equal(_testPodName_))
-		Expect(pods[1].Name).Should(Equal(testPodName2))
-
-		// simulate flushing short-lived pods
-		dcc.ClearShortLivedPods()
-
-		pods = dcc.GetAllPods()
-		// ensure slp is no longer included
 		Expect(len(pods)).Should(Equal(1))
+		Expect(len(shortLivedPods)).Should(Equal(1))
 		Expect(pods[0].Name).Should(Equal(_testPodName_))
+		Expect(shortLivedPods[0].Name).Should(Equal(testPodName2))
+
+		shortLivedPods = dcc.GetAllShortLivedPods()
+		// ensure slp was removed during previous call
+		Expect(len(shortLivedPods)).Should(Equal(0))
 		dccCancel()
 		dcc.Shutdown()
 	})
