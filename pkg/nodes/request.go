@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"strconv"
@@ -42,12 +43,15 @@ func (c *Client) makeRequest(method string, URL string, bearerToken string) (*ht
 		request.Header.Add("Authorization", "bearer "+bearerToken)
 	}
 
-	resp, err := c.HTTPClient.Do(request)
+	resp, err := c.client.Do(request)
 	if err != nil {
 		return nil, err
 	}
 
 	if !(resp.StatusCode >= 200 && resp.StatusCode <= 299) {
+		// Drain and close the response body to prevent resource leaks
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
 		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))
 	}
 
@@ -60,14 +64,14 @@ type HTTPClient interface {
 
 // Client defines an HTTP Client with specified retries
 type Client struct {
-	HTTPClient HTTPClient
-	retries    uint
+	client  HTTPClient
+	retries uint
 }
 
-func NewClient(HTTPClient http.Client, retries uint) Client {
+func NewClient(client *http.Client, retries uint) Client {
 	return Client{
-		HTTPClient: &HTTPClient,
-		retries:    retries,
+		client:  client,
+		retries: retries,
 	}
 }
 
