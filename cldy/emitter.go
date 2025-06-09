@@ -38,6 +38,7 @@ type Emitter struct {
 	nextSamplePath    string
 	Uploader          Uploader
 	ClusterID         *string
+	ScratchPath       string
 }
 
 type EmitterConfig struct {
@@ -135,8 +136,8 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	ce.ClusterID = &clusterID
 	ce.Uploader.SetClusterID(clusterID)
 
-	ce.config.ScratchPath = ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
-	err := createIfNotExists(ce.config.ScratchPath)
+	ce.ScratchPath = ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
+	err := createIfNotExists(ce.ScratchPath)
 	if err != nil {
 		return fmt.Errorf("failed to create scratch directory: %s", err.Error())
 	}
@@ -209,7 +210,7 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
 	if !IsAvailableDiskSpace(uint64(len(data))) {
-		err := ce.config.ClearAndRecreateScratchDir()
+		err := ce.ClearAndRecreateScratchDir()
 		if err != nil {
 			return err
 		}
@@ -393,11 +394,11 @@ func (ce *Emitter) getSuffix() string {
 }
 
 func (ce *Emitter) newCurrentSamplePath() string {
-	return SafePath(ce.config.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt))
+	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt))
 }
 
 func (ce *Emitter) newNextSamplePath() string {
-	return SafePath(ce.config.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt+1))
+	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt+1))
 }
 
 func (ce *Emitter) marshalObject(object proto.Message) ([]byte, error) {
