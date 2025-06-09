@@ -75,9 +75,9 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	return NodeClientConfig{
 		ClusterName:       clusterName,
 		ConcurrentPollers: concurrentPollers,
-		DirectNodeClient:  NewClient(http.Client{Transport: transport}, 0),
-		InClusterClient:   NewClient(http.Client{Transport: transport}, 0),
-		ProxyConfig:       NodeClientProxyConfig{
+		DirectNodeClient:  NewClient(&http.Client{Transport: transport}, 0),
+		InClusterClient:   NewClient(&http.Client{Transport: transport}, 0),
+		ProxyConfig: NodeClientProxyConfig{
 			ForceKubeProxy: forceKubeProxy,
 			LocalProxy:     localProxy,
 		},
