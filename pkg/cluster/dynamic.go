@@ -128,7 +128,7 @@ var (
 // DynamicClusterCache is the implementation of ClusterCache with dynamic informers
 type DynamicClusterCache struct {
 	dynamicinformer.DynamicSharedInformerFactory
-	shortLivedPods *[]interface{}
+	shortLivedPods []interface{}
 }
 
 func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanitizeData bool) (ClusterCache, error) {
@@ -148,12 +148,12 @@ func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanit
 		}
 	}
 
-	cache.shortLivedPods = &[]interface{}{}
+	cache.shortLivedPods = []interface{}{}
 	// add delete event on pods informer to track short-lived pods
 	_, eventErr := cache.ForResource(cacheResourceMap[reflect.TypeOf(corev1.Pod{})]).Informer().
 		AddEventHandler(cache2.ResourceEventHandlerFuncs{
 			DeleteFunc: func(pod interface{}) {
-				*cache.shortLivedPods = append(*cache.shortLivedPods, pod)
+				cache.shortLivedPods = append(cache.shortLivedPods, pod)
 				return
 			},
 		})
@@ -287,11 +287,16 @@ func (dcc *DynamicClusterCache) ListUnstructuredByGroupVersionResource(gvr schem
 	for _, o := range list {
 		objs = append(objs, o.(*unstructured.Unstructured).DeepCopy())
 	}
-
 	// append short-lived pods
 	if gvr.Resource == "pods" {
-		for _, o := range *dcc.shortLivedPods {
-			objs = append(objs, o.(*unstructured.Unstructured).DeepCopy())
+		for _, o := range dcc.shortLivedPods {
+			podMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(o)
+			if err != nil {
+				log.Warnf("failed to convert object. err: %s, obj: %v", err.Error(), o)
+				return nil
+			}
+			unstructuredPod := &unstructured.Unstructured{Object: podMap}
+			objs = append(objs, unstructuredPod.DeepCopy())
 		}
 	}
 
@@ -299,7 +304,7 @@ func (dcc *DynamicClusterCache) ListUnstructuredByGroupVersionResource(gvr schem
 }
 
 func (dcc *DynamicClusterCache) ClearShortLivedPods() {
-	*dcc.shortLivedPods = []interface{}{}
+	dcc.shortLivedPods = []interface{}{}
 }
 
 func (dcc *DynamicClusterCache) GetAllNamespaces() []*corev1.Namespace {

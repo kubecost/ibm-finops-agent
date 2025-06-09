@@ -103,7 +103,6 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 						log.Errorf("[%s] failed to emit snapshot: %v", emitter.ID(), err)
 					}
 				}
-				// after emission is completed, clear delete pods
 			}()
 		}
 	}()

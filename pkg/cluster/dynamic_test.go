@@ -171,6 +171,36 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		dccCancel()
 		dcc.Shutdown()
 	})
+	It("can correctly append short lived pods to snapshot", func() {
+		// create an object for sync
+		Expect(cli.Create(ctx, _testPod_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
+		dcc, err := NewDynamicClusterCache(cfg, 1*time.Second, false)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(dcc).NotTo(BeNil())
+
+		dccCtx, dccCancel := context.WithCancel(context.Background())
+		dcc.Start(dccCtx.Done())
+		Expect(cli.Create(ctx, shortLivedPod.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
+		Expect(cli.Delete(ctx, shortLivedPod.DeepCopy(), &client.DeleteOptions{})).Should(Succeed())
+		// small buffer allowing DeleteFunc to execute
+		time.Sleep(500 * time.Millisecond)
+
+		pods := dcc.GetAllPods()
+		// ensure slp is collected
+		Expect(len(pods)).Should(Equal(2))
+		Expect(pods[0].Name).Should(Equal(_testPodName_))
+		Expect(pods[1].Name).Should(Equal(testPodName2))
+
+		// simulate flushing short-lived pods
+		dcc.ClearShortLivedPods()
+
+		pods = dcc.GetAllPods()
+		// ensure slp is no longer included
+		Expect(len(pods)).Should(Equal(1))
+		Expect(pods[0].Name).Should(Equal(_testPodName_))
+		dccCancel()
+		dcc.Shutdown()
+	})
 })
 
 var _ = BeforeSuite(func() {
@@ -324,12 +354,45 @@ var (
 		},
 	}
 	_testPodName_               = "test-pod"
+	testPodName2                = "short-lived-pod"
 	_testPodContainerName_      = "test-pod-container"
 	_testPodContainerName2_     = "test-pod-container2"
 	_testPodContainerImageName_ = "test-pod-container-image"
 	_testPod_                   = &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        _testPodName_,
+			Annotations: _testAnnotations_,
+			Namespace:   _testNamespace_,
+		},
+		Spec: corev1.PodSpec{
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsUser: ptr.Int64(1000),
+			},
+			Containers: []corev1.Container{
+				{
+					Name:    _testPodContainerName_,
+					Image:   _testPodContainerImageName_,
+					Command: []string{"/fake/command"},
+					Env: []corev1.EnvVar{
+						{Name: "key3", Value: "value"},
+						{Name: "key4", Value: "value2"},
+					},
+				},
+				{
+					Name:    _testPodContainerName2_,
+					Image:   _testPodContainerImageName_,
+					Command: []string{"/fake/command"},
+					Env: []corev1.EnvVar{
+						{Name: "key3", Value: "value"},
+						{Name: "key4", Value: "value2"},
+					},
+				},
+			},
+		},
+	}
+	shortLivedPod = &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        testPodName2,
 			Annotations: _testAnnotations_,
 			Namespace:   _testNamespace_,
 		},
