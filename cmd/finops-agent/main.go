@@ -74,6 +74,9 @@ func main() {
 
 	defer server.Shutdown(context.Background())
 
+	// Initialize/Bootstrap the Agent Data Source
+	dataSource := core.NewAgentDataSource(router, diag)
+
 	var emitters []emitter.Emitter
 
 	if env.IsKubecostEmitterEnabled() {
