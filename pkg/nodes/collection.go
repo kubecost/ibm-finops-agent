@@ -3,6 +3,7 @@ package nodes
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sync"
@@ -98,8 +99,6 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 			if err != nil {
 				log.Warnf("error retrieving node data: %s", err)
 			} else {
-				defer resp.Body.Close()
-
 				data, err := nodeResponseToStatSummary(resp)
 				if err != nil {
 					log.Warnf("error converting node data: %s", err)
@@ -200,13 +199,21 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 }
 
 func nodeResponseToStatSummary(resp *http.Response) (*stats.Summary, error) {
+	defer resp.Body.Close()
+
 	data := &stats.Summary{}
-	err := json.NewDecoder(resp.Body).Decode(&data)
-	if err == nil {
-		return data, nil
+
+	bytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("could not read response body: %w", err)
 	}
 
-	return nil, err
+	err = json.Unmarshal(bytes, data)
+	if err != nil {
+		return nil, fmt.Errorf("could not unmarshal response body: %w", err)
+	}
+
+	return data, nil
 }
 
 // getBearerToken reads the service account token

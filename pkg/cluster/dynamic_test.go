@@ -38,7 +38,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 	It("can be created, started with existing resources", func() {
 		// create an object for sync
 		Expect(cli.Create(ctx, _testDeployment_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, false)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, false, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -62,7 +62,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 	})
 
 	It("can get auto sync with updated resources", func() {
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -99,7 +99,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 	It("can correctly strip values from containers from Pod with parseMetric disabled", func() {
 		// create an object for sync
 		Expect(cli.Create(ctx, _testPod_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, false)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, false, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -118,12 +118,13 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		annotations := pods[0].GetAnnotations()
 		Expect(annotations[KubernetesLastAppliedConfig]).To(BeEmpty())
 		Expect(annotations["real-label"]).To(Equal("should_keep"))
-
+		Expect(cli.Delete(ctx, _testPod_.DeepCopy(), &client.DeleteOptions{})).Should(Succeed())
 		dccCancel()
 		dcc.Shutdown()
 	})
 	It("can correctly strip values from containers from Pod with parseMetric enabled", func() {
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true)
+		Expect(cli.Create(ctx, _testPod_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -142,12 +143,13 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		annotations := pods[0].GetAnnotations()
 		Expect(annotations[KubernetesLastAppliedConfig]).To(BeEmpty())
 		Expect(annotations["real-label"]).To(Equal("should_keep"))
+		Expect(cli.Delete(ctx, _testPod_.DeepCopy(), &client.DeleteOptions{})).Should(Succeed())
 		dccCancel()
 		dcc.Shutdown()
 	})
 	It("can correctly strip values from containers & initContainers from Replicaset with parseMetric enabled", func() {
 		Expect(cli.Create(ctx, _testReplicaSet_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -168,6 +170,34 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		annotations := replicaSets[0].GetAnnotations()
 		Expect(annotations[KubernetesLastAppliedConfig]).To(BeEmpty())
 		Expect(annotations["real-label"]).To(Equal("should_keep"))
+		dccCancel()
+		dcc.Shutdown()
+	})
+	It("can correctly append short lived pods to snapshot", func() {
+		// create an object for sync
+		Expect(cli.Create(ctx, _testPod_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
+		dcc, err := NewDynamicClusterCache(cfg, 1*time.Second, false, 1*time.Minute)
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(dcc).NotTo(BeNil())
+
+		dccCtx, dccCancel := context.WithCancel(context.Background())
+		dcc.Start(dccCtx.Done())
+		Expect(cli.Create(ctx, shortLivedPod.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
+		Expect(cli.Delete(ctx, shortLivedPod.DeepCopy(), &client.DeleteOptions{})).Should(Succeed())
+		// small buffer allowing DeleteFunc to execute
+		time.Sleep(50 * time.Millisecond)
+
+		pods := dcc.GetAllPods()
+		shortLivedPods := dcc.GetAllShortLivedPods()
+		// ensure slp is collected
+		Expect(len(pods)).Should(Equal(1))
+		Expect(len(shortLivedPods)).Should(Equal(1))
+		Expect(pods[0].Name).Should(Equal(_testPodName_))
+		Expect(shortLivedPods[0].Name).Should(Equal(testPodName2))
+
+		shortLivedPods = dcc.GetAllShortLivedPods()
+		// ensure slp was removed during previous call
+		Expect(len(shortLivedPods)).Should(Equal(0))
 		dccCancel()
 		dcc.Shutdown()
 	})
@@ -324,12 +354,45 @@ var (
 		},
 	}
 	_testPodName_               = "test-pod"
+	testPodName2                = "short-lived-pod"
 	_testPodContainerName_      = "test-pod-container"
 	_testPodContainerName2_     = "test-pod-container2"
 	_testPodContainerImageName_ = "test-pod-container-image"
 	_testPod_                   = &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        _testPodName_,
+			Annotations: _testAnnotations_,
+			Namespace:   _testNamespace_,
+		},
+		Spec: corev1.PodSpec{
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsUser: ptr.Int64(1000),
+			},
+			Containers: []corev1.Container{
+				{
+					Name:    _testPodContainerName_,
+					Image:   _testPodContainerImageName_,
+					Command: []string{"/fake/command"},
+					Env: []corev1.EnvVar{
+						{Name: "key3", Value: "value"},
+						{Name: "key4", Value: "value2"},
+					},
+				},
+				{
+					Name:    _testPodContainerName2_,
+					Image:   _testPodContainerImageName_,
+					Command: []string{"/fake/command"},
+					Env: []corev1.EnvVar{
+						{Name: "key3", Value: "value"},
+						{Name: "key4", Value: "value2"},
+					},
+				},
+			},
+		},
+	}
+	shortLivedPod = &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        testPodName2,
 			Annotations: _testAnnotations_,
 			Namespace:   _testNamespace_,
 		},

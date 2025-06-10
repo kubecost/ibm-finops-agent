@@ -60,12 +60,32 @@ func main() {
 
 	diag := diagnostics.NewDiagnosticService()
 
+	// Setup the HTTP server - ensure the goroutine starts before continuing to initialization
+	// of the data source and emitters
+	started := make(chan struct{})
+	server := http.NewHttpServer(router, 9003)
+	go func() {
+		close(started)
+
+		err := server.ListenAndServe()
+		if err != nil {
+			log.Errorf("Error starting HTTP server: %s", err)
+		}
+	}()
+
+	<-started
+	defer server.Shutdown(context.Background())
+
 	// Initialize/Bootstrap the Agent Data Source
-	dataSource := core.NewAgentDataSource(router, diag)
+	dataSource := core.NewAgentDataSource(router, diag, EmissionFrequency)
+
 	var emitters []emitter.Emitter
 
 	if env.IsKubecostEmitterEnabled() {
-		emitters = append(emitters, kubecost.NewKubecostEmitter(diag, kubecost.NewEmitterConfigFromEnv()))
+		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv()
+		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
+
+		emitters = append(emitters, kubecost.NewKubecostEmitter(diag, kubecostEmitterConfig))
 	}
 	if env.IsCloudyEmitterEnabled() {
 		cldyConfig, err := cldy.NewEmitterConfigFromEnv()
@@ -92,16 +112,6 @@ func main() {
 		panic("Failed to start exporter")
 	}
 
-	// Setup the HTTP server
-	server := http.NewHttpServer(router, 9003)
-	go func() {
-		err := server.ListenAndServe()
-		if err != nil {
-			log.Errorf("Error starting HTTP server: %s", err)
-		}
-	}()
-
-	defer server.Shutdown(context.Background())
 	defer exporter.Stop()
 
 	WaitForSignal()

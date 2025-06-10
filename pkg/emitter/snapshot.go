@@ -135,6 +135,7 @@ func snapshotKubernetes(cluster clustercache.ClusterCache) (*KubernetesSnapshot,
 	return &KubernetesSnapshot{
 		Nodes:                  cluster.GetAllNodes(),
 		Pods:                   cluster.GetAllPods(),
+		ShortLivedPods:         cluster.GetAllShortLivedPods(),
 		Namespaces:             cluster.GetAllNamespaces(),
 		Services:               cluster.GetAllServices(),
 		DaemonSets:             cluster.GetAllDaemonSets(),
