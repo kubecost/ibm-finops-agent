@@ -25,7 +25,6 @@ import (
 
 const (
 	KubernetesLastAppliedConfig = "kubectl.kubernetes.io/last-applied-configuration"
-	shortLivedPodDuration       = -1 * time.Minute
 )
 
 type InformerConfig struct {
@@ -132,9 +131,11 @@ type DynamicClusterCache struct {
 	dynamicinformer.DynamicSharedInformerFactory
 	shortLivedPods []*corev1.Pod
 	slpMux         *sync.RWMutex
+	slpDuration    time.Duration
 }
 
-func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanitizeData bool) (ClusterCache, error) {
+func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanitizeData bool,
+	slpDuration time.Duration) (ClusterCache, error) {
 	client, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -143,6 +144,7 @@ func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanit
 	cache := DynamicClusterCache{
 		DynamicSharedInformerFactory: dynamicinformer.NewDynamicSharedInformerFactory(client, defaultResync),
 		slpMux:                       &sync.RWMutex{},
+		slpDuration:                  slpDuration,
 	}
 
 	for _, gvr := range cacheResourceMap {
@@ -178,10 +180,9 @@ func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod interface{})
 			log.Warnf("failed to unstructure object. not capturing delete event. err: %s", err.Error())
 			return
 		}
-		// TODO does this need to be configurable?
 		// only capture deleted pods if they have a short lifespan
 		if castedPod.Status.StartTime == nil ||
-			castedPod.Status.StartTime.After(time.Now().Add(shortLivedPodDuration)) {
+			castedPod.Status.StartTime.After(time.Now().Add(-dcc.slpDuration)) {
 			dcc.addShortLivedPod(castedPod)
 		}
 		return

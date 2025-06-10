@@ -38,7 +38,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 	It("can be created, started with existing resources", func() {
 		// create an object for sync
 		Expect(cli.Create(ctx, _testDeployment_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, false)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, false, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -62,7 +62,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 	})
 
 	It("can get auto sync with updated resources", func() {
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -99,7 +99,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 	It("can correctly strip values from containers from Pod with parseMetric disabled", func() {
 		// create an object for sync
 		Expect(cli.Create(ctx, _testPod_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, false)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, false, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -124,7 +124,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 	})
 	It("can correctly strip values from containers from Pod with parseMetric enabled", func() {
 		Expect(cli.Create(ctx, _testPod_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -149,7 +149,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 	})
 	It("can correctly strip values from containers & initContainers from Replicaset with parseMetric enabled", func() {
 		Expect(cli.Create(ctx, _testReplicaSet_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
-		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true)
+		dcc, err := NewDynamicClusterCache(cfg, 10*time.Minute, true, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
@@ -176,7 +176,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 	It("can correctly append short lived pods to snapshot", func() {
 		// create an object for sync
 		Expect(cli.Create(ctx, _testPod_.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
-		dcc, err := NewDynamicClusterCache(cfg, 1*time.Second, false)
+		dcc, err := NewDynamicClusterCache(cfg, 1*time.Second, false, 1*time.Minute)
 		Expect(err).ShouldNot(HaveOccurred())
 		Expect(dcc).NotTo(BeNil())
 
