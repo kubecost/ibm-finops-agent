@@ -39,6 +39,7 @@ type Emitter struct {
 	Uploader          Uploader
 	ClusterID         *string
 	ScratchPath       string
+	testSample        int
 }
 
 type EmitterConfig struct {
@@ -209,7 +210,8 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 }
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
-	if true {
+	ce.testSample += 1
+	if ce.testSample % 3 == 0 {
 		err := ce.ClearAndRecreateScratchDir()
 		if err != nil {
 			return err
