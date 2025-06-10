@@ -174,7 +174,7 @@ func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod interface{})
 			log.Warnf("failed to cast interface to unstructured, not capturing delete event")
 			return
 		}
-		var castedPod *corev1.Pod
+		var castedPod corev1.Pod
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredPod.Object, &castedPod)
 		if err != nil {
 			log.Warnf("failed to unstructure object. not capturing delete event. err: %s", err.Error())
@@ -183,7 +183,7 @@ func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod interface{})
 		// only capture deleted pods if they have a short lifespan
 		if castedPod.Status.StartTime == nil ||
 			castedPod.Status.StartTime.After(time.Now().Add(-dcc.slpDuration)) {
-			dcc.addShortLivedPod(castedPod)
+			dcc.addShortLivedPod(&castedPod)
 		}
 		return
 	}
