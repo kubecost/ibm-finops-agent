@@ -209,7 +209,7 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 }
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
-	if !IsAvailableDiskSpace(uint64(len(data))) {
+	if true {
 		err := ce.ClearAndRecreateScratchDir()
 		if err != nil {
 			return err
