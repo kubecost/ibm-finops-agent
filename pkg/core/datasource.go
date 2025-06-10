@@ -36,7 +36,8 @@ var (
 	defaultCacheResyncDuration = 60 * time.Minute
 )
 
-func NewAgentDataSource(router *httprouter.Router, diag diagnostics.DiagnosticService) DataSource {
+func NewAgentDataSource(router *httprouter.Router, diag diagnostics.DiagnosticService,
+	interval time.Duration) DataSource {
 	// NOTE: (bolt) This just uses a fairly straight-forward kube client initialization. We should add specific proxy/auth
 	// NOTE: (bolt) requirements for the other data sources.
 	kubeClientset, err := kubeconfig.LoadKubeClient("")
@@ -50,7 +51,7 @@ func NewAgentDataSource(router *httprouter.Router, diag diagnostics.DiagnosticSe
 	}
 	informerCfg := cluster.LoadInformerConfig()
 	// Create Kubernetes Cluster Cache + Watchers
-	k8sCache, err := cluster.NewDynamicClusterCache(cfg, informerCfg.ResyncInterval, informerCfg.SanitizeData)
+	k8sCache, err := cluster.NewDynamicClusterCache(cfg, informerCfg.ResyncInterval, informerCfg.SanitizeData, interval)
 	if err != nil {
 		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
 	}

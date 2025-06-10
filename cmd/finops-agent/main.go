@@ -77,7 +77,7 @@ func main() {
 	defer server.Shutdown(context.Background())
 
 	// Initialize/Bootstrap the Agent Data Source
-	dataSource := core.NewAgentDataSource(router, diag)
+	dataSource := core.NewAgentDataSource(router, diag, EmissionFrequency)
 
 	var emitters []emitter.Emitter
 

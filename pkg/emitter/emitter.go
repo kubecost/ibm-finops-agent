@@ -19,6 +19,7 @@ import (
 type KubernetesSnapshot struct {
 	Nodes                  []*v1.Node
 	Pods                   []*v1.Pod
+	ShortLivedPods         []*v1.Pod
 	Namespaces             []*v1.Namespace
 	Services               []*v1.Service
 	DaemonSets             []*appsv1.DaemonSet

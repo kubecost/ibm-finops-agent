@@ -243,7 +243,7 @@ func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]proto.Mess
 	return map[string][]proto.Message{
 		//TODO: add cronjobs
 		"nodes":                  convertObj(snapshot.Nodes),
-		"pods":                   convertObj(snapshot.Pods),
+		"pods":                   convertObj(append(snapshot.Pods, snapshot.ShortLivedPods...)),
 		"deployments":            convertObj(snapshot.Deployments),
 		"replicasets":            convertObj(snapshot.ReplicaSets),
 		"daemonsets":             convertObj(snapshot.DaemonSets),

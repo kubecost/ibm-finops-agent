@@ -2,8 +2,10 @@ package cluster
 
 import (
 	"github.com/ibm/finops-agent/pkg/env"
+	cache2 "k8s.io/client-go/tools/cache"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -127,9 +129,13 @@ var (
 // DynamicClusterCache is the implementation of ClusterCache with dynamic informers
 type DynamicClusterCache struct {
 	dynamicinformer.DynamicSharedInformerFactory
+	shortLivedPods []*corev1.Pod
+	slpMux         sync.RWMutex
+	slpDuration    time.Duration
 }
 
-func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanitizeData bool) (ClusterCache, error) {
+func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanitizeData bool,
+	slpDuration time.Duration) (ClusterCache, error) {
 	client, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -137,6 +143,7 @@ func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanit
 
 	cache := DynamicClusterCache{
 		DynamicSharedInformerFactory: dynamicinformer.NewDynamicSharedInformerFactory(client, defaultResync),
+		slpDuration:                  slpDuration,
 	}
 
 	for _, gvr := range cacheResourceMap {
@@ -146,7 +153,45 @@ func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanit
 		}
 	}
 
+	cache.shortLivedPods = []*corev1.Pod{}
+	// add delete event on pods informer to track short-lived pods
+	_, eventErr := cache.ForResource(cacheResourceMap[reflect.TypeOf(corev1.Pod{})]).Informer().
+		AddEventHandler(cache2.ResourceEventHandlerFuncs{
+			DeleteFunc: cache.captureShortLivedPodFunc(),
+		})
+	if eventErr != nil {
+		return nil, eventErr
+	}
+
 	return &cache, nil
+}
+
+func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod interface{}) {
+	return func(pod interface{}) {
+		unstructuredPod, ok := pod.(*unstructured.Unstructured)
+		if !ok {
+			log.Warnf("failed to cast interface to unstructured, not capturing delete event")
+			return
+		}
+		var castedPod corev1.Pod
+		err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredPod.Object, &castedPod)
+		if err != nil {
+			log.Warnf("failed to unstructure object. not capturing delete event. err: %s", err.Error())
+			return
+		}
+		// only capture deleted pods if they have a short lifespan
+		if castedPod.Status.StartTime == nil ||
+			castedPod.Status.StartTime.After(time.Now().Add(-dcc.slpDuration)) {
+			dcc.addShortLivedPod(&castedPod)
+		}
+		return
+	}
+}
+
+func (dcc *DynamicClusterCache) addShortLivedPod(pod *corev1.Pod) {
+	dcc.slpMux.Lock()
+	dcc.shortLivedPods = append(dcc.shortLivedPods, pod)
+	dcc.slpMux.Unlock()
 }
 
 // GetTransformFunc returns the correct transform to apply based on parseMetricsData flag
@@ -287,8 +332,15 @@ func (dcc *DynamicClusterCache) GetAllNodes() []*corev1.Node {
 }
 
 func (dcc *DynamicClusterCache) GetAllPods() []*corev1.Pod {
-
 	return ConvertUnstructuredArrayToTypedArray[corev1.Pod](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.Pod{})]))
+}
+
+func (dcc *DynamicClusterCache) GetAllShortLivedPods() []*corev1.Pod {
+	dcc.slpMux.Lock()
+	defer dcc.slpMux.Unlock()
+	shortLivedPods := dcc.shortLivedPods
+	dcc.shortLivedPods = []*corev1.Pod{}
+	return shortLivedPods
 }
 
 func (dcc *DynamicClusterCache) GetAllServices() []*corev1.Service {
