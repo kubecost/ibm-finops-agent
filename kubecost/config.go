@@ -29,7 +29,7 @@ func NewEmitterConfigFromEnv() *EmitterConfig {
 		InstallNamespace:               env.GetInstallNamespace(), // this is used to receive configmap updates -- poorly named
 		BucketConfigFile:               env.GetExportBucketConfigFile(),
 		ExportInterval:                 10 * time.Minute, // may want to make all pipelines configurable
-		QueryResolution:                env.GetETLResolution(),
+		QueryResolution:                1 * time.Minute,
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),
 		EmitAssetMinuteResolution:      kcenv.IsMinuteMetricsEnabled(),
 	}
