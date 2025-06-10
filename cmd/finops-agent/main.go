@@ -60,9 +60,6 @@ func main() {
 
 	diag := diagnostics.NewDiagnosticService()
 
-	// Initialize/Bootstrap the Agent Data Source
-	dataSource := core.NewAgentDataSource(router, diag, EmissionFrequency)
-
 	// Setup the HTTP server
 	server := http.NewHttpServer(router, 9003)
 	go func() {
@@ -75,7 +72,7 @@ func main() {
 	defer server.Shutdown(context.Background())
 
 	// Initialize/Bootstrap the Agent Data Source
-	dataSource := core.NewAgentDataSource(router, diag)
+	dataSource := core.NewAgentDataSource(router, diag, EmissionFrequency)
 
 	var emitters []emitter.Emitter
 
