@@ -130,7 +130,7 @@ var (
 type DynamicClusterCache struct {
 	dynamicinformer.DynamicSharedInformerFactory
 	shortLivedPods []*corev1.Pod
-	slpMux         *sync.RWMutex
+	slpMux         sync.RWMutex
 	slpDuration    time.Duration
 }
 
@@ -143,7 +143,6 @@ func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanit
 
 	cache := DynamicClusterCache{
 		DynamicSharedInformerFactory: dynamicinformer.NewDynamicSharedInformerFactory(client, defaultResync),
-		slpMux:                       &sync.RWMutex{},
 		slpDuration:                  slpDuration,
 	}
 
