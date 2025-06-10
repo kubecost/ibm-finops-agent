@@ -185,7 +185,7 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		Expect(cli.Create(ctx, shortLivedPod.DeepCopy(), &client.CreateOptions{})).Should(Succeed())
 		Expect(cli.Delete(ctx, shortLivedPod.DeepCopy(), &client.DeleteOptions{})).Should(Succeed())
 		// small buffer allowing DeleteFunc to execute
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 
 		pods := dcc.GetAllPods()
 		shortLivedPods := dcc.GetAllShortLivedPods()
