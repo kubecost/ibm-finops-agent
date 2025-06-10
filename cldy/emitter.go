@@ -211,7 +211,7 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
 	ce.testSample += 1
-	if ce.testSample % 3 == 0 {
+	if ce.testSample % 6 == 0 {
 		err := ce.ClearAndRecreateScratchDir()
 		if err != nil {
 			return err
