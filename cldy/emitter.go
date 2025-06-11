@@ -248,7 +248,7 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	return ce.writeAgentFile()
 }
 
-func (ce Emitter) ClearAndRecreateScratchDir() error {
+func (ce *Emitter) ClearAndRecreateScratchDir() error {
 	log.Infof("disk space threshold met. attempting to clean scratch directory.")
 
 	files, err := os.ReadDir(ce.ScratchPath)
@@ -268,6 +268,7 @@ func (ce Emitter) ClearAndRecreateScratchDir() error {
 			if err != nil {
 				log.Warnf("problem deleting file: %s", err)
 			}
+			ce.Uploader.RemoveSample(filePath)
 		}
 	}
 

@@ -21,6 +21,7 @@ var requiredFiles = []string{"baseline-summary", "stats-summary", "statefulsets"
 
 type Uploader interface {
 	AddSample(sample string)
+	RemoveSample(sample string)
 	SetClusterID(id string)
 }
 
@@ -111,6 +112,10 @@ type UploaderConfig struct {
 
 func (cu *CldyUploader) AddSample(sample string) {
 	cu.sampleSet.add(sample)
+}
+
+func (cu *CldyUploader) RemoveSample(sample string) {
+	cu.sampleSet.remove(sample)
 }
 
 func (cu *CldyUploader) SetClusterID(id string) {
