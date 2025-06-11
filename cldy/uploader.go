@@ -19,6 +19,8 @@ import (
 
 var requiredFiles = []string{"baseline-summary", "stats-summary", "statefulsets", "services", "replicationcontrollers", "replicasets", "pods", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces", "jobs", "deployments", "daemonsets", "agent-measurement"}
 
+var ErrDiskSpaceExceeded = errors.New("upload directory cleaned and disk issue persists. omitting current upload.")
+
 type Uploader interface {
 	AddSample(sample string)
 	RemoveSample(sample string)
@@ -38,6 +40,7 @@ type CldyUploader struct {
 	RecoveredSamples int
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
+	lastUploadSize   uint64
 }
 
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
@@ -283,7 +286,6 @@ func (cu *CldyUploader) uploadLoop() {
 			}
 			path, err := cu.ConstructPayload(time.Now().UTC())
 			if err != nil {
-				// TODO: general error handling, maybe this can just be logged
 				log.Warnf("did not construct cldy payload: %s", err)
 				return
 			}
@@ -321,11 +323,11 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 		return "", err
 	}
 	err = cu.createTGZ(tw, files...)
-	if err != nil && err.Error() != "upload directory cleaned and disk issue persists. omitting current upload." {
+	if err != nil && !errors.Is(err, ErrDiskSpaceExceeded) {
 		return "", err
 	}
 	// if disk is maxed and cleaning doesn't help, delete sample set and problematic tar before returning error
-	if err != nil && err.Error() == "upload directory cleaned and disk issue persists. omitting current upload." {
+	if err != nil && errors.Is(err, ErrDiskSpaceExceeded) {
 		sErr := os.RemoveAll(path)
 		if sErr != nil {
 			log.Warnf("failed to remove problematic tar: %s", sErr)
@@ -378,6 +380,13 @@ func (cu *CldyUploader) uploadData(path string) error {
 		}
 	}
 
+	// retain size of file before removal for disk calculation purposes
+	f, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	cu.lastUploadSize = uint64(f.Size())
+
 	// uploads data, then removes tar from path if successful
 	return os.Remove(path)
 }
@@ -386,6 +395,19 @@ func (cu *CldyUploader) uploadData(path string) error {
 // found to the tar writer; the purpose for accepting multiple writers is to allow
 // for multiple outputs
 func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr error) {
+	// create a buffer of double the last upload size
+	if !IsAvailableDiskSpace(cu.lastUploadSize * 2, cu.UploadPathDir) {
+		err := cu.ClearOldUploadSamples()
+		if err != nil {
+			return err
+		}
+
+		// Omit current sample if cleaning upload directory does not work
+		if !IsAvailableDiskSpace(cu.lastUploadSize * 2, cu.UploadPathDir) {
+			return ErrDiskSpaceExceeded
+		}
+	}
+
 	gzw, _ := gzip.NewWriterLevel(writer, flate.BestCompression)
 	defer safeClose(gzw.Close, &rerr)
 	tw := tar.NewWriter(gzw)
@@ -433,24 +455,6 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 
 			defer safeClose(f.Close, &rerr)
 
-			// check if there's enough space to add sample
-			fInfo, err := f.Stat()
-			if err != nil {
-				return err
-			}
-
-			if !IsAvailableDiskSpace(uint64(fInfo.Size())) {
-				err := cu.ClearDayOldUploadSamples()
-				if err != nil {
-					return err
-				}
-
-				// Omit current sample if cleaning upload directory does not work
-				if !IsAvailableDiskSpace(uint64(fInfo.Size())) {
-					return fmt.Errorf("upload directory cleaned and disk issue persists. omitting current upload.")
-				}
-			}
-
 			// copy file data into tar writer
 			if _, err := io.Copy(tw, f); err != nil {
 				return err
@@ -465,7 +469,7 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 	return nil
 }
 
-func (cu *CldyUploader) ClearDayOldUploadSamples() error {
+func (cu *CldyUploader) ClearOldUploadSamples() error {
 	log.Infof("disk space threshold met. attempting to clean uploads over 1 day old.")
 
 	files, err := os.ReadDir(cu.UploadPathDir)

@@ -84,7 +84,7 @@ var _ = Describe("Uploader", func() {
 			Expect(len(files)).To(BeNumerically("==", 1))
 
 			// do not remove upload since it is recent
-			err = actualUploader.ClearDayOldUploadSamples()
+			err = actualUploader.ClearOldUploadSamples()
 			Expect(err).ToNot(HaveOccurred())
 			files, err = os.ReadDir(actualUploader.UploadPathDir)
 			Expect(err).ToNot(HaveOccurred())
@@ -96,7 +96,7 @@ var _ = Describe("Uploader", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// purge old upload
-			err = actualUploader.ClearDayOldUploadSamples()
+			err = actualUploader.ClearOldUploadSamples()
 			Expect(err).ToNot(HaveOccurred())
 
 			// check there are no files in the upload path

@@ -110,9 +110,9 @@ func SafePath(elements ...string) string {
 	return path
 }
 
-func IsAvailableDiskSpace(dataSize uint64) bool {
+func IsAvailableDiskSpace(dataSize uint64, dir string) bool {
 	var stat syscall.Statfs_t
-	err := syscall.Statfs("/", &stat)
+	err := syscall.Statfs(dir, &stat)
 	if err != nil {
 		log.Errorf("error retrieving available disk space.")
 		return false

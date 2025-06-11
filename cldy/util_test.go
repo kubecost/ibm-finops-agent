@@ -85,10 +85,10 @@ func TestSafePath(t *testing.T) {
 var _ = Describe("Util", func() {
 	Context("IsAvailableDiskSpace", func() {
 		It("should return false on disk exceedance", func() {
-			Expect(IsAvailableDiskSpace(0xFFFFFFFFFFFFFFFF)).To(BeFalse())
+			Expect(IsAvailableDiskSpace(0xFFFFFFFFFFFFFFFF, "/")).To(BeFalse())
 		})
 		It("should return true when there is space", func() {
-			Expect(IsAvailableDiskSpace(1)).To(BeTrue())
+			Expect(IsAvailableDiskSpace(1, "/")).To(BeTrue())
 		})
 	})
 })

@@ -226,9 +226,9 @@ var _ = Describe("Emitter", func() {
 			Expect(len(files)).To(BeNumerically("==", 1))
 
 			// don't clear sample since it's recent
-			err = actualEmitter.ClearDayOldScratchSamples()
+			err = actualEmitter.ClearOldScratchSamples()
 			Expect(err).ToNot(HaveOccurred())
-			files, err = os.ReadDir(actualEmitter.ScratchPath)
+			files, err = os.ReadDir(actualEmitter.ScratchPath )
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(files)).To(BeNumerically("==", 1))
 
@@ -238,7 +238,7 @@ var _ = Describe("Emitter", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// clear samples
-			err = actualEmitter.ClearDayOldScratchSamples()
+			err = actualEmitter.ClearOldScratchSamples()
 			Expect(err).ToNot(HaveOccurred())
 
 			// check there are no files in the upload path
