@@ -300,9 +300,7 @@ func (m *mockUploader) AddSample(sample string) {
 	m.data = append(m.data, sample)
 }
 
-func (m *mockUploader) RemoveSample(sample string) {
-	return
-}
+func (m *mockUploader) RemoveSample(sample string) {}
 
 // ensure replicaSets with zero replicas are not emitted
 func checkForDeadReplicaSets(path string) error {

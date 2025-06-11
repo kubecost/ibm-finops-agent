@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -59,7 +60,7 @@ var _ = Describe("Uploader", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
 		})
-		It("should clean unbuilt Tar on exceeded disk", func() {
+		It("should clean old tars on exceeded disk", func() {
 			config := cldy.UploaderConfig{
 				UploadFrequency: time.Hour,
 				ScratchDir:      tempDir,
@@ -82,7 +83,19 @@ var _ = Describe("Uploader", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(files)).To(BeNumerically("==", 1))
 
-			// purge upload path
+			// do not remove upload since it is recent
+			err = actualUploader.ClearAndRecreateUploadDir()
+			Expect(err).ToNot(HaveOccurred())
+			files, err = os.ReadDir(actualUploader.UploadPathDir)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(files)).To(BeNumerically("==", 1))
+
+			// change file mod time to be very old
+			filePath := filepath.Join(actualUploader.UploadPathDir, files[0].Name())
+			err = os.Chtimes(filePath, time.Now(), time.Date(1, 1, 1, 1, 1, 1, 1, time.Local))
+			Expect(err).ToNot(HaveOccurred())
+
+			// purge old upload
 			err = actualUploader.ClearAndRecreateUploadDir()
 			Expect(err).ToNot(HaveOccurred())
 

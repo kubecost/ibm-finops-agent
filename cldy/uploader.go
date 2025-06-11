@@ -462,16 +462,27 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 }
 
 func (cu *CldyUploader) ClearAndRecreateUploadDir() error {
-	log.Infof("disk space threshold met. attempting to clean upload directory.")
+	log.Infof("disk space threshold met. attempting to clean uploads over 1 day old.")
 
-	err := os.RemoveAll(cu.UploadPathDir)
+	files, err := os.ReadDir(cu.UploadPathDir)
 	if err != nil {
 		return err
 	}
 
-	err = createIfNotExists(cu.UploadPathDir)
-	if err != nil {
-		return fmt.Errorf("failed to recreate scratch directory: %s", err.Error())
+	for _, file := range files {
+		filePath := filepath.Join(cu.UploadPathDir, file.Name())
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			log.Warnf("problem retrieving file information: %s", err)
+			continue
+		}
+
+		if time.Since(fileInfo.ModTime()) > time.Hour*24 {
+			err := os.RemoveAll(filePath)
+			if err != nil {
+				log.Warnf("problem deleting file: %s", err)
+			}
+		}
 	}
 
 	return nil
