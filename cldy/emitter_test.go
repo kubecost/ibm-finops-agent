@@ -231,7 +231,7 @@ var _ = Describe("Emitter", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// purge upload path
-			err = actualEmitter.ClearAndRecreateScratchDir()
+			err = actualEmitter.ClearOldScratchSamples()
 			Expect(err).ToNot(HaveOccurred())
 
 			// check there are no files in the upload path
