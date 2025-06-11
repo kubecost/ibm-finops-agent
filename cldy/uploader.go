@@ -470,7 +470,7 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 }
 
 func (cu *CldyUploader) ClearOldUploadSamples() error {
-	log.Infof("disk space threshold met. attempting to clean uploads over 1 day old.")
+	log.Infof("disk space threshold met. attempting to clean uploads over recovery period.")
 
 	files, err := os.ReadDir(cu.UploadPathDir)
 	if err != nil {
@@ -485,7 +485,7 @@ func (cu *CldyUploader) ClearOldUploadSamples() error {
 			continue
 		}
 
-		if time.Since(fileInfo.ModTime()) > time.Hour*24 {
+		if time.Since(fileInfo.ModTime()) > cu.recoveryPeriod / 2 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
 				log.Warnf("problem deleting file: %s", err)

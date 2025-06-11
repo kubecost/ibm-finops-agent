@@ -67,6 +67,7 @@ var _ = Describe("Uploader", func() {
 				ApptioConfig: cldy.ApptioConfig{
 					SecretManager: cldy.NewKeyValueSecretManager("", ""),
 				},
+				RecoveryPeriod: time.Hour,
 			}
 			stopCh := make(chan struct{})
 			defer close(stopCh)
