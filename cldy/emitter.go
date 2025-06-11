@@ -263,7 +263,7 @@ func (ce *Emitter) ClearDayOldScratchSamples() error {
 			continue
 		}
 
-		if time.Since(fileInfo.ModTime()) > time.Hour * 24 {
+		if time.Since(fileInfo.ModTime()) > time.Hour*24 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
 				log.Warnf("problem deleting file: %s", err)

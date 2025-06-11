@@ -321,11 +321,11 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 		return "", err
 	}
 	err = cu.createTGZ(tw, files...)
-	if err != nil && err.Error() != "upload directory cleaned due to disk space." {
+	if err != nil && err.Error() != "upload directory cleaned and disk issue persists. omitting current upload." {
 		return "", err
 	}
-	// if disk is maxed, delete sample set and problematic tar before returning error
-	if err != nil && err.Error() == "upload directory cleaned due to disk space." {
+	// if disk is maxed and cleaning doesn't help, delete sample set and problematic tar before returning error
+	if err != nil && err.Error() == "upload directory cleaned and disk issue persists. omitting current upload." {
 		sErr := os.RemoveAll(path)
 		if sErr != nil {
 			log.Warnf("failed to remove problematic tar: %s", sErr)
@@ -440,11 +440,15 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 			}
 
 			if !IsAvailableDiskSpace(uint64(fInfo.Size())) {
-				err := cu.ClearAndRecreateUploadDir()
+				err := cu.ClearDayOldUploadSamples()
 				if err != nil {
 					return err
 				}
-				return fmt.Errorf("upload directory cleaned due to disk space.")
+
+				// Omit current sample if cleaning upload directory does not work
+				if !IsAvailableDiskSpace(uint64(fInfo.Size())) {
+					return fmt.Errorf("upload directory cleaned and disk issue persists. omitting current upload.")
+				}
 			}
 
 			// copy file data into tar writer
@@ -461,7 +465,7 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 	return nil
 }
 
-func (cu *CldyUploader) ClearAndRecreateUploadDir() error {
+func (cu *CldyUploader) ClearDayOldUploadSamples() error {
 	log.Infof("disk space threshold met. attempting to clean uploads over 1 day old.")
 
 	files, err := os.ReadDir(cu.UploadPathDir)
