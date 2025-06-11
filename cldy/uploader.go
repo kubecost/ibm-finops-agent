@@ -396,14 +396,14 @@ func (cu *CldyUploader) uploadData(path string) error {
 // for multiple outputs
 func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr error) {
 	// create a buffer of double the last upload size
-	if !IsAvailableDiskSpace(cu.lastUploadSize * 2, cu.UploadPathDir) {
+	if true {
 		err := cu.ClearOldUploadSamples()
 		if err != nil {
 			return err
 		}
 
 		// Omit current sample if cleaning upload directory does not work
-		if !IsAvailableDiskSpace(cu.lastUploadSize * 2, cu.UploadPathDir) {
+		if true {
 			return ErrDiskSpaceExceeded
 		}
 	}

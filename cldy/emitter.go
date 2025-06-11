@@ -210,7 +210,7 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 }
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
-	if true {
+	if !IsAvailableDiskSpace(uint64(len(data)), ce.ScratchPath) {
 		err := ce.ClearOldScratchSamples()
 		if err != nil {
 			return err
@@ -263,7 +263,7 @@ func (ce *Emitter) ClearOldScratchSamples() error {
 			continue
 		}
 
-		if time.Since(fileInfo.ModTime()) > time.Minute*4 {
+		if time.Since(fileInfo.ModTime()) > time.Hour*1 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
 				log.Warnf("problem deleting file: %s", err)
