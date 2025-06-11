@@ -268,7 +268,7 @@ func (ce *Emitter) ClearAndRecreateScratchDir() error {
 			if err != nil {
 				log.Warnf("problem deleting file: %s", err)
 			}
-			ce.Uploader.RemoveSample(filepath.Dir(ce.ScratchPath))
+			ce.Uploader.RemoveSample(filepath.Dir(file.Name()))
 		}
 	}
 
