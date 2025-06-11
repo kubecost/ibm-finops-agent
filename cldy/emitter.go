@@ -7,6 +7,7 @@ import (
 	"fmt"
 	url "net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -39,7 +40,6 @@ type Emitter struct {
 	Uploader          Uploader
 	ClusterID         *string
 	ScratchPath       string
-	testSample        int
 }
 
 type EmitterConfig struct {
@@ -210,8 +210,7 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 }
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
-	ce.testSample += 1
-	if ce.testSample % 6 == 0 {
+	if true {
 		err := ce.ClearAndRecreateScratchDir()
 		if err != nil {
 			return err
@@ -252,14 +251,24 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 func (ce Emitter) ClearAndRecreateScratchDir() error {
 	log.Infof("disk space threshold met. attempting to clean scratch directory.")
 
-	err := os.RemoveAll(ce.ScratchPath)
+	files, err := os.ReadDir(ce.ScratchPath)
 	if err != nil {
 		return err
 	}
+	for _, file := range files {
+		filePath := filepath.Join(ce.ScratchPath, file.Name())
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			log.Warnf("problem retrieving file information: %s", err)
+			continue
+		}
 
-	err = createIfNotExists(ce.ScratchPath)
-	if err != nil {
-		return fmt.Errorf("failed to recreate scratch directory: %s", err.Error())
+		if time.Since(fileInfo.ModTime()) > time.Minute * 4 {
+			err := os.RemoveAll(filePath)
+			if err != nil {
+				log.Warnf("problem deleting file: %s", err)
+			}
+		}
 	}
 
 	return nil
