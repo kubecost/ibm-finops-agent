@@ -287,7 +287,7 @@ func (cu *CldyUploader) uploadLoop() {
 			path, err := cu.ConstructPayload(time.Now().UTC())
 			if err != nil {
 				log.Warnf("did not construct cldy payload: %s", err)
-				return
+				continue
 			}
 			cu.uploadSet.add(path)
 			err = cu.uploadSet.operateAndRemove(cu.uploadData)
