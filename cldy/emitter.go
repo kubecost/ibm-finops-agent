@@ -210,8 +210,8 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 }
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
-	if true {
-		err := ce.ClearOldScratchSamples()
+	if !IsAvailableDiskSpace(uint64(len(data))) {
+		err := ce.ClearDayOldScratchSamples()
 		if err != nil {
 			return err
 		}
@@ -248,7 +248,7 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	return ce.writeAgentFile()
 }
 
-func (ce *Emitter) ClearOldScratchSamples() error {
+func (ce *Emitter) ClearDayOldScratchSamples() error {
 	log.Infof("disk space threshold met. attempting to clear samples over 1 day old.")
 
 	files, err := os.ReadDir(ce.ScratchPath)
@@ -263,7 +263,7 @@ func (ce *Emitter) ClearOldScratchSamples() error {
 			continue
 		}
 
-		if time.Since(fileInfo.ModTime()) > time.Minute * 4 {
+		if time.Since(fileInfo.ModTime()) > time.Hour * 24 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
 				log.Warnf("problem deleting file: %s", err)

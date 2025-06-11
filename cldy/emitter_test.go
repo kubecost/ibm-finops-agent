@@ -225,13 +225,20 @@ var _ = Describe("Emitter", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(files)).To(BeNumerically("==", 1))
 
+			// don't clear sample since it's recent
+			err = actualEmitter.ClearDayOldScratchSamples()
+			Expect(err).ToNot(HaveOccurred())
+			files, err = os.ReadDir(actualEmitter.ScratchPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(files)).To(BeNumerically("==", 1))
+
 			// change file mod time to be very old
 			filePath := filepath.Join(actualEmitter.ScratchPath, files[0].Name())
 			err = os.Chtimes(filePath, time.Now(), time.Date(1, 1, 1, 1, 1, 1, 1, time.Local))
 			Expect(err).ToNot(HaveOccurred())
 
-			// purge upload path
-			err = actualEmitter.ClearOldScratchSamples()
+			// clear samples
+			err = actualEmitter.ClearDayOldScratchSamples()
 			Expect(err).ToNot(HaveOccurred())
 
 			// check there are no files in the upload path
