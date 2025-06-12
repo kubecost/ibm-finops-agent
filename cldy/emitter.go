@@ -5,12 +5,14 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
 	url "net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/ibm/finops-agent/pkg/emitter"
@@ -208,6 +210,13 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 }
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
+	if !IsAvailableDiskSpace(uint64(len(data)), ce.ScratchPath) {
+		err := ce.ClearOldScratchSamples()
+		if err != nil {
+			return err
+		}
+	}
+
 	var fileName string
 	if outputPrefix == stats {
 		fileName = ce.currentSamplePath
@@ -237,6 +246,33 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 		}
 	}
 	return ce.writeAgentFile()
+}
+
+func (ce *Emitter) ClearOldScratchSamples() error {
+	log.Infof("disk space threshold met. attempting to clear samples over 1 hour old.")
+
+	files, err := os.ReadDir(ce.ScratchPath)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		filePath := filepath.Join(ce.ScratchPath, file.Name())
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			log.Warnf("problem retrieving file information: %s", err)
+			continue
+		}
+
+		if time.Since(fileInfo.ModTime()) > time.Hour*1 {
+			err := os.RemoveAll(filePath)
+			if err != nil {
+				log.Warnf("problem deleting file: %s", err)
+			}
+			ce.Uploader.RemoveSample(filePath + "/")
+		}
+	}
+
+	return nil
 }
 
 func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]proto.Message {

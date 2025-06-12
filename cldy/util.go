@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
+
+	"github.com/opencost/opencost/core/pkg/log"
 )
 
 func safeClose(closer func() error, err *error) {
@@ -105,4 +108,16 @@ func SafePath(elements ...string) string {
 		return path + string(filepath.Separator)
 	}
 	return path
+}
+
+func IsAvailableDiskSpace(dataSize uint64, dir string) bool {
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(dir, &stat)
+	if err != nil {
+		log.Errorf("error retrieving available disk space.")
+		return false
+	}
+
+	// Check if adding the new data will not exceed available space
+	return stat.Bavail*uint64(stat.Bsize) >= dataSize
 }

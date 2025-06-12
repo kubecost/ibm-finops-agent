@@ -161,6 +161,8 @@ var _ = Describe("Emitter", func() {
 				Expect(seenFiles).To(HaveKey(path))
 			}
 		})
+	})
+	Context("Emission", func() {
 		// Note: This test operates on a timer, so it could fail in a scenario where its execution
 		// is halted or slowed
 		It("should emit each time emission interval is satisifed", func() {
@@ -197,6 +199,52 @@ var _ = Describe("Emitter", func() {
 			err = cldyEmitter.Emit(context.TODO(), data)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(mockUpload.data)).To(Equal(1))
+		})
+		It("should clean old scratch samples on exceeded disk", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).NotTo(HaveOccurred())
+			defer os.RemoveAll(tempDir)
+			config := cldy.EmitterConfig{
+				UploaderConfig: cldy.UploaderConfig{
+					ScratchDir: tempDir,
+					ApptioConfig: cldy.ApptioConfig{
+						SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					},
+				},
+			}
+			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
+			actualEmitter := cldyEmitter.(*cldy.Emitter)
+
+			data, err := buildTestData()
+			Expect(err).NotTo(HaveOccurred())
+			err = cldyEmitter.Init(data)
+			Expect(err).NotTo(HaveOccurred())
+
+			// check number of files in upload path
+			files, err := os.ReadDir(actualEmitter.ScratchPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(files)).To(BeNumerically("==", 1))
+
+			// don't clear sample since it's recent
+			err = actualEmitter.ClearOldScratchSamples()
+			Expect(err).ToNot(HaveOccurred())
+			files, err = os.ReadDir(actualEmitter.ScratchPath )
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(files)).To(BeNumerically("==", 1))
+
+			// change file mod time to be very old
+			filePath := filepath.Join(actualEmitter.ScratchPath, files[0].Name())
+			err = os.Chtimes(filePath, time.Now(), time.Date(1, 1, 1, 1, 1, 1, 1, time.Local))
+			Expect(err).ToNot(HaveOccurred())
+
+			// clear samples
+			err = actualEmitter.ClearOldScratchSamples()
+			Expect(err).ToNot(HaveOccurred())
+
+			// check there are no files in the upload path
+			files, err = os.ReadDir(actualEmitter.ScratchPath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(len(files)).To(BeNumerically("==", 0))
 		})
 	})
 	Context("Config", func() {
@@ -251,6 +299,8 @@ func (m *mockUploader) SetClusterID(id string) {
 func (m *mockUploader) AddSample(sample string) {
 	m.data = append(m.data, sample)
 }
+
+func (m *mockUploader) RemoveSample(sample string) {}
 
 // ensure replicaSets with zero replicas are not emitted
 func checkForDeadReplicaSets(path string) error {

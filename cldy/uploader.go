@@ -19,8 +19,11 @@ import (
 
 var requiredFiles = []string{"baseline-summary", "stats-summary", "statefulsets", "services", "replicationcontrollers", "replicasets", "pods", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces", "jobs", "deployments", "daemonsets", "agent-measurement"}
 
+var ErrDiskSpaceExceeded = errors.New("upload directory cleaned and disk issue persists. omitting current upload.")
+
 type Uploader interface {
 	AddSample(sample string)
+	RemoveSample(sample string)
 	SetClusterID(id string)
 }
 
@@ -32,11 +35,12 @@ type CldyUploader struct {
 	stop             chan struct{}
 	clusterID        string
 	agentVersion     string
-	uploadPathDir    string
+	UploadPathDir    string
 	StorageServices  []StorageService
 	RecoveredSamples int
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
+	lastUploadSize   uint64
 }
 
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
@@ -84,7 +88,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		sampleSet:     newSet(),
 		uploadSet:     newSet(),
 		stop:          stop,
-		uploadPathDir: uploadPathDir,
+		UploadPathDir: uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
 		StorageServices: storageServices,
 		recoveryPeriod:  config.RecoveryPeriod,
@@ -109,30 +113,34 @@ type UploaderConfig struct {
 	RecoveryPeriod  time.Duration
 }
 
-func (ce *CldyUploader) AddSample(sample string) {
-	ce.sampleSet.add(sample)
+func (cu *CldyUploader) AddSample(sample string) {
+	cu.sampleSet.add(sample)
 }
 
-func (ce *CldyUploader) SetClusterID(id string) {
-	ce.clusterID = id
+func (cu *CldyUploader) RemoveSample(sample string) {
+	cu.sampleSet.remove(sample)
 }
 
-func (ce *CldyUploader) recoverDataOnStartup() error {
-	err := ce.recoverCompleteSamples()
-	err = errors.Join(err, ce.recoverUploadFiles())
+func (cu *CldyUploader) SetClusterID(id string) {
+	cu.clusterID = id
+}
+
+func (cu *CldyUploader) recoverDataOnStartup() error {
+	err := cu.recoverCompleteSamples()
+	err = errors.Join(err, cu.recoverUploadFiles())
 	if err != nil {
 		return fmt.Errorf("error(s) occurred attempting to recover data on startup. errors: %w", err)
 	}
 	return nil
 }
 
-func (ce *CldyUploader) recoverCompleteSamples() error {
+func (cu *CldyUploader) recoverCompleteSamples() error {
 	var currentDir string
 	var sampleTime time.Time
 	first := true
 	hasShipped := false
 	filesNeeded := getNeededFiles()
-	err := filepath.WalkDir(ce.config.ScratchDir+"/"+scratchPath, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(cu.config.ScratchDir+"/"+scratchPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -160,7 +168,7 @@ func (ce *CldyUploader) recoverCompleteSamples() error {
 		// this directory has a complete sample and should be added
 		if len(filesNeeded) == 0 && !hasShipped {
 			hasShipped = true
-			err = ce.recoverSample(currentDir, sampleTime)
+			err = cu.recoverSample(currentDir, sampleTime)
 			if err != nil {
 				return err
 			}
@@ -198,10 +206,10 @@ func (ce *CldyUploader) recoverCompleteSamples() error {
 
 // recover sample adds a completed sample to the set and constructs the upload file, construct handles
 // scratch dir clean up, the sample will be uploaded in first upload loop of the agent
-func (ce *CldyUploader) recoverSample(dir string, sampleTime time.Time) error {
-	ce.RecoveredSamples++
-	ce.AddSample(dir)
-	_, err := ce.ConstructPayload(sampleTime)
+func (cu *CldyUploader) recoverSample(dir string, sampleTime time.Time) error {
+	cu.RecoveredSamples++
+	cu.AddSample(dir)
+	_, err := cu.ConstructPayload(sampleTime)
 	if err != nil {
 		return fmt.Errorf("failed to construct sample payload: %v", err)
 	}
@@ -233,8 +241,8 @@ type agentMeasurement struct {
 	Timestamp int64 `json:"ts"`
 }
 
-func (ce *CldyUploader) recoverUploadFiles() error {
-	err := filepath.WalkDir(ce.uploadPathDir, func(path string, d fs.DirEntry, err error) error {
+func (cu *CldyUploader) recoverUploadFiles() error {
+	err := filepath.WalkDir(cu.UploadPathDir, func(path string, d fs.DirEntry, err error) error {
 		if !d.IsDir() {
 			parts := strings.Split(path, "_")
 			if len(parts) == 0 {
@@ -245,13 +253,13 @@ func (ce *CldyUploader) recoverUploadFiles() error {
 				return dErr
 			}
 			// remove and do not upload samples older than recovery Period
-			if time.Since(date.UTC()).Hours() > ce.recoveryPeriod.Hours() {
+			if time.Since(date.UTC()).Hours() > cu.recoveryPeriod.Hours() {
 				log.Infof("Cloudability sample is outside of recovery range, removing sample")
 				return os.Remove(path)
 			}
 			// add to uploadSet for future shipping & clean up will occur during next upload
-			ce.uploadSet.add(path)
-			ce.RecoveredUploads++
+			cu.uploadSet.add(path)
+			cu.RecoveredUploads++
 		}
 		return nil
 	})
@@ -266,23 +274,23 @@ func getNeededFiles() map[string]struct{} {
 	return filesNeeded
 }
 
-func (ce *CldyUploader) uploadLoop() {
-	ticker := time.Tick(ce.config.UploadFrequency)
+func (cu *CldyUploader) uploadLoop() {
+	ticker := time.Tick(cu.config.UploadFrequency)
 	for {
 		select {
-		case <-ce.stop:
+		case <-cu.stop:
 			return
 		case <-ticker:
-			if ce.sampleSet.length() == 0 {
+			if cu.sampleSet.length() == 0 {
 				continue
 			}
-			path, err := ce.ConstructPayload(time.Now().UTC())
+			path, err := cu.ConstructPayload(time.Now().UTC())
 			if err != nil {
-				// TODO: general error handling, maybe this can just be logged
-				panic("failed to construct cldy payload: " + err.Error())
+				log.Warnf("did not construct cldy payload: %s", err)
+				continue
 			}
-			ce.uploadSet.add(path)
-			err = ce.uploadSet.operateAndRemove(ce.uploadData)
+			cu.uploadSet.add(path)
+			err = cu.uploadSet.operateAndRemove(cu.uploadData)
 			if err != nil {
 				log.Warnf("error uploading: %s", err.Error())
 			}
@@ -290,9 +298,9 @@ func (ce *CldyUploader) uploadLoop() {
 	}
 }
 
-func (ce *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rerr error) {
+func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rerr error) {
 	files := make([]*os.File, 0)
-	for _, samplePath := range ce.sampleSet.contents() {
+	for _, samplePath := range cu.sampleSet.contents() {
 		file, err := os.Open(SafePath(samplePath))
 		if err != nil {
 			return "", err
@@ -302,10 +310,10 @@ func (ce *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 	defer safeCloseFiles(files, &rerr)
 
 	path = SafePath(
-		ce.uploadPathDir,
+		cu.UploadPathDir,
 		fmt.Sprintf(
 			"%s_%s.tgz",
-			ce.clusterID,
+			cu.clusterID,
 			sampleTime.Format("2006-01-02-15-04-05"),
 		),
 	)
@@ -314,40 +322,70 @@ func (ce *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 	if err != nil {
 		return "", err
 	}
-	err = createTGZ(ce.clusterID, tw, files...)
+	err = cu.createTGZ(tw, files...)
+	if err != nil && !errors.Is(err, ErrDiskSpaceExceeded) {
+		return "", err
+	}
+	// if disk is maxed and cleaning doesn't help, delete sample set and problematic tar before returning error
+	if err != nil && errors.Is(err, ErrDiskSpaceExceeded) {
+		sErr := os.RemoveAll(path)
+		if sErr != nil {
+			log.Warnf("failed to remove problematic tar: %s", sErr)
+		}
+		sErr = cu.removeSamples(files)
+		if sErr != nil {
+			log.Warnf("failed to remove samples: %s", sErr)
+		}
+		return "", err
+	}
+
+	err = cu.removeSamples(files)
 	if err != nil {
 		return "", err
 	}
-	for _, file := range files {
-		ce.sampleSet.remove(file.Name())
-		err = os.RemoveAll(file.Name())
-		// TODO: eval this case, shouldn't happen
-		if err != nil {
-			return "", err
-		}
-	}
+
 	return path, nil
 }
 
-func (ce *CldyUploader) uploadData(path string) error {
+func (cu *CldyUploader) removeSamples(files []*os.File) error {
+	for _, file := range files {
+		cu.sampleSet.remove(file.Name())
+		err := os.RemoveAll(file.Name())
+		// TODO: eval this case, shouldn't happen
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (cu *CldyUploader) uploadData(path string) error {
 	fileName, hash, err := getFileNameAndHash(path)
 	if err != nil {
 		return err
 	}
 	payload := UploadPayload{
-		ClusterUID:   ce.clusterID,
+		ClusterUID:   cu.clusterID,
 		FileName:     fileName,
-		AgentVersion: ce.agentVersion,
+		AgentVersion: cu.agentVersion,
 		UploadHash:   hash,
 		FilePath:     path,
 	}
 
-	for _, service := range ce.StorageServices {
+	for _, service := range cu.StorageServices {
 		err = service.Upload(payload)
 		if err != nil {
 			return err
 		}
 	}
+
+	// retain size of file before removal for disk calculation purposes
+	f, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	cu.lastUploadSize = uint64(f.Size())
 
 	// uploads data, then removes tar from path if successful
 	return os.Remove(path)
@@ -356,7 +394,20 @@ func (ce *CldyUploader) uploadData(path string) error {
 // createTGZ takes a source and variable writers and walks 'source' writing each file
 // found to the tar writer; the purpose for accepting multiple writers is to allow
 // for multiple outputs
-func createTGZ(clusterID string, writer io.Writer, srcs ...*os.File) (rerr error) {
+func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr error) {
+	// create a buffer of double the last upload size
+	if !IsAvailableDiskSpace(cu.lastUploadSize * 2, cu.UploadPathDir) {
+		err := cu.ClearOldUploadSamples()
+		if err != nil {
+			return err
+		}
+
+		// Omit current sample if cleaning upload directory does not work
+		if !IsAvailableDiskSpace(cu.lastUploadSize * 2, cu.UploadPathDir) {
+			return ErrDiskSpaceExceeded
+		}
+	}
+
 	gzw, _ := gzip.NewWriterLevel(writer, flate.BestCompression)
 	defer safeClose(gzw.Close, &rerr)
 	tw := tar.NewWriter(gzw)
@@ -388,7 +439,7 @@ func createTGZ(clusterID string, writer io.Writer, srcs ...*os.File) (rerr error
 
 			// if not a directory update the name to correctly reflect the desired destination when untaring
 			if !fileInfo.Mode().IsDir() {
-				header.Name = filepath.Join(filepath.Base(src.Name()), clusterID, strings.TrimPrefix(file, src.Name()))
+				header.Name = filepath.Join(filepath.Base(src.Name()), cu.clusterID, strings.TrimPrefix(file, src.Name()))
 			}
 			// write the header
 			if err := tw.WriteHeader(header); err != nil {
@@ -415,5 +466,32 @@ func createTGZ(clusterID string, writer io.Writer, srcs ...*os.File) (rerr error
 			return err
 		}
 	}
+	return nil
+}
+
+func (cu *CldyUploader) ClearOldUploadSamples() error {
+	log.Infof("disk space threshold met. attempting to clean uploads over recovery period.")
+
+	files, err := os.ReadDir(cu.UploadPathDir)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		filePath := filepath.Join(cu.UploadPathDir, file.Name())
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			log.Warnf("problem retrieving file information: %s", err)
+			continue
+		}
+
+		if time.Since(fileInfo.ModTime()) > cu.recoveryPeriod / 2 {
+			err := os.RemoveAll(filePath)
+			if err != nil {
+				log.Warnf("problem deleting file: %s", err)
+			}
+		}
+	}
+
 	return nil
 }
