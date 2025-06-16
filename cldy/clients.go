@@ -320,6 +320,9 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 	request.Header.Add("Accept", "application/json")
 	request.Header.Add("apptio-opentoken", s.OpenToken)
 	request.Header.Add("apptio-environmentid", s.EnvID)
+	
+	log.Infof("opentoken: %s", s.OpenToken)
+	log.Infof("env: %s", s.EnvID)
 
 	resp, err := s.CldyUploadClient.Do(request, presignedURLDescription)
 	if err != nil {
