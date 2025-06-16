@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -121,7 +120,7 @@ func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
 		CloudabilityURL:  cloudabilityURL,
 	}
 
-	log.Infof("testing cloudability upload connection")
+	log.Infof("Testing cloudability upload connection")
 	err = apptioService.testUpload()
 	if err != nil {
 		return nil, fmt.Errorf("cloudability test connection failed: %s", err)
@@ -268,10 +267,11 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 
 // testUpload tries to fetch the uploadURL for the cloudabilty upload path
 func (s *ApptioServiceImpl) testUpload() error {
+	// File name must follow format of UID then date
 	path := "/tmp/9f89af4e-5353-41a9-a7ca-42dce367006f_2006-01-02-15-04-05.tgz"
 	_, err := os.Create(path)
 	if err != nil {
-		return fmt.Errorf("could not create test upload file for cloudability")
+		return err
 	}
 	defer os.RemoveAll(path)
 
@@ -280,7 +280,7 @@ func (s *ApptioServiceImpl) testUpload() error {
 		return err
 	}
 
-	// gather opentoken from Frontdoor on first run or if token expired
+	// gather opentoken from Frontdoor on first run
 	if s.OpenToken == "" || time.Now().UTC().After(s.validTil) {
 		s.OpenToken, err = s.login()
 		if err != nil {
@@ -288,11 +288,11 @@ func (s *ApptioServiceImpl) testUpload() error {
 		}
 	}
 	testUpload := UploadPayload{
-		ClusterUID: "9f89af4e-5353-41a9-a7ca-42dce367006f",
-		FileName: fileName,
-		FilePath: path,
+		ClusterUID:   "9f89af4e-5353-41a9-a7ca-42dce367006f",
+		FileName:     fileName,
+		FilePath:     path,
 		AgentVersion: "1.0.0",
-		UploadHash: hash,
+		UploadHash:   hash,
 	}
 
 	_, err = s.getUploadURL(testUpload)
@@ -326,11 +326,6 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 	request.Header.Add("Accept", "application/json")
 	request.Header.Add("apptio-opentoken", s.OpenToken)
 	request.Header.Add("apptio-environmentid", s.EnvID)
-	
-	log.Infof("url: %s", url)
-	log.Infof("opentoken: %s", s.OpenToken)
-	log.Infof("env: %s", s.EnvID)
-	log.Infof("agent version: %s", payload.AgentVersion)
 
 	resp, err := s.CldyUploadClient.Do(request, presignedURLDescription)
 	if err != nil {
@@ -397,8 +392,6 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		}
 		if resp != nil {
 			log.Errorf("Request failed with status code %s", resp.Status)
-			body, _ := io.ReadAll(resp.Body)
-			log.Errorf("failed with: %s", body)
 		}
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
@@ -612,7 +605,7 @@ func newBlobServicePrincipalClient(customBlobUrl string, azureTentantID string, 
 			body[i] = 0
 		}
 	}()
-	
+
 	cred, err := azidentity.NewClientSecretCredential(azureTentantID, azureClientID, string(body),
 		nil)
 	if err != nil {

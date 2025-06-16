@@ -343,9 +343,9 @@ var _ = Describe("Uploader", func() {
 		It("should upload to custom azure blob", func() {
 			config := defaultConfig(tempDir)
 			config.CustomAzureBlobContainerName = "a"
-			config.CustomAzureBlobUrl =          "testurl"
-			config.CustomAzureTenantID =           "1"
-			config.CustomAzureClientID =          "1"
+			config.CustomAzureBlobUrl = "testurl"
+			config.CustomAzureTenantID = "1"
+			config.CustomAzureClientID = "1"
 			config.CustomAzureClientSecret = cldy.NewValueSecretManager("1")
 
 			stopCh := make(chan struct{})
