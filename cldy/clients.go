@@ -273,7 +273,14 @@ func (s *ApptioServiceImpl) testUpload() error {
 		return fmt.Errorf("could not create test upload file for cloudability")
 	}
 	defer os.RemoveAll(path)
-	
+
+	// gather opentoken from Frontdoor on first run or if token expired
+	if s.OpenToken == "" || time.Now().UTC().After(s.validTil) {
+		s.OpenToken, err = s.login()
+		if err != nil {
+			return err
+		}
+	}
 	testUpload := UploadPayload{
 		ClusterUID: "test-upload",
 		FileName: "test",
