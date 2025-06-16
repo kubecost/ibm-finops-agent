@@ -125,7 +125,7 @@ func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cloudability test connection failed: %s", err)
 	}
-
+	log.Infof("Cloudability upload test succeeded")
 	return apptioService, nil
 }
 
