@@ -274,6 +274,11 @@ func (s *ApptioServiceImpl) testUpload() error {
 	}
 	defer os.RemoveAll(path)
 
+	fileName, hash, err := getFileNameAndHash(path)
+	if err != nil {
+		return err
+	}
+
 	// gather opentoken from Frontdoor on first run or if token expired
 	if s.OpenToken == "" || time.Now().UTC().After(s.validTil) {
 		s.OpenToken, err = s.login()
@@ -283,10 +288,10 @@ func (s *ApptioServiceImpl) testUpload() error {
 	}
 	testUpload := UploadPayload{
 		ClusterUID: "test-upload",
-		FileName: "test",
+		FileName: fileName,
 		FilePath: path,
 		AgentVersion: "1.0.0",
-		UploadHash: "aexCzQgBAnRYEZxKy71lAw==",
+		UploadHash: hash,
 	}
 
 	_, err = s.getUploadURL(testUpload)
@@ -321,6 +326,7 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 	request.Header.Add("apptio-opentoken", s.OpenToken)
 	request.Header.Add("apptio-environmentid", s.EnvID)
 	
+	log.Infof("url: %s", url)
 	log.Infof("opentoken: %s", s.OpenToken)
 	log.Infof("env: %s", s.EnvID)
 
