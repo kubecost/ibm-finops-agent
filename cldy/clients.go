@@ -268,7 +268,7 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 
 // testUpload tries to fetch the uploadURL for the cloudabilty upload path
 func (s *ApptioServiceImpl) testUpload() error {
-	path := "/tmp/test.txt"
+	path := "/tmp/9f89af4e-5353-41a9-a7ca-42dce367006f_2006-01-02-15-04-05.tgz"
 	_, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("could not create test upload file for cloudability")
