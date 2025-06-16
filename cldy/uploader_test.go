@@ -37,13 +37,7 @@ var _ = Describe("Uploader", func() {
 	})
 	Context("TestBuildTar", func() {
 		It("should build Tar", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-				},
-			}
+			config := defaultConfig(tempDir)
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
@@ -61,14 +55,9 @@ var _ = Describe("Uploader", func() {
 			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
 		})
 		It("should clean old tars on exceeded disk", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-				},
-				RecoveryPeriod: time.Hour,
-			}
+			config := defaultConfig(tempDir)
+			config.RecoveryPeriod = time.Hour
+
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
@@ -108,14 +97,7 @@ var _ = Describe("Uploader", func() {
 	})
 	Context("TestTarCleanup", func() {
 		It("should cleanup Tar", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					EnvID:         "1",
-				},
-			}
+			config := defaultConfig(tempDir)
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
@@ -126,7 +108,7 @@ var _ = Describe("Uploader", func() {
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)
 			mockService := cldy.ApptioServiceImpl{}
-			actualUploader.StorageServices[0] = &mockService
+			actualUploader.StorageServices = append(actualUploader.StorageServices, &mockService)
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			time.Sleep(time.Second)
 			fileInfo, err := os.Stat(tempDir + "/upload")
@@ -136,15 +118,8 @@ var _ = Describe("Uploader", func() {
 	})
 	Context("TestStartupRecovery", func() {
 		It("should recover complete sample", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-				// 100 years (should recover all samples)
-				RecoveryPeriod: 1000000 * time.Hour,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-				},
-			}
+			config := defaultConfig(tempDir)
+			config.RecoveryPeriod = 100000 * time.Hour
 			// copy over data before creating uploader simulating recovery state
 			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
@@ -161,15 +136,10 @@ var _ = Describe("Uploader", func() {
 			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
 		})
 		It("should recover sample but not upload when outside recovery range", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-				// 1 hour (will not recover as agent-measurement timestamp is old)
-				RecoveryPeriod: 1 * time.Hour,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-				},
-			}
+			config := defaultConfig(tempDir)
+			// 1 hour (will not recover as agent-measurement timestamp is old)
+			config.RecoveryPeriod = 1 * time.Hour
+
 			// copy over data before creating uploader simulating recovery state
 			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
@@ -186,15 +156,10 @@ var _ = Describe("Uploader", func() {
 			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
 		})
 		It("should not recover incomplete sample", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-				// 100 years (should recover all samples if complete)
-				RecoveryPeriod: 1000000 * time.Hour,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-				},
-			}
+			config := defaultConfig(tempDir)
+			// 100 years (should recover all samples if complete)
+			config.RecoveryPeriod = 1000000 * time.Hour
+
 			// copy over data before creating uploader simulating recovery state
 			err := copyIncompleteData(tempDir+"/scratch/temp_test_data", "testdata", []string{"deployments.jsonl"})
 			Expect(err).ToNot(HaveOccurred())
@@ -211,15 +176,10 @@ var _ = Describe("Uploader", func() {
 			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
 		})
 		It("should recover multiple complete samples and ignore 1 incomplete sample", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-				// 100 years (should recover all samples)
-				RecoveryPeriod: 1000000 * time.Hour,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-				},
-			}
+			config := defaultConfig(tempDir)
+			// 100 years (should recover all samples)
+			config.RecoveryPeriod = 1000000 * time.Hour
+
 			// copy over data before creating uploader simulating recovery state
 			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
@@ -246,14 +206,7 @@ var _ = Describe("Uploader", func() {
 	})
 	Context("TestUpload", func() {
 		It("should upload", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					EnvID:         "1",
-				},
-			}
+			config := defaultConfig(tempDir)
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
@@ -265,7 +218,7 @@ var _ = Describe("Uploader", func() {
 				CldyUploadClient: &mockClientService{},
 				SecretManager:    cldy.NewKeyValueSecretManager("bad-key", ""),
 			}
-			actualUploader.StorageServices[0] = &service
+			actualUploader.StorageServices = append(actualUploader.StorageServices, &service)
 			payload := cldy.UploadPayload{
 				ClusterUID:   "bad-cluster",
 				FileName:     "temp_test_data",
@@ -288,14 +241,9 @@ var _ = Describe("Uploader", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("should only login once", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: 250 * time.Millisecond,
-				ScratchDir:      tempDir,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					EnvID:         "1",
-				},
-			}
+			config := defaultConfig(tempDir)
+			config.UploadFrequency = 250 * time.Millisecond
+
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
@@ -309,7 +257,7 @@ var _ = Describe("Uploader", func() {
 				CldyUploadClient: &mcs,
 				SecretManager:    cldy.NewKeyValueSecretManager("good-key", ""),
 			}
-			actualUploader.StorageServices[0] = &service
+			actualUploader.StorageServices = append(actualUploader.StorageServices, &service)
 
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			time.Sleep(500 * time.Millisecond)
@@ -327,14 +275,9 @@ var _ = Describe("Uploader", func() {
 		})
 
 		It("should log back in if required", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: 250 * time.Millisecond,
-				ScratchDir:      tempDir,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					EnvID:         "1",
-				},
-			}
+			config := defaultConfig(tempDir)
+			config.UploadFrequency = 250 * time.Millisecond
+
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
@@ -348,7 +291,7 @@ var _ = Describe("Uploader", func() {
 				CldyUploadClient: &mcs,
 				SecretManager:    cldy.NewKeyValueSecretManager("short-lived-token", ""),
 			}
-			actualUploader.StorageServices[0] = &service
+			actualUploader.StorageServices = append(actualUploader.StorageServices, &service)
 
 			uploader.AddSample(tempDir + "/scratch/temp_test_data")
 			time.Sleep(500 * time.Millisecond)
@@ -365,14 +308,7 @@ var _ = Describe("Uploader", func() {
 			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(2))
 		})
 		It("should upload to custom s3 bucket", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					EnvID:         "1",
-				},
-			}
+			config := defaultConfig(tempDir)
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
@@ -384,7 +320,7 @@ var _ = Describe("Uploader", func() {
 			service := cldy.CustomS3Client{
 				UploadClient: uploadClient,
 			}
-			actualUploader.StorageServices[0] = &service
+			actualUploader.StorageServices = append(actualUploader.StorageServices, &service)
 
 			// Succeed on a good filename
 			payload := cldy.UploadPayload{
@@ -405,19 +341,13 @@ var _ = Describe("Uploader", func() {
 			Expect(err.Error()).To(ContainSubstring("error parsing name from sample filename"))
 		})
 		It("should upload to custom azure blob", func() {
-			config := cldy.UploaderConfig{
-				UploadFrequency: time.Hour,
-				ScratchDir:      tempDir,
-				ApptioConfig: cldy.ApptioConfig{
-					SecretManager:                cldy.NewKeyValueSecretManager("", ""),
-					EnvID:                        "1",
-					CustomAzureBlobContainerName: "a",
-					CustomAzureBlobUrl:           "testurl",
-					CustomAzureTenantID:          "1",
-					CustomAzureClientID:          "1",
-					CustomAzureClientSecret:      cldy.NewValueSecretManager("1"),
-				},
-			}
+			config := defaultConfig(tempDir)
+			config.CustomAzureBlobContainerName = "a"
+			config.CustomAzureBlobUrl =          "testurl"
+			config.CustomAzureTenantID =           "1"
+			config.CustomAzureClientID =          "1"
+			config.CustomAzureClientSecret = cldy.NewValueSecretManager("1")
+
 			stopCh := make(chan struct{})
 			defer close(stopCh)
 			uploader := cldy.NewCldyUploader(config, stopCh)
@@ -451,6 +381,17 @@ var _ = Describe("Uploader", func() {
 		})
 	})
 })
+
+func defaultConfig(tempDir string) cldy.UploaderConfig {
+	return cldy.UploaderConfig{
+		UploadFrequency: time.Hour,
+		ScratchDir:      tempDir,
+		ApptioConfig: cldy.ApptioConfig{
+			SecretManager: cldy.NewKeyValueSecretManager("", ""),
+			EnvID:         "1",
+		},
+	}
+}
 
 // copies the entire directory
 func copyCompleteData(destination, source string) error {

@@ -111,14 +111,22 @@ func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
 
 	frontdoorURL, cloudabilityURL := getURLsFromRegion(config.Region)
 
-	return &ApptioServiceImpl{
+	apptioService := &ApptioServiceImpl{
 		SecretManager:    config.SecretManager,
 		EnvID:            config.EnvID,
 		OpenToken:        config.OpenToken,
 		CldyUploadClient: NewApptioClient(config),
 		FrontdoorURL:     frontdoorURL,
 		CloudabilityURL:  cloudabilityURL,
-	}, nil
+	}
+
+	log.Infof("testing cloudability upload connection")
+	err = apptioService.testUpload()
+	if err != nil {
+		return nil, fmt.Errorf("cloudability test connection failed: %s", err)
+	}
+
+	return apptioService, nil
 }
 
 // ApptioClient is the client used in the cloudability uploader
@@ -255,6 +263,30 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 	// add some buffer to prevent a failure during upload window
 	s.validTil = time.UnixMilli(validTill).Add(-10 * time.Minute)
 	return openToken, nil
+}
+
+// testUpload tries to fetch the uploadURL for the cloudabilty upload path
+func (s *ApptioServiceImpl) testUpload() error {
+	path := "/tmp/test.txt"
+	_, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("could not create test upload file for cloudability")
+	}
+	defer os.RemoveAll(path)
+	
+	testUpload := UploadPayload{
+		ClusterUID: "test-upload",
+		FileName: "test",
+		FilePath: path,
+		AgentVersion: "1.0.0",
+		UploadHash: "aexCzQgBAnRYEZxKy71lAw==",
+	}
+
+	_, err = s.getUploadURL(testUpload)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // getUploadURL request to Cloudability to gather the presigned s3 URL that allows the agent to
