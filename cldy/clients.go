@@ -287,7 +287,7 @@ func (s *ApptioServiceImpl) testUpload() error {
 		}
 	}
 	testUpload := UploadPayload{
-		ClusterUID: "test-upload",
+		ClusterUID: "9f89af4e-5353-41a9-a7ca-42dce367006f",
 		FileName: fileName,
 		FilePath: path,
 		AgentVersion: "1.0.0",
