@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -396,7 +397,8 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		}
 		if resp != nil {
 			log.Errorf("Request failed with status code %s", resp.Status)
-			log.Errorf("failed with: %s", resp.Body)
+			body, _ := io.ReadAll(resp.Body)
+			log.Errorf("failed with: %s", body)
 		}
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
