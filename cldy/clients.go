@@ -329,6 +329,7 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 	log.Infof("url: %s", url)
 	log.Infof("opentoken: %s", s.OpenToken)
 	log.Infof("env: %s", s.EnvID)
+	log.Infof("agent version: %s", payload.AgentVersion)
 
 	resp, err := s.CldyUploadClient.Do(request, presignedURLDescription)
 	if err != nil {
@@ -395,6 +396,7 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		}
 		if resp != nil {
 			log.Errorf("Request failed with status code %s", resp.Status)
+			log.Errorf("failed with: %s", resp.Body)
 		}
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
