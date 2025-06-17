@@ -296,12 +296,23 @@ func (s *ApptioServiceImpl) testUpload() error {
 	request.Header.Set(contentTypeHeader, "multipart/form-data")
 	request.Header.Set(contentMD5, testUpload.UploadHash)
 
-	resp, err := s.CldyUploadClient.Do(request, s3UploadDescription)
-	if err != nil && resp.StatusCode == 403 {
-		return nil
+	// Allow multiple attempts for test upload
+	for i := 1; i < 4; i++ {
+		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
+		// Should return 403 with improper url
+		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
+			return nil
+		}
+		if err != nil {
+			log.Warnf("Test HTTPS request failed with error %s", err.Error())
+		}
+		if resp != nil {
+			log.Warnf("Test upload %d failed with status code %s", i, resp.Status)
+		}
+		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
 
-	return fmt.Errorf("bucket upload returned unexpected status code: %d", resp.StatusCode)
+	return fmt.Errorf("bucket upload exceeded max amount of failures")
 }
 
 // getUploadURL request to Cloudability to gather the presigned s3 URL that allows the agent to
