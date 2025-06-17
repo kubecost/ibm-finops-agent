@@ -267,39 +267,41 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 
 // testUpload tries to fetch the uploadURL for the cloudabilty upload path
 func (s *ApptioServiceImpl) testUpload() error {
-	// File name must follow format of UID then date
-	path := "/tmp/9f89af4e-5353-41a9-a7ca-42dce367006f_2006-01-02-15-04-05.tgz"
-	_, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(path)
-
-	fileName, hash, err := getFileNameAndHash(path)
+	var err error
+	s.OpenToken, err = s.login()
 	if err != nil {
 		return err
 	}
 
-	// gather opentoken from Frontdoor on first run
-	if s.OpenToken == "" || time.Now().UTC().After(s.validTil) {
-		s.OpenToken, err = s.login()
-		if err != nil {
-			return err
-		}
-	}
 	testUpload := UploadPayload{
 		ClusterUID:   "9f89af4e-5353-41a9-a7ca-42dce367006f",
-		FileName:     fileName,
-		FilePath:     path,
+		FileName:     "9f89af4e-5353-41a9-a7ca-42dce367006f_2006-01-02-15-04-05.tgz",
+		FilePath:     "9f89af4e-5353-41a9-a7ca-42dce367006f_2006-01-02-15-04-05.tgz",
 		AgentVersion: "1.0.0",
-		UploadHash:   hash,
+		UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 	}
 
-	_, err = s.getUploadURL(testUpload)
+	presignedURL, err := s.getUploadURL(testUpload)
 	if err != nil {
 		return err
 	}
-	return nil
+
+	// Break presigned URL
+	presignedURL += "testUpload"
+
+	request, err := http.NewRequest(http.MethodPost, presignedURL, new(bytes.Buffer))
+	if err != nil {
+		return err
+	}
+	request.Header.Set(contentTypeHeader, "multipart/form-data")
+	request.Header.Set(contentMD5, testUpload.UploadHash)
+
+	resp, err := s.CldyUploadClient.Do(request, s3UploadDescription)
+	if err != nil && resp.StatusCode == 403 {
+		return nil
+	}
+
+	return fmt.Errorf("bucket upload returned unexpected status code: %d", resp.StatusCode)
 }
 
 // getUploadURL request to Cloudability to gather the presigned s3 URL that allows the agent to
