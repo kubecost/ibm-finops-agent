@@ -24,8 +24,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-const EmissionFrequency time.Duration = time.Minute
-
 func initLogging() {
 	// Setup viper to read from the env, this allows reading flags from the command line or the env
 	// using the format 'LOG_LEVEL'
@@ -77,7 +75,8 @@ func main() {
 	defer server.Shutdown(context.Background())
 
 	// Initialize/Bootstrap the Agent Data Source
-	dataSource := core.NewAgentDataSource(router, diag, EmissionFrequency)
+	emissionInterval := env.GetExporterEmissionInterval()
+	dataSource := core.NewAgentDataSource(router, diag, emissionInterval)
 
 	var emitters []emitter.Emitter
 
@@ -108,7 +107,7 @@ func main() {
 	snapshotProvider := emitter.NewConcurrentSnapshotProvider(emitter.NewSnapshotConfigFromEnv())
 	exporter := emitter.NewExporter(dataSource, snapshotProvider, emitters...)
 
-	if ok := exporter.Start(EmissionFrequency); !ok {
+	if ok := exporter.Start(emissionInterval); !ok {
 		panic("Failed to start exporter")
 	}
 

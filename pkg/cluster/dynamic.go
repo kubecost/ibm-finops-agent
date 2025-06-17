@@ -1,12 +1,13 @@
 package cluster
 
 import (
-	"github.com/ibm/finops-agent/pkg/env"
-	cache2 "k8s.io/client-go/tools/cache"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ibm/finops-agent/pkg/env"
+	cache2 "k8s.io/client-go/tools/cache"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -134,8 +135,12 @@ type DynamicClusterCache struct {
 	slpDuration    time.Duration
 }
 
-func NewDynamicClusterCache(cfg *rest.Config, defaultResync time.Duration, sanitizeData bool,
-	slpDuration time.Duration) (ClusterCache, error) {
+func NewDynamicClusterCache(
+	cfg *rest.Config,
+	defaultResync time.Duration,
+	sanitizeData bool,
+	slpDuration time.Duration,
+) (ClusterCache, error) {
 	client, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return nil, err
