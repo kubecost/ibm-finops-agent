@@ -14,6 +14,9 @@ const (
 	CloudyEmitterEnabledEnvVar   = "CLOUDY_EMITTER_ENABLED"
 	TurboEmitterEnabledEnvVar    = "TURBO_EMITTER_ENABLED"
 
+	// Exporter Emission Interval
+	ExporterEmissionIntervalEnvVar = "EXPORTER_EMISSION_INTERVAL"
+
 	// Go Debug
 	PProfEnabledEnvVar = "PPROF_ENABLED"
 
@@ -56,6 +59,12 @@ func IsCloudyEmitterEnabled() bool {
 
 func IsTurboEmitterEnabled() bool {
 	return env.GetBool(TurboEmitterEnabledEnvVar, true)
+}
+
+// GetExporterEmissionInterval returns the interval at which the exporter will snapshot and emit data
+// to all the emitters. The default is 1 minute.
+func GetExporterEmissionInterval() time.Duration {
+	return env.GetDuration(ExporterEmissionIntervalEnvVar, 1*time.Minute)
 }
 
 func IsOpenCostDataSourceEnabled() bool {

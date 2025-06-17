@@ -32,12 +32,11 @@ type DataSource interface {
 	StatsSummary() nodes.StatSummaryClient
 }
 
-var (
-	defaultCacheResyncDuration = 60 * time.Minute
-)
-
-func NewAgentDataSource(router *httprouter.Router, diag diagnostics.DiagnosticService,
-	interval time.Duration) DataSource {
+func NewAgentDataSource(
+	router *httprouter.Router,
+	diag diagnostics.DiagnosticService,
+	interval time.Duration,
+) DataSource {
 	// NOTE: (bolt) This just uses a fairly straight-forward kube client initialization. We should add specific proxy/auth
 	// NOTE: (bolt) requirements for the other data sources.
 	kubeClientset, err := kubeconfig.LoadKubeClient("")
