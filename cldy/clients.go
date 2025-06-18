@@ -111,14 +111,22 @@ func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
 
 	frontdoorURL, cloudabilityURL := getURLsFromRegion(config.Region)
 
-	return &ApptioServiceImpl{
+	apptioService := &ApptioServiceImpl{
 		SecretManager:    config.SecretManager,
 		EnvID:            config.EnvID,
 		OpenToken:        config.OpenToken,
 		CldyUploadClient: NewApptioClient(config),
 		FrontdoorURL:     frontdoorURL,
 		CloudabilityURL:  cloudabilityURL,
-	}, nil
+	}
+
+	log.Infof("Testing cloudability upload connection")
+	err = apptioService.testUpload()
+	if err != nil {
+		return nil, fmt.Errorf("cloudability test connection failed: %s", err)
+	}
+	log.Infof("Cloudability upload test succeeded")
+	return apptioService, nil
 }
 
 // ApptioClient is the client used in the cloudability uploader
@@ -255,6 +263,56 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 	// add some buffer to prevent a failure during upload window
 	s.validTil = time.UnixMilli(validTill).Add(-10 * time.Minute)
 	return openToken, nil
+}
+
+// testUpload tries to fetch the uploadURL for the cloudabilty upload path
+func (s *ApptioServiceImpl) testUpload() error {
+	var err error
+	s.OpenToken, err = s.login()
+	if err != nil {
+		return err
+	}
+
+	testUpload := UploadPayload{
+		ClusterUID:   "9f89af4e-5353-41a9-a7ca-42dce367006f",
+		FileName:     "9f89af4e-5353-41a9-a7ca-42dce367006f_2006-01-02-15-04-05.tgz",
+		FilePath:     "9f89af4e-5353-41a9-a7ca-42dce367006f_2006-01-02-15-04-05.tgz",
+		AgentVersion: "1.0.0",
+		UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
+	}
+
+	presignedURL, err := s.getUploadURL(testUpload)
+	if err != nil {
+		return err
+	}
+
+	// Break presigned URL
+	presignedURL += "testUpload"
+
+	request, err := http.NewRequest(http.MethodPost, presignedURL, new(bytes.Buffer))
+	if err != nil {
+		return err
+	}
+	request.Header.Set(contentTypeHeader, "multipart/form-data")
+	request.Header.Set(contentMD5, testUpload.UploadHash)
+
+	// Allow multiple attempts for test upload
+	for i := 1; i < 4; i++ {
+		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
+		// Should return 403 with improper url
+		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
+			return nil
+		}
+		if err != nil {
+			log.Warnf("Test HTTPS request failed with error %s", err.Error())
+		}
+		if resp != nil {
+			log.Warnf("Test upload %d failed with status code %s", i, resp.Status)
+		}
+		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
+	}
+
+	return fmt.Errorf("bucket upload exceeded max amount of failures")
 }
 
 // getUploadURL request to Cloudability to gather the presigned s3 URL that allows the agent to
@@ -560,7 +618,7 @@ func newBlobServicePrincipalClient(customBlobUrl string, azureTentantID string, 
 			body[i] = 0
 		}
 	}()
-	
+
 	cred, err := azidentity.NewClientSecretCredential(azureTentantID, azureClientID, string(body),
 		nil)
 	if err != nil {
