@@ -16,6 +16,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/ibm/finops-agent/pkg/version"
 
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/spf13/viper"
@@ -37,6 +38,7 @@ type Emitter struct {
 	sampleCt          int
 	currentSamplePath string
 	nextSamplePath    string
+	agentVersion      string
 	Uploader          Uploader
 	ClusterID         *string
 	ScratchPath       string
@@ -115,6 +117,7 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 		startTime:        currentTime,
 		lastEmission:     currentTime,
 		emissionInterval: config.EmissionInterval,
+		agentVersion:     version.AgentVersion,
 	}
 }
 
@@ -378,7 +381,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	now := time.Now()
 	values := map[string]string{}
 	metrics := map[string]int{}
-	values["agent_version"] = "TODO"
+	values["agent_version"] = version.AgentVersion
 	values["cluster_name"] = ce.config.ApptioConfig.ClusterName
 	if ce.config.ProxyURL != nil {
 		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
@@ -386,8 +389,9 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values["insecure"] = strconv.FormatBool(ce.config.ApptioConfig.ProxyInsecure)
 	values["parse_metrics_data"] = strconv.FormatBool(ce.config.ParseMetricData)
 	values["upload_region"] = ce.config.Region
-	values["custom_s3_bucket"] = "TODO"
-	values["custom_s3_region"] = "TODO"
+	values["custom_s3_bucket"] = ce.config.CustomS3UploadBucket
+	values["custom_s3_region"] = ce.config.CustomS3UploadRegion
+	values["custom_azure_blob_name"] = ce.config.CustomAzureBlobContainerName
 	metrics["uptime"] = int(now.UTC().Sub(ce.startTime).Seconds())
 	agent := agentData{
 		Name:    "cldy_agent_status",
