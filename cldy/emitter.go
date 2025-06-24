@@ -381,7 +381,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	now := time.Now()
 	values := map[string]string{}
 	metrics := map[string]int{}
-	values["agent_version"] = version.AgentVersion
+	values["agent_version"] = ce.agentVersion
 	values["cluster_name"] = ce.config.ApptioConfig.ClusterName
 	if ce.config.ProxyURL != nil {
 		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
