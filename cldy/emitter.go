@@ -495,8 +495,8 @@ func (ce *Emitter) fetchAgentVersion(pods []*v1.Pod) error {
 	
 	for _, pod := range pods {
 		for _, container := range pod.Spec.Containers {
-			log.Infof("Container: %s", container.Name)
 			if rContainer.MatchString(container.Name) {
+				log.Infof("Images: %s", container.Image)
 				if rTag.MatchString(container.Image) {
 					ce.agentVersion = rTag.FindString(container.Image)[1:]
 				}
