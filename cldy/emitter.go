@@ -76,12 +76,19 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		}
 	}
 
+	keyAccess := getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
+	keySecret := getSecretFromFileVolume(viper.GetString("KEY_SECRET_FILEPATH"))
+	envID := getSecretFromFileVolume(viper.GetString("ENV_ID_FILEPATH"))
+	var azureBlobClientSecret string
+	if keySecret == "" || keyAccess == "" || envID == "" {
+		azureBlobClientSecret = getSecretFromFileVolume("CUSTOM_AZURE_BLOB_CLIENT_SECRET_FILEPATH")
+	}
 	return EmitterConfig{
 		UploaderConfig: UploaderConfig{
 			ApptioConfig: ApptioConfig{
 				ClusterName:                  viper.GetString("CLUSTER_NAME"),
-				SecretManager:                NewKeyValueSecretManager(viper.GetString("KEY_ACCESS"), viper.GetString("KEY_SECRET")),
-				EnvID:                        viper.GetString("ENV_ID"),
+				SecretManager:                NewKeyValueSecretManager(keyAccess, keySecret),
+				EnvID:                        envID,
 				Timeout:                      time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
 				Retries:                      viper.GetInt("UPLOAD_RETRY_COUNT"),
 				ProxyURL:                     outboundProxyUrl,
@@ -94,7 +101,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 				CustomAzureBlobUrl:           viper.GetString("CUSTOM_AZURE_BLOB_URL"),
 				CustomAzureTenantID:          viper.GetString("CUSTOM_AZURE_BLOB_TENANT_ID"),
 				CustomAzureClientID:          viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
-				CustomAzureClientSecret:      NewValueSecretManager(viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_SECRET")),
+				CustomAzureClientSecret:      NewValueSecretManager(azureBlobClientSecret),
 			},
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),
@@ -124,6 +131,16 @@ func createIfNotExists(path string) error {
 		return err
 	}
 	return os.MkdirAll(path, os.ModePerm)
+}
+
+// getSecretFromFileVolume attempts to gather secret from filepath
+func getSecretFromFileVolume(filepath string) string {
+	key, err := os.ReadFile(filepath)
+	if err != nil {
+		log.Warnf("error attempting to collect secret from file: %s with err: %v", filepath, err)
+		return ""
+	}
+	return string(key)
 }
 
 func (ce *Emitter) ID() emitter.EmitterID {
