@@ -222,7 +222,6 @@ var _ = Describe("Uploader", func() {
 			payload := cldy.UploadPayload{
 				ClusterUID:   "bad-cluster",
 				FileName:     "temp_test_data",
-				AgentVersion: "1.0.0",
 				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
 			}
@@ -326,7 +325,6 @@ var _ = Describe("Uploader", func() {
 			payload := cldy.UploadPayload{
 				ClusterUID:   "good-cluster",
 				FileName:     goodFileName,
-				AgentVersion: "1.0.0",
 				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
 			}
@@ -365,7 +363,6 @@ var _ = Describe("Uploader", func() {
 			payload := cldy.UploadPayload{
 				ClusterUID:   "good-cluster",
 				FileName:     goodFileName,
-				AgentVersion: "1.0.0",
 				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
 			}
@@ -475,7 +472,6 @@ type mockfrontdoorRequestBody struct {
 type mockGetURLRequestBody struct {
 	ClusterUID   string `json:"ClusterUID"`
 	FileName     string `json:"FileName"`
-	AgentVersion string `json:"AgentVersion"`
 	UploadHash   string `json:"UploadHash"`
 }
 

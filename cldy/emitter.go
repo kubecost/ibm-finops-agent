@@ -8,6 +8,7 @@ import (
 	url "net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/ibm/finops-agent/pkg/emitter"
-	"github.com/ibm/finops-agent/pkg/version"
 
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/spf13/viper"
@@ -117,7 +117,6 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 		startTime:        currentTime,
 		lastEmission:     currentTime,
 		emissionInterval: config.EmissionInterval,
-		agentVersion:     version.AgentVersion,
 	}
 }
 
@@ -155,6 +154,12 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	err = ce.writeStatsData(cs.NodeStats)
 	if err != nil {
 		return err
+	}
+
+	// Set agent version
+	err = ce.fetchAgentVersion(cs.Kubernetes.Pods)
+	if err != nil {
+		log.Warnf("issue retrieving agent version, could result in difficulty debugging: %s", err)
 	}
 
 	ce.sampleCt = 0
@@ -473,4 +478,30 @@ func (ce *Emitter) shouldDownsample() bool {
 		return false
 	}
 	return true
+}
+
+func (ce *Emitter) fetchAgentVersion(pods []*v1.Pod) error {
+	// Regex for image tag, includes colon
+	rTag, err := regexp.Compile(":(.*)")
+	if err != nil {
+		return fmt.Errorf("error compiling regex.")
+	}
+
+	// Regex for container name
+	rContainer, err := regexp.Compile(".*finops-agent.*")
+	if err != nil {
+		return fmt.Errorf("error compiling regex.")
+	}
+	
+	for _, pod := range pods {
+		for _, container := range pod.Spec.Containers {
+			if rContainer.MatchString(container.Name) {
+				if rTag.MatchString(container.Image) {
+					ce.agentVersion = rTag.FindString(container.Image)[1:]
+				}
+			}
+		}
+	}
+
+	return fmt.Errorf("agent deployment has unexpected configuration")
 }

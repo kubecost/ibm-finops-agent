@@ -64,7 +64,6 @@ func (ac ApptioClient) Do(r *http.Request, requestDescription string) (*http.Res
 type UploadPayload struct {
 	ClusterUID   string `json:"clusterUID"`
 	FileName     string `json:"fileName"`
-	AgentVersion string `json:"agentVersion"`
 	UploadHash   string `json:"uploadHash"`
 	FilePath     string `json:"-"`
 }
@@ -277,7 +276,6 @@ func (s *ApptioServiceImpl) testUpload() error {
 		ClusterUID:   "9f89af4e-5353-41a9-a7ca-42dce367006f",
 		FileName:     "9f89af4e-5353-41a9-a7ca-42dce367006f_2006-01-02-15-04-05.tgz",
 		FilePath:     "9f89af4e-5353-41a9-a7ca-42dce367006f_2006-01-02-15-04-05.tgz",
-		AgentVersion: "1.0.0",
 		UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 	}
 
@@ -322,7 +320,6 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 	body, err := json.Marshal(map[string]interface{}{
 		"clusterUID":   payload.ClusterUID,
 		"fileName":     payload.FileName,
-		"agentVersion": payload.AgentVersion,
 		"uploadHash":   payload.UploadHash,
 	})
 	if err != nil {

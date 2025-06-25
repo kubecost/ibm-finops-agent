@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/util/json"
 )
@@ -34,7 +33,6 @@ type CldyUploader struct {
 	uploadSet        *set
 	stop             chan struct{}
 	clusterID        string
-	agentVersion     string
 	UploadPathDir    string
 	StorageServices  []StorageService
 	RecoveredSamples int
@@ -92,7 +90,6 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		// TODO: dynamically pick client based upon upload config
 		StorageServices: storageServices,
 		recoveryPeriod:  config.RecoveryPeriod,
-		agentVersion:    version.AgentVersion,
 	}
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
@@ -369,7 +366,6 @@ func (cu *CldyUploader) uploadData(path string) error {
 	payload := UploadPayload{
 		ClusterUID:   cu.clusterID,
 		FileName:     fileName,
-		AgentVersion: cu.agentVersion,
 		UploadHash:   hash,
 		FilePath:     path,
 	}
