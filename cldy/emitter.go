@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/ibm/finops-agent/pkg/version"
 
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/spf13/viper"
@@ -154,12 +154,6 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	err = ce.writeStatsData(cs.NodeStats)
 	if err != nil {
 		return err
-	}
-
-	// Set agent version
-	err = ce.fetchAgentVersion(cs.Kubernetes.Pods)
-	if err != nil {
-		log.Warnf("issue retrieving agent version, could result in difficulty debugging: %s", err)
 	}
 
 	ce.sampleCt = 0
@@ -386,7 +380,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	now := time.Now()
 	values := map[string]string{}
 	metrics := map[string]int{}
-	values["agent_version"] = ce.agentVersion
+	values["agent_version"] = version.Version
 	values["cluster_name"] = ce.config.ApptioConfig.ClusterName
 	if ce.config.ProxyURL != nil {
 		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
@@ -479,20 +473,4 @@ func (ce *Emitter) shouldDownsample() bool {
 		return false
 	}
 	return true
-}
-
-func (ce *Emitter) fetchAgentVersion(pods []*v1.Pod) error {
-	for _, pod := range pods {
-		for _, container := range pod.Spec.Containers {
-			if strings.Contains(container.Name, "finops-agent") {
-				// Verify tag exists
-				if strings.Contains(container.Image, ":") {
-					ce.agentVersion = strings.Split(container.Image, ":")[1]
-					return nil
-				}
-			}
-		}
-	}
-
-	return fmt.Errorf("agent deployment has unexpected configuration")
 }
