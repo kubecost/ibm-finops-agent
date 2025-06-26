@@ -77,26 +77,40 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 			return EmitterConfig{}, fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
 		}
 	}
+	// check for custom mode env vars
+	customS3UploadBucket := viper.GetString("CUSTOM_S3_UPLOAD_BUCKET")
+	customS3UploadRegion := viper.GetString("CUSTOM_S3_UPLOAD_REGION")
+	customAzureBlobContainerName := viper.GetString("CUSTOM_AZURE_BLOB_CONTAINER_NAME")
 
+	var azureBlobClientSecret string
+	if customAzureBlobContainerName != "" {
+		azureBlobClientSecret = getSecretFromFileVolume("CUSTOM_AZURE_BLOB_CLIENT_SECRET_FILEPATH")
+	}
+	var keyAccess, keySecret, envID string
+	if customS3UploadBucket == "" && customS3UploadRegion == "" && customAzureBlobContainerName == "" {
+		keyAccess = getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
+		keySecret = getSecretFromFileVolume(viper.GetString("KEY_SECRET_FILEPATH"))
+		envID = getSecretFromFileVolume(viper.GetString("ENV_ID_FILEPATH"))
+	}
 	return EmitterConfig{
 		UploaderConfig: UploaderConfig{
 			ApptioConfig: ApptioConfig{
 				ClusterName:                  viper.GetString("CLUSTER_NAME"),
-				SecretManager:                NewKeyValueSecretManager(viper.GetString("KEY_ACCESS"), viper.GetString("KEY_SECRET")),
-				EnvID:                        viper.GetString("ENV_ID"),
+				SecretManager:                NewKeyValueSecretManager(keyAccess, keySecret),
+				EnvID:                        envID,
 				Timeout:                      time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
 				Retries:                      viper.GetInt("UPLOAD_RETRY_COUNT"),
 				ProxyURL:                     outboundProxyUrl,
 				ProxyAuth:                    viper.GetString("OUTBOUND_PROXY_AUTH"),
 				ProxyInsecure:                viper.GetBool("OUTBOUND_PROXY_INSECURE"),
 				Region:                       viper.GetString("UPLOAD_REGION"),
-				CustomS3UploadBucket:         viper.GetString("CUSTOM_S3_UPLOAD_BUCKET"),
-				CustomS3UploadRegion:         viper.GetString("CUSTOM_S3_UPLOAD_REGION"),
-				CustomAzureBlobContainerName: viper.GetString("CUSTOM_AZURE_BLOB_CONTAINER_NAME"),
+				CustomS3UploadBucket:         customS3UploadBucket,
+				CustomS3UploadRegion:         customS3UploadRegion,
+				CustomAzureBlobContainerName: customAzureBlobContainerName,
 				CustomAzureBlobUrl:           viper.GetString("CUSTOM_AZURE_BLOB_URL"),
 				CustomAzureTenantID:          viper.GetString("CUSTOM_AZURE_BLOB_TENANT_ID"),
 				CustomAzureClientID:          viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
-				CustomAzureClientSecret:      NewValueSecretManager(viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_SECRET")),
+				CustomAzureClientSecret:      NewValueSecretManager(azureBlobClientSecret),
 			},
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),
@@ -126,6 +140,16 @@ func createIfNotExists(path string) error {
 		return err
 	}
 	return os.MkdirAll(path, os.ModePerm)
+}
+
+// getSecretFromFileVolume attempts to gather secret from filepath
+func getSecretFromFileVolume(filepath string) string {
+	key, err := os.ReadFile(filepath)
+	if err != nil {
+		log.Warnf("error attempting to collect secret from file: %s with err: %v", filepath, err)
+		return ""
+	}
+	return string(key)
 }
 
 func (ce *Emitter) ID() emitter.EmitterID {
