@@ -85,7 +85,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		azureBlobClientSecret = getSecretFromFileVolume("CUSTOM_AZURE_BLOB_CLIENT_SECRET_FILEPATH")
 	}
 	var keyAccess, keySecret, envID string
-	if customS3UploadBucket == "" && customS3UploadRegion == "" {
+	if customS3UploadBucket == "" && customS3UploadRegion == "" && customAzureBlobContainerName == "" {
 		keyAccess = getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
 		keySecret = getSecretFromFileVolume(viper.GetString("KEY_SECRET_FILEPATH"))
 		envID = getSecretFromFileVolume(viper.GetString("ENV_ID_FILEPATH"))
