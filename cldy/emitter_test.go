@@ -296,6 +296,8 @@ func (m *mockUploader) SetClusterID(id string) {
 	m.clusterID = id
 }
 
+func (m *mockUploader) SetAgentVersion(version string) {}
+
 func (m *mockUploader) AddSample(sample string) {
 	m.data = append(m.data, sample)
 }

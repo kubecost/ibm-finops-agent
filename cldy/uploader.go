@@ -25,14 +25,17 @@ type Uploader interface {
 	AddSample(sample string)
 	RemoveSample(sample string)
 	SetClusterID(id string)
+	SetAgentVersion(version string)
 }
 
 type CldyUploader struct {
 	config           UploaderConfig
+	tickerCh         time.Ticker
 	sampleSet        *set
 	uploadSet        *set
 	stop             chan struct{}
 	clusterID        string
+	agentVersion     string
 	UploadPathDir    string
 	StorageServices  []StorageService
 	RecoveredSamples int
@@ -121,6 +124,10 @@ func (cu *CldyUploader) RemoveSample(sample string) {
 
 func (cu *CldyUploader) SetClusterID(id string) {
 	cu.clusterID = id
+}
+
+func (cu *CldyUploader) SetAgentVersion(version string) {
+	cu.agentVersion = version
 }
 
 func (cu *CldyUploader) recoverDataOnStartup() error {
@@ -366,6 +373,7 @@ func (cu *CldyUploader) uploadData(path string) error {
 	payload := UploadPayload{
 		ClusterUID:   cu.clusterID,
 		FileName:     fileName,
+		AgentVersion: cu.agentVersion,
 		UploadHash:   hash,
 		FilePath:     path,
 	}
