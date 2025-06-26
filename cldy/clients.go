@@ -64,7 +64,7 @@ func (ac ApptioClient) Do(r *http.Request, requestDescription string) (*http.Res
 type UploadPayload struct {
 	ClusterUID   string `json:"clusterUID"`
 	FileName     string `json:"fileName"`
-	AgentVersion string `json:"AgentVersion"`
+	AgentVersion string `json:"agentVersion"`
 	UploadHash   string `json:"uploadHash"`
 	FilePath     string `json:"-"`
 }

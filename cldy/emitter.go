@@ -77,7 +77,6 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 			return EmitterConfig{}, fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
 		}
 	}
-
 	// check for custom mode env vars
 	customS3UploadBucket := viper.GetString("CUSTOM_S3_UPLOAD_BUCKET")
 	customS3UploadRegion := viper.GetString("CUSTOM_S3_UPLOAD_REGION")
