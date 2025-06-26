@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/ibm/finops-agent/pkg/emitter"
-	"github.com/ibm/finops-agent/pkg/version"
 
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/spf13/viper"
@@ -77,40 +77,26 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 			return EmitterConfig{}, fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
 		}
 	}
-	// check for custom mode env vars
-	customS3UploadBucket := viper.GetString("CUSTOM_S3_UPLOAD_BUCKET")
-	customS3UploadRegion := viper.GetString("CUSTOM_S3_UPLOAD_REGION")
-	customAzureBlobContainerName := viper.GetString("CUSTOM_AZURE_BLOB_CONTAINER_NAME")
 
-	var azureBlobClientSecret string
-	if customAzureBlobContainerName != "" {
-		azureBlobClientSecret = getSecretFromFileVolume("CUSTOM_AZURE_BLOB_CLIENT_SECRET_FILEPATH")
-	}
-	var keyAccess, keySecret, envID string
-	if customS3UploadBucket == "" && customS3UploadRegion == "" && customAzureBlobContainerName == "" {
-		keyAccess = getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
-		keySecret = getSecretFromFileVolume(viper.GetString("KEY_SECRET_FILEPATH"))
-		envID = getSecretFromFileVolume(viper.GetString("ENV_ID_FILEPATH"))
-	}
 	return EmitterConfig{
 		UploaderConfig: UploaderConfig{
 			ApptioConfig: ApptioConfig{
 				ClusterName:                  viper.GetString("CLUSTER_NAME"),
-				SecretManager:                NewKeyValueSecretManager(keyAccess, keySecret),
-				EnvID:                        envID,
+				SecretManager:                NewKeyValueSecretManager(viper.GetString("KEY_ACCESS"), viper.GetString("KEY_SECRET")),
+				EnvID:                        viper.GetString("ENV_ID"),
 				Timeout:                      time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
 				Retries:                      viper.GetInt("UPLOAD_RETRY_COUNT"),
 				ProxyURL:                     outboundProxyUrl,
 				ProxyAuth:                    viper.GetString("OUTBOUND_PROXY_AUTH"),
 				ProxyInsecure:                viper.GetBool("OUTBOUND_PROXY_INSECURE"),
 				Region:                       viper.GetString("UPLOAD_REGION"),
-				CustomS3UploadBucket:         customS3UploadBucket,
-				CustomS3UploadRegion:         customS3UploadRegion,
-				CustomAzureBlobContainerName: customAzureBlobContainerName,
+				CustomS3UploadBucket:         viper.GetString("CUSTOM_S3_UPLOAD_BUCKET"),
+				CustomS3UploadRegion:         viper.GetString("CUSTOM_S3_UPLOAD_REGION"),
+				CustomAzureBlobContainerName: viper.GetString("CUSTOM_AZURE_BLOB_CONTAINER_NAME"),
 				CustomAzureBlobUrl:           viper.GetString("CUSTOM_AZURE_BLOB_URL"),
 				CustomAzureTenantID:          viper.GetString("CUSTOM_AZURE_BLOB_TENANT_ID"),
 				CustomAzureClientID:          viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
-				CustomAzureClientSecret:      NewValueSecretManager(azureBlobClientSecret),
+				CustomAzureClientSecret:      NewValueSecretManager(viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_SECRET")),
 			},
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),
@@ -142,16 +128,6 @@ func createIfNotExists(path string) error {
 	return os.MkdirAll(path, os.ModePerm)
 }
 
-// getSecretFromFileVolume attempts to gather secret from filepath
-func getSecretFromFileVolume(filepath string) string {
-	key, err := os.ReadFile(filepath)
-	if err != nil {
-		log.Warnf("error attempting to collect secret from file: %s with err: %v", filepath, err)
-		return ""
-	}
-	return string(key)
-}
-
 func (ce *Emitter) ID() emitter.EmitterID {
 	return emitter.CldyEmitterID
 }
@@ -178,6 +154,12 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	err = ce.writeStatsData(cs.NodeStats)
 	if err != nil {
 		return err
+	}
+
+	// Set agent version
+	err = ce.fetchAgentVersion(cs.Kubernetes.Pods)
+	if err != nil {
+		log.Warnf("issue retrieving agent version, could result in difficulty debugging: %s", err)
 	}
 
 	ce.sampleCt = 0
@@ -404,7 +386,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	now := time.Now()
 	values := map[string]string{}
 	metrics := map[string]int{}
-	values["agent_version"] = version.Version
+	values["agent_version"] = ce.agentVersion
 	values["cluster_name"] = ce.config.ApptioConfig.ClusterName
 	if ce.config.ProxyURL != nil {
 		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
@@ -497,4 +479,20 @@ func (ce *Emitter) shouldDownsample() bool {
 		return false
 	}
 	return true
+}
+
+func (ce *Emitter) fetchAgentVersion(pods []*v1.Pod) error {
+	for _, pod := range pods {
+		for _, container := range pod.Spec.Containers {
+			if strings.Contains(container.Name, "finops-agent") {
+				// Verify tag exists
+				if strings.Contains(container.Image, ":") {
+					ce.agentVersion = strings.Split(container.Image, ":")[1]
+					return nil
+				}
+			}
+		}
+	}
+
+	return fmt.Errorf("agent deployment has unexpected configuration")
 }
