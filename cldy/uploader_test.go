@@ -326,8 +326,8 @@ var _ = Describe("Uploader", func() {
 			payload := cldy.UploadPayload{
 				ClusterUID:   "good-cluster",
 				FileName:     goodFileName,
-				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				AgentVersion: "1.0.0",
+				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
 			}
 			err = actualUploader.StorageServices[0].Upload(payload)
