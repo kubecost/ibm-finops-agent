@@ -75,13 +75,20 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 			return EmitterConfig{}, fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
 		}
 	}
+	// check for custom mode env vars
+	customS3UploadBucket := viper.GetString("CUSTOM_S3_UPLOAD_BUCKET")
+	customS3UploadRegion := viper.GetString("CUSTOM_S3_UPLOAD_REGION")
+	customAzureBlobContainerName := viper.GetString("CUSTOM_AZURE_BLOB_CONTAINER_NAME")
 
-	keyAccess := getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
-	keySecret := getSecretFromFileVolume(viper.GetString("KEY_SECRET_FILEPATH"))
-	envID := getSecretFromFileVolume(viper.GetString("ENV_ID_FILEPATH"))
 	var azureBlobClientSecret string
-	if keySecret == "" || keyAccess == "" || envID == "" {
+	if customAzureBlobContainerName != "" {
 		azureBlobClientSecret = getSecretFromFileVolume("CUSTOM_AZURE_BLOB_CLIENT_SECRET_FILEPATH")
+	}
+	var keyAccess, keySecret, envID string
+	if customS3UploadBucket == "" && customS3UploadRegion == "" {
+		keyAccess = getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
+		keySecret = getSecretFromFileVolume(viper.GetString("KEY_SECRET_FILEPATH"))
+		envID = getSecretFromFileVolume(viper.GetString("ENV_ID_FILEPATH"))
 	}
 	return EmitterConfig{
 		UploaderConfig: UploaderConfig{
@@ -95,9 +102,9 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 				ProxyAuth:                    viper.GetString("OUTBOUND_PROXY_AUTH"),
 				ProxyInsecure:                viper.GetBool("OUTBOUND_PROXY_INSECURE"),
 				Region:                       viper.GetString("UPLOAD_REGION"),
-				CustomS3UploadBucket:         viper.GetString("CUSTOM_S3_UPLOAD_BUCKET"),
-				CustomS3UploadRegion:         viper.GetString("CUSTOM_S3_UPLOAD_REGION"),
-				CustomAzureBlobContainerName: viper.GetString("CUSTOM_AZURE_BLOB_CONTAINER_NAME"),
+				CustomS3UploadBucket:         customS3UploadBucket,
+				CustomS3UploadRegion:         customS3UploadRegion,
+				CustomAzureBlobContainerName: customAzureBlobContainerName,
 				CustomAzureBlobUrl:           viper.GetString("CUSTOM_AZURE_BLOB_URL"),
 				CustomAzureTenantID:          viper.GetString("CUSTOM_AZURE_BLOB_TENANT_ID"),
 				CustomAzureClientID:          viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
