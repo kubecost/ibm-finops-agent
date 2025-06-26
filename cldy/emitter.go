@@ -8,8 +8,8 @@ import (
 	url "net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -392,6 +392,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
 	}
 	values["insecure"] = strconv.FormatBool(ce.config.ApptioConfig.ProxyInsecure)
+	values["emission_interval"] = ce.emissionInterval.String()
 	values["parse_metrics_data"] = strconv.FormatBool(ce.config.ParseMetricData)
 	values["upload_region"] = ce.config.Region
 	values["custom_s3_bucket"] = ce.config.CustomS3UploadBucket
@@ -481,23 +482,12 @@ func (ce *Emitter) shouldDownsample() bool {
 }
 
 func (ce *Emitter) fetchAgentVersion(pods []*v1.Pod) error {
-	// Regex for image tag, includes colon
-	rTag, err := regexp.Compile(":(.*)")
-	if err != nil {
-		return fmt.Errorf("error compiling regex.")
-	}
-
-	// Regex for container name
-	rContainer, err := regexp.Compile(".*finops-agent.*")
-	if err != nil {
-		return fmt.Errorf("error compiling regex.")
-	}
-	
 	for _, pod := range pods {
 		for _, container := range pod.Spec.Containers {
-			if rContainer.MatchString(container.Name) {
-				if rTag.MatchString(container.Image) {
-					ce.agentVersion = rTag.FindString(container.Image)[1:]
+			if strings.Contains(container.Name, "finops-agent") {
+				// Verify tag exists
+				if strings.Contains(container.Image, ":") {
+					ce.agentVersion = strings.Split(container.Image, ":")[1]
 					return nil
 				}
 			}
