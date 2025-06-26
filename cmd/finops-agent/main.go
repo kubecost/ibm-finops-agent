@@ -72,7 +72,10 @@ func main() {
 	}()
 
 	<-started
-	defer server.Shutdown(context.Background())
+	defer func() {
+		err := server.Shutdown(context.Background())
+		log.Errorf("%s", err)
+	}()
 
 	// Initialize/Bootstrap the Agent Data Source
 	emissionInterval := env.GetExporterEmissionInterval()
@@ -94,6 +97,7 @@ func main() {
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
 	if env.IsTurboEmitterEnabled() {
+		log.Warnf("turbo emitter not yet implemented.")
 		//emitters = append(emitters, emitter.NewTurboEmitter(dataSource))
 	}
 

@@ -74,7 +74,7 @@ var _ = Describe("Emitter", func() {
 				"stats-summary-nodename4.json",
 			}
 			seenFiles := map[string]struct{}{}
-			filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+			err = filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
 				if !info.IsDir() {
 					parts := strings.Split(path, "/")
 					name := parts[len(parts)-1]
@@ -82,6 +82,7 @@ var _ = Describe("Emitter", func() {
 				}
 				return nil
 			})
+			Expect(err).NotTo(HaveOccurred())
 			for _, path := range expectedData {
 				Expect(seenFiles).To(HaveKey(path))
 			}
@@ -137,17 +138,17 @@ var _ = Describe("Emitter", func() {
 				"stats-summary-nodename4.json",
 			}
 			seenFiles := map[string]struct{}{}
-			filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+			err = filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
 				if !info.IsDir() {
 					switch {
 					case strings.Contains(path, "replicasets"):
-						err = checkForDeadReplicaSets(path)
+						err := checkForDeadReplicaSets(path)
 						Expect(err).NotTo(HaveOccurred())
 					case strings.Contains(path, "pods"):
-						err = checkForDeadPods(path)
+						err := checkForDeadPods(path)
 						Expect(err).NotTo(HaveOccurred())
 					case strings.Contains(path, "jobs"):
-						err = checkForDeadJobs(path)
+						err := checkForDeadJobs(path)
 						Expect(err).NotTo(HaveOccurred())
 					}
 					parts := strings.Split(path, "/")
@@ -157,6 +158,7 @@ var _ = Describe("Emitter", func() {
 				}
 				return nil
 			})
+			Expect(err).NotTo(HaveOccurred())
 			for _, path := range expectedData {
 				Expect(seenFiles).To(HaveKey(path))
 			}
@@ -381,7 +383,7 @@ func buildTestData() (*emitter.ClusterSnapshot, error) {
 	metadata.PersistentVolumeClaims, errs[8] = loadPVCs()
 	metadata.ReplicationControllers, errs[9] = loadReplicationControllers()
 	metadata.Services, errs[10] = loadServices()
-	//metadata.StatefulSets, errs[11] = loadStatefulSets()
+	metadata.StatefulSets, errs[11] = loadStatefulSets()
 
 	nodeStats.Stats, errs[12] = loadStats()
 

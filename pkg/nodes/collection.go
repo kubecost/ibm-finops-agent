@@ -3,7 +3,6 @@ package nodes
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"sync"
@@ -123,7 +122,7 @@ type nodeFetchData struct {
 }
 
 // retrieveNodeData fetches summary and container data for the node
-func retrieveNodeData(endpoint string, connectionMethods []connectionMethod, bearerToken string) (*http.Response, error) {
+func retrieveNodeData(endpoint string, connectionMethods []connectionMethod, bearerToken string) ([]byte, error) {
 
 	// Fail after trying all connections the alloted number of retries
 	for _, cm := range connectionMethods {
@@ -198,17 +197,10 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 	return "", 0, fmt.Errorf("Could not find internal IP address for node %s ", node.Name)
 }
 
-func nodeResponseToStatSummary(resp *http.Response) (*stats.Summary, error) {
-	defer resp.Body.Close()
-
+func nodeResponseToStatSummary(resp []byte) (*stats.Summary, error) {
 	data := &stats.Summary{}
 
-	bytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("could not read response body: %w", err)
-	}
-
-	err = json.Unmarshal(bytes, data)
+	err := json.Unmarshal(resp, data)
 	if err != nil {
 		return nil, fmt.Errorf("could not unmarshal response body: %w", err)
 	}

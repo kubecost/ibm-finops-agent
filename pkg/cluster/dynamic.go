@@ -189,7 +189,6 @@ func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod interface{})
 			castedPod.Status.StartTime.After(time.Now().Add(-dcc.slpDuration)) {
 			dcc.addShortLivedPod(&castedPod)
 		}
-		return
 	}
 }
 
