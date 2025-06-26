@@ -509,9 +509,9 @@ func (ce *Emitter) fetchAgentVersion(pods []*v1.Pod) error {
 	for _, pod := range pods {
 		for _, container := range pod.Spec.Containers {
 			if strings.Contains(container.Name, "finops-agent") {
-				// Verify tag exists
-				if strings.Contains(container.Image, ":") {
-					version := strings.Split(container.Image, ":")[1]
+				// Verify tag exists with preceding 'v'
+				if strings.Contains(container.Image, ":v") {
+					version := strings.Split(container.Image, ":v")[1]
 					ce.agentVersion = version
 					ce.Uploader.SetAgentVersion(version)
 					return nil
