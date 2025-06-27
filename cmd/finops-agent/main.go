@@ -84,12 +84,16 @@ func main() {
 		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv()
 		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
 
+		if err := kubecost.ValidateConfig(kubecostEmitterConfig); err != nil {
+			panic("invalid kubecost emitter config: " + err.Error())
+		}
+
 		emitters = append(emitters, kubecost.NewKubecostEmitter(diag, kubecostEmitterConfig))
 	}
 	if env.IsCloudyEmitterEnabled() {
 		cldyConfig, err := cldy.NewEmitterConfigFromEnv()
 		if err != nil {
-			panic("invalid cloudability emitter config " + err.Error())
+			panic("invalid cloudability emitter config: " + err.Error())
 		}
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
