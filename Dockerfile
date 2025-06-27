@@ -68,8 +68,8 @@ RUN cd ./ibm-finops-agent && go mod download
 RUN cd ./ibm-finops-agent/cmd/finops-agent && set -e ;\
     go build -a -installsuffix cgo \
     -ldflags \
-    "-X github.com/opencost/opencost/core/pkg/version.Version=${version} \
-    -X github.com/opencost/opencost/core/pkg/version.GitCommit=${commit}" \
+    "-X github.com/ibm/finops-agent/pkg/version.Version=${version} \
+    -X github.com/ibm/finops-agent/pkg/version.GitCommit=${commit}" \
     -o /go/bin/app
 
 
