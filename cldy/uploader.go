@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/util/json"
 )
@@ -25,7 +26,6 @@ type Uploader interface {
 	AddSample(sample string)
 	RemoveSample(sample string)
 	SetClusterID(id string)
-	SetAgentVersion(version string)
 }
 
 type CldyUploader struct {
@@ -85,14 +85,15 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	}
 
 	uploader := CldyUploader{
-		config:        config,
-		sampleSet:     newSet(),
-		uploadSet:     newSet(),
-		stop:          stop,
-		UploadPathDir: uploadPathDir,
+		config:          config,
+		sampleSet:       newSet(),
+		uploadSet:       newSet(),
+		stop:            stop,
+		UploadPathDir:   uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
 		StorageServices: storageServices,
 		recoveryPeriod:  config.RecoveryPeriod,
+		agentVersion:    version.Version,
 	}
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
@@ -124,10 +125,6 @@ func (cu *CldyUploader) RemoveSample(sample string) {
 
 func (cu *CldyUploader) SetClusterID(id string) {
 	cu.clusterID = id
-}
-
-func (cu *CldyUploader) SetAgentVersion(version string) {
-	cu.agentVersion = version
 }
 
 func (cu *CldyUploader) recoverDataOnStartup() error {
@@ -373,7 +370,7 @@ func (cu *CldyUploader) uploadData(path string) error {
 	payload := UploadPayload{
 		ClusterUID:   cu.clusterID,
 		FileName:     fileName,
-		AgentVersion: cu.agentVersion,
+		AgentVersion: "1.0.0", // TODO: Change to cu.agentVersion once semantic version tagging is implemented.
 		UploadHash:   hash,
 		FilePath:     path,
 	}
