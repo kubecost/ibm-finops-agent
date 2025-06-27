@@ -29,7 +29,6 @@ type Uploader interface {
 
 type CldyUploader struct {
 	config           UploaderConfig
-	tickerCh         time.Ticker
 	sampleSet        *set
 	uploadSet        *set
 	stop             chan struct{}
