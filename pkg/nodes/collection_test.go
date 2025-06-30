@@ -149,7 +149,7 @@ func loadNodes() ([]*v1.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeCloseTest(file.Close)
 	var nodes []*v1.Node
 	decoder := json.NewDecoder(file)
 	for decoder.More() {

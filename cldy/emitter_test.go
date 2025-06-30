@@ -26,7 +26,7 @@ var _ = Describe("Emitter", func() {
 		It("should load data", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
-			safeRemove(tempDir)
+			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
 				UploaderConfig: cldy.UploaderConfig{
 					ScratchDir: tempDir,
@@ -90,7 +90,7 @@ var _ = Describe("Emitter", func() {
 		It("should load data as JSON and skip un-allocatable resources", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
-			safeRemove(tempDir)
+			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
 				UploaderConfig: cldy.UploaderConfig{
 					ScratchDir: tempDir,
@@ -170,7 +170,7 @@ var _ = Describe("Emitter", func() {
 		It("should emit each time emission interval is satisifed", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
-			safeRemove(tempDir)
+			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
 				UploaderConfig: cldy.UploaderConfig{
 					ScratchDir: tempDir,
@@ -205,7 +205,7 @@ var _ = Describe("Emitter", func() {
 		It("should clean old scratch samples on exceeded disk", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
-			safeRemove(tempDir)
+			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
 				UploaderConfig: cldy.UploaderConfig{
 					ScratchDir: tempDir,
@@ -254,7 +254,7 @@ var _ = Describe("Emitter", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).ToNot(HaveOccurred())
 
-			safeRemove(tempDir)
+			defer safeRemove(tempDir)
 			config, err := cldy.NewEmitterConfigFromEnv()
 			Expect(err).ToNot(HaveOccurred())
 
@@ -269,7 +269,7 @@ var _ = Describe("Emitter", func() {
 			t := GinkgoT()
 			t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "1.1.1.1")
 
-			safeRemove(tempDir)
+			defer safeRemove(tempDir)
 			config, err := cldy.NewEmitterConfigFromEnv()
 			Expect(err).ToNot(HaveOccurred())
 
@@ -282,7 +282,7 @@ var _ = Describe("Emitter", func() {
 			t := GinkgoT()
 			t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "2.2.2.2:2")
 
-			safeRemove(tempDir)
+			defer safeRemove(tempDir)
 			_, err = cldy.NewEmitterConfigFromEnv()
 			Expect(err).To(HaveOccurred())
 		})

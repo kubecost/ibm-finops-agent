@@ -33,7 +33,7 @@ func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) 
 
 // makeRequest will call out to an endpoint and attempt to decode the body into an existing
 // data type.
-func (c *Client) makeRequest(method string, URL string, bearerToken string) ([]byte, error) {
+func (c *Client) makeRequest(method string, URL string, bearerToken string) (data []byte, err error) {
 	request, err := http.NewRequest(method, URL, nil)
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func (c *Client) makeRequest(method string, URL string, bearerToken string) ([]b
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer safeClose(resp.Body.Close, &err)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))

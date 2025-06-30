@@ -26,7 +26,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	localProxy := env.GetNodeStatsLocalProxy()
 
 	if strings.TrimSpace(clusterName) == "" {
-		return NodeClientConfig{}, fmt.Errorf("Cluster name is required and cannot be exclusively whitespace.")
+		return NodeClientConfig{}, fmt.Errorf("cluster name is required and cannot be exclusively whitespace")
 	}
 
 	if concurrentPollers <= 0 {
