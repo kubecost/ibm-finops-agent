@@ -116,16 +116,18 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 
 	// all pipeline export controllers
 	pipelineControllers := exporter.NewPipelineExportControllers(ke.config.ClusterID, bucketStore, costModel, pipelineConfig)
-	pipelineControllers.Start(ke.config.ExportInterval)
+	pipelineControllers.AllocationExportController.Start(ke.config.ExportIntervals.AllocationInterval)
+	pipelineControllers.AssetExportController.Start(ke.config.ExportIntervals.AssetInterval)
+	pipelineControllers.NetworkInsightExportController.Start(ke.config.ExportIntervals.NetworkInsightInterval)
 
 	// agent presence and heartbeat
 	heartbeatMetadata := heartbeatexporter.NewClusterInfoMetadataProvider(clusterInfo)
 	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.ClusterID, string(emitter.KubecostEmitterID), version.FriendlyVersion(), bucketStore, heartbeatMetadata)
-	agentHeartbeat.Start(5 * time.Minute)
+	agentHeartbeat.Start(ke.config.ExportIntervals.HeartbeatInterval)
 
 	// diagnostics exporter
 	diagnosticsExporter := diagexporter.NewDiagnosticsExportController(ke.config.ClusterID, string(emitter.KubecostEmitterID), bucketStore, ke.diag)
-	diagnosticsExporter.Start(time.Minute)
+	diagnosticsExporter.Start(ke.config.ExportIntervals.DiagnosticsInterval)
 
 	// initialize emitter's internal state
 	ke.cloudProvider = cloudProvider
