@@ -164,7 +164,7 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 		return nil
 	}
 
-	log.Infof("emitting sample to Cldy %d", ce.sampleCt)
+	log.Infof("Emitting sample to Cldy %d", ce.sampleCt)
 	ce.nextSamplePath = ce.newNextSamplePath()
 	err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
 	if err != nil {
@@ -249,7 +249,7 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 }
 
 func (ce *Emitter) ClearOldScratchSamples() error {
-	log.Infof("disk space threshold met. attempting to clear samples over 1 hour old.")
+	log.Infof("Disk space threshold met. Attempting to clear samples over 1 hour old.")
 
 	files, err := os.ReadDir(ce.ScratchPath)
 	if err != nil {
@@ -379,11 +379,11 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values := map[string]string{}
 	metrics := map[string]int{}
 	values["agent_version"] = "TODO"
-	values["cluster_name"] = ce.config.ApptioConfig.ClusterName
+	values["cluster_name"] = ce.config.ClusterName
 	if ce.config.ProxyURL != nil {
 		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
 	}
-	values["insecure"] = strconv.FormatBool(ce.config.ApptioConfig.ProxyInsecure)
+	values["insecure"] = strconv.FormatBool(ce.config.ProxyInsecure)
 	values["parse_metrics_data"] = strconv.FormatBool(ce.config.ParseMetricData)
 	values["upload_region"] = ce.config.Region
 	values["custom_s3_bucket"] = "TODO"

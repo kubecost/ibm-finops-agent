@@ -26,7 +26,7 @@ var _ = Describe("Emitter", func() {
 		It("should load data", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
-			defer os.RemoveAll(tempDir)
+			safeRemove(tempDir)
 			config := cldy.EmitterConfig{
 				UploaderConfig: cldy.UploaderConfig{
 					ScratchDir: tempDir,
@@ -90,7 +90,7 @@ var _ = Describe("Emitter", func() {
 		It("should load data as JSON and skip un-allocatable resources", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
-			defer os.RemoveAll(tempDir)
+			safeRemove(tempDir)
 			config := cldy.EmitterConfig{
 				UploaderConfig: cldy.UploaderConfig{
 					ScratchDir: tempDir,
@@ -170,7 +170,7 @@ var _ = Describe("Emitter", func() {
 		It("should emit each time emission interval is satisifed", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
-			defer os.RemoveAll(tempDir)
+			safeRemove(tempDir)
 			config := cldy.EmitterConfig{
 				UploaderConfig: cldy.UploaderConfig{
 					ScratchDir: tempDir,
@@ -205,7 +205,7 @@ var _ = Describe("Emitter", func() {
 		It("should clean old scratch samples on exceeded disk", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
-			defer os.RemoveAll(tempDir)
+			safeRemove(tempDir)
 			config := cldy.EmitterConfig{
 				UploaderConfig: cldy.UploaderConfig{
 					ScratchDir: tempDir,
@@ -230,7 +230,7 @@ var _ = Describe("Emitter", func() {
 			// don't clear sample since it's recent
 			err = actualEmitter.ClearOldScratchSamples()
 			Expect(err).ToNot(HaveOccurred())
-			files, err = os.ReadDir(actualEmitter.ScratchPath )
+			files, err = os.ReadDir(actualEmitter.ScratchPath)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(len(files)).To(BeNumerically("==", 1))
 
@@ -254,7 +254,7 @@ var _ = Describe("Emitter", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).ToNot(HaveOccurred())
 
-			defer os.RemoveAll(tempDir)
+			safeRemove(tempDir)
 			config, err := cldy.NewEmitterConfigFromEnv()
 			Expect(err).ToNot(HaveOccurred())
 
@@ -269,7 +269,7 @@ var _ = Describe("Emitter", func() {
 			t := GinkgoT()
 			t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "1.1.1.1")
 
-			defer os.RemoveAll(tempDir)
+			safeRemove(tempDir)
 			config, err := cldy.NewEmitterConfigFromEnv()
 			Expect(err).ToNot(HaveOccurred())
 
@@ -282,7 +282,7 @@ var _ = Describe("Emitter", func() {
 			t := GinkgoT()
 			t.Setenv("CLOUDABILITY_OUTBOUND_PROXY", "2.2.2.2:2")
 
-			defer os.RemoveAll(tempDir)
+			safeRemove(tempDir)
 			_, err = cldy.NewEmitterConfigFromEnv()
 			Expect(err).To(HaveOccurred())
 		})
@@ -311,7 +311,7 @@ func checkForDeadReplicaSets(path string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
 		err = decoder.Decode(&rs)
@@ -331,7 +331,7 @@ func checkForDeadPods(path string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
 		err = decoder.Decode(&pod)
@@ -351,7 +351,7 @@ func checkForDeadJobs(path string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
 		err = decoder.Decode(&job)
@@ -401,7 +401,7 @@ func loadNodes() ([]*v1.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var nodes []*v1.Node
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -420,7 +420,7 @@ func loadDeployments() ([]*appsv1.Deployment, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*appsv1.Deployment
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -439,7 +439,7 @@ func loadReplicaSets() ([]*appsv1.ReplicaSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*appsv1.ReplicaSet
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -458,7 +458,7 @@ func loadDaemonSets() ([]*appsv1.DaemonSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*appsv1.DaemonSet
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -477,7 +477,7 @@ func loadPods() ([]*v1.Pod, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*v1.Pod
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -496,7 +496,7 @@ func loadNamespaces() ([]*v1.Namespace, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*v1.Namespace
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -515,7 +515,7 @@ func loadJobs() ([]*batchv1.Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*batchv1.Job
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -534,7 +534,7 @@ func loadServices() ([]*v1.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*v1.Service
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -553,7 +553,7 @@ func loadReplicationControllers() ([]*v1.ReplicationController, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*v1.ReplicationController
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -572,7 +572,7 @@ func loadPVs() ([]*v1.PersistentVolume, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*v1.PersistentVolume
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -591,7 +591,7 @@ func loadPVCs() ([]*v1.PersistentVolumeClaim, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*v1.PersistentVolumeClaim
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -610,7 +610,7 @@ func loadStatefulSets() ([]*appsv1.StatefulSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	var objects []*appsv1.StatefulSet
 	decoder := json.NewDecoder(file)
 	for decoder.More() {
@@ -631,7 +631,7 @@ func loadStats() ([]*stats.Summary, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer file.Close()
+		defer safeClose(file.Close)
 		decoder := json.NewDecoder(file)
 		obj := &stats.Summary{}
 		err = decoder.Decode(obj)

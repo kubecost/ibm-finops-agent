@@ -102,7 +102,7 @@ func getFileNameAndHash(filePath string) (string, string, error) {
 // SafePath joins elements and creates a path that prevents file traversal while maintaining trailing separators
 func SafePath(elements ...string) string {
 	path := strings.Join(elements, string(filepath.Separator))
-	path = strings.Replace(path, "..", "", -1)
+	path = strings.ReplaceAll(path, "..", "")
 	path = filepath.Clean(path)
 	if len(elements) != 0 && strings.HasSuffix(elements[len(elements)-1], string(filepath.Separator)) {
 		return path + string(filepath.Separator)

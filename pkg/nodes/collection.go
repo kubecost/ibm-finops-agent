@@ -194,7 +194,7 @@ func NodeAddress(node *v1.Node) (string, int32, error) {
 			return addr.Address, node.Status.DaemonEndpoints.KubeletEndpoint.Port, nil
 		}
 	}
-	return "", 0, fmt.Errorf("Could not find internal IP address for node %s ", node.Name)
+	return "", 0, fmt.Errorf("could not find internal IP address for node %s ", node.Name)
 }
 
 func nodeResponseToStatSummary(resp []byte) (*stats.Summary, error) {
