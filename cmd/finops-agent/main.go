@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/ibm/finops-agent/cldy"
 	"github.com/ibm/finops-agent/kubecost"
@@ -19,8 +18,6 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/log"
-	"github.com/rs/zerolog"
-	zerologger "github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )
 
@@ -30,10 +27,7 @@ func initLogging() {
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
-	// Default to using pretty formatting
-	zerolog.TimeFieldFormat = time.RFC3339Nano
-	zerologger.Logger = zerologger.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339Nano, NoColor: true})
-	//zerolog.SetGlobalLevel(zerolog.TraceLevel)
+	log.InitLogging(true)
 }
 
 // entry point for finops-agent
@@ -87,12 +81,16 @@ func main() {
 		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv()
 		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
 
+		if err := kubecost.ValidateConfig(kubecostEmitterConfig); err != nil {
+			panic("invalid kubecost emitter config: " + err.Error())
+		}
+
 		emitters = append(emitters, kubecost.NewKubecostEmitter(diag, kubecostEmitterConfig))
 	}
 	if env.IsCloudyEmitterEnabled() {
 		cldyConfig, err := cldy.NewEmitterConfigFromEnv()
 		if err != nil {
-			panic("invalid cloudability emitter config " + err.Error())
+			panic("invalid cloudability emitter config: " + err.Error())
 		}
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
