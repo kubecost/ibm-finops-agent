@@ -119,7 +119,10 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	pipelineControllers.Start(ke.config.ExportInterval)
 
 	// agent presence and heartbeat
-	heartbeatMetadata := heartbeatexporter.NewClusterInfoMetadataProvider(clusterInfo)
+	heartbeatMetadata := heartbeatexporter.NewMultiMetadataProvider(
+		heartbeatexporter.NewClusterInfoMetadataProvider(clusterInfo),
+		heartbeatexporter.NewLogLevelMetadataProvider(log.GetLogLevel()),
+	)
 	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.ClusterID, string(emitter.KubecostEmitterID), version.FriendlyVersion(), bucketStore, heartbeatMetadata)
 	agentHeartbeat.Start(5 * time.Minute)
 
