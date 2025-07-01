@@ -122,7 +122,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             DUCK_VERSION=v0.9.2
-            version=${{ github.sha }}
+            version=${{ steps.meta.outputs.version }}
             commit=${{ github.sha }}
 
 #   notify-fail:

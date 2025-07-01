@@ -34,7 +34,7 @@ func initLogging() {
 func main() {
 	initLogging()
 
-	log.Infof("Starting IBM Finops Agent...")
+	log.Infof("Starting IBM Finops Agent...") // TODO: Include version.Version once semantic version tagging is implemented.
 
 	// Shared application utilities (http router, diagnostics, etc...)
 	router := httprouter.New()
