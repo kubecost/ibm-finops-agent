@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/ibm/finops-agent/pkg/version"
+	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/pkg/metrics"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
@@ -18,7 +19,12 @@ func Healthz(w http.ResponseWriter, _ *http.Request) {
 
 func Version(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprintf(w, "%s", version.Version)
+	_, err := fmt.Fprintf(w, "%s", version.Version)
+	if err != nil {
+		log.Errorf("error retrieving version on api request: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
