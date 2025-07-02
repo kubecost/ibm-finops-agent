@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"k8s.io/client-go/rest"
 	"net/http"
 	"os"
 	"strings"
@@ -24,6 +25,16 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	keyFile := env.GetNodeStatsKeyFile()
 	forceKubeProxy := env.IsNodeStatsForceKubeProxy()
 	localProxy := env.GetNodeStatsLocalProxy()
+
+	thisConfig, err := rest.InClusterConfig()
+	if err != nil {
+		log.Warnf("failed getting in-cluster config: %s", err.Error())
+	}
+	// use in cluster cert if certs are not supplied through env
+	if thisConfig != nil && certFile == "" && keyFile == "" {
+		certFile = thisConfig.CertFile
+		keyFile = thisConfig.KeyFile
+	}
 
 	if strings.TrimSpace(clusterName) == "" {
 		return NodeClientConfig{}, fmt.Errorf("cluster name is required and cannot be exclusively whitespace")
