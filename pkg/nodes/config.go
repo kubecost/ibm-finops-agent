@@ -30,8 +30,10 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	if err != nil {
 		log.Warnf("failed getting in-cluster config: %s", err.Error())
 	}
+	log.Infof("printing env keyFile %s and certFile %s", keyFile, certFile)
 	// use in cluster cert if certs are not supplied through env
 	if thisConfig != nil && certFile == "" && keyFile == "" {
+		log.Infof("Using in-cluster config for certFile and keyfile")
 		certFile = thisConfig.CertFile
 		keyFile = thisConfig.KeyFile
 	}
