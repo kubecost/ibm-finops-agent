@@ -68,7 +68,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 			transport = &http.Transport{TLSClientConfig: tlsConfig}
 		} else {
 			log.Infof("found no certFile so just setting the caCertPool from defaults")
-			tlsConfig := &tls.Config{
+			tlsConfig = &tls.Config{
 				RootCAs: caCertPool,
 			}
 			transport = &http.Transport{TLSClientConfig: tlsConfig}
