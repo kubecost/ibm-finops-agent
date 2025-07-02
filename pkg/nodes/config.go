@@ -26,7 +26,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	localProxy := env.GetNodeStatsLocalProxy()
 
 	if strings.TrimSpace(clusterName) == "" {
-		return NodeClientConfig{}, fmt.Errorf("Cluster name is required and cannot be exclusively whitespace.")
+		return NodeClientConfig{}, fmt.Errorf("cluster name is required and cannot be exclusively whitespace")
 	}
 
 	if concurrentPollers <= 0 {
@@ -45,13 +45,15 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 		if err != nil {
 			log.Fatalf("Could not load CA certificate: %v", err)
 		}
+		log.Infof("pulled cert from ca.crt on filesystem")
 
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(pemData)
 
 		var tlsConfig *tls.Config
 
-		if certFile != "" && keyFile != "" {
+		if certFile != "" || keyFile != "" {
+			log.Infof("Found either a cert file or a key file so loading that")
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 
 			if err != nil {
@@ -65,6 +67,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 
 			transport = &http.Transport{TLSClientConfig: tlsConfig}
 		} else {
+			log.Infof("found no certFile so just setting the caCertPool from defaults")
 			tlsConfig := &tls.Config{
 				RootCAs: caCertPool,
 			}
