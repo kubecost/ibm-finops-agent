@@ -49,7 +49,7 @@ func (c *Client) makeRequest(method string, URL string, bearerToken string) (dat
 	}
 	defer safeClose(resp.Body.Close, &err)
 
-	if resp.StatusCode != http.StatusOK {
+	if !(resp.StatusCode >= 200 && resp.StatusCode <= 299){
 		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))
 	}
 
