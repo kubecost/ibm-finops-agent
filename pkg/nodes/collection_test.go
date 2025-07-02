@@ -162,3 +162,7 @@ func loadNodes() ([]*v1.Node, error) {
 	}
 	return nodes, nil
 }
+
+func safeCloseTest(closer func() error) {
+	Expect(closer()).To(Not(HaveOccurred()))
+}

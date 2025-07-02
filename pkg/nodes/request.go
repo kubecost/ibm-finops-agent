@@ -55,7 +55,7 @@ func (c *Client) makeRequest(method string, URL string, bearerToken string) (dat
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("error reading body of response")
+		return nil, fmt.Errorf("error reading body of response: %s", err)
 	}
 	return body, nil
 }

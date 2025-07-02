@@ -64,11 +64,10 @@ jobs:
         run: |
           make test
 
-      - name: Lint
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: v2.2.1
-          working-directory: ibm-finops-agent/
+      - name: Test
+        working-directory: ./ibm-finops-agent
+        run: |
+          make ci-lint
 
       - name: get-pr-info
         shell: bash

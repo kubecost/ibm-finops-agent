@@ -68,7 +68,9 @@ func main() {
 	<-started
 	defer func() {
 		err := server.Shutdown(context.Background())
-		log.Errorf("%s", err)
+		if err != nil {
+			log.Errorf("Error shutting down HTTP server: %s", err)
+		}
 	}()
 
 	// Initialize/Bootstrap the Agent Data Source
