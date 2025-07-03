@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
@@ -11,7 +10,10 @@ import (
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
+	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
+	"k8s.io/apimachinery/pkg/version"
+	"k8s.io/client-go/discovery"
 
 	"github.com/julienschmidt/httprouter"
 )
@@ -36,7 +38,7 @@ func NewAgentDataSource(
 	router *httprouter.Router,
 	diag diagnostics.DiagnosticService,
 	interval time.Duration,
-) DataSource {
+) (DataSource, *version.Info) {
 	// NOTE: (bolt) This just uses a fairly straight-forward kube client initialization. We should add specific proxy/auth
 	// NOTE: (bolt) requirements for the other data sources.
 	kubeClientset, err := kubeconfig.LoadKubeClient("")
@@ -48,6 +50,17 @@ func NewAgentDataSource(
 	if err != nil {
 		log.Fatalf("Failed to load Kubernetes config: %s", err.Error())
 	}
+
+	discClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		log.Warnf("Failed to create Kubernetes discovery client: %s", err.Error())
+	}
+
+	versionInfo, err := discClient.ServerVersion()
+	if err != nil {
+		log.Warnf("Failed to fetch Kubernetes version: %s", err.Error())
+	}
+
 	informerCfg := cluster.LoadInformerConfig()
 	// Create Kubernetes Cluster Cache + Watchers
 	k8sCache, err := cluster.NewDynamicClusterCache(cfg, informerCfg.ResyncInterval, informerCfg.SanitizeData, interval)
@@ -79,7 +92,7 @@ func NewAgentDataSource(
 		metrics:                opencostSource.Metrics(),
 		clusterCache:           k8sCache,
 		nodeStatsSummaryClient: nodeStatsSummaryClient,
-	}
+	}, versionInfo
 }
 
 type agentDataSource struct {

@@ -15,6 +15,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/http"
+	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -75,7 +76,7 @@ func main() {
 
 	// Initialize/Bootstrap the Agent Data Source
 	emissionInterval := env.GetExporterEmissionInterval()
-	dataSource := core.NewAgentDataSource(router, diag, emissionInterval)
+	dataSource, versionInfo := core.NewAgentDataSource(router, diag, emissionInterval)
 
 	var emitters []emitter.Emitter
 
@@ -94,6 +95,8 @@ func main() {
 		if err != nil {
 			panic("invalid cloudability emitter config: " + err.Error())
 		}
+		cldyConfig.ClusterVersion = version.FormatGitVersion(versionInfo)
+
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
 	if env.IsTurboEmitterEnabled() {
