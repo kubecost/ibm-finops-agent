@@ -51,8 +51,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 
 		var tlsConfig *tls.Config
 
-		if certFile != "" || keyFile != "" {
-			log.Infof("Found either a cert file or a key file so loading that")
+		if certFile != "" && keyFile != "" {
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 
 			if err != nil {
