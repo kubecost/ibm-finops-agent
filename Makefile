@@ -12,3 +12,7 @@ test: envtest
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	@test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+ci-lint: 
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.2.1
+	golangci-lint run

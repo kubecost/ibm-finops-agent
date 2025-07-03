@@ -26,7 +26,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	localProxy := env.GetNodeStatsLocalProxy()
 
 	if strings.TrimSpace(clusterName) == "" {
-		return NodeClientConfig{}, fmt.Errorf("Cluster name is required and cannot be exclusively whitespace.")
+		return NodeClientConfig{}, fmt.Errorf("cluster name is required and cannot be exclusively whitespace")
 	}
 
 	if concurrentPollers <= 0 {
@@ -43,7 +43,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	} else {
 		pemData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 		if err != nil {
-			log.Fatalf("Could not load CA certificate: %v", err)
+			log.Fatalf("could not load CA certificate: %v", err)
 		}
 
 		caCertPool := x509.NewCertPool()

@@ -83,6 +83,7 @@ func NewEmitterConfigFromEnv() *EmitterConfig {
 func ValidateConfig(config *EmitterConfig) error {
 	// ClusterID is required for kubecost emitter to function properly.
 	if config.ClusterID == "" {
+		//nolint: staticcheck
 		return fmt.Errorf("Kubecost Configuration missing valid ClusterID")
 	}
 

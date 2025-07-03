@@ -1,8 +1,10 @@
-package cldy
+package cldy_test
 
 import (
+	"os"
 	"testing"
 
+	"github.com/ibm/finops-agent/cldy"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -75,7 +77,7 @@ func TestSafePath(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := SafePath(tt.elements...); got != tt.want {
+			if got := cldy.SafePath(tt.elements...); got != tt.want {
 				t.Errorf("SafePath() = %v, want %v", got, tt.want)
 			}
 		})
@@ -85,10 +87,18 @@ func TestSafePath(t *testing.T) {
 var _ = Describe("Util", func() {
 	Context("IsAvailableDiskSpace", func() {
 		It("should return false on disk exceedance", func() {
-			Expect(IsAvailableDiskSpace(0xFFFFFFFFFFFFFFFF, "/")).To(BeFalse())
+			Expect(cldy.IsAvailableDiskSpace(0xFFFFFFFFFFFFFFFF, "/")).To(BeFalse())
 		})
 		It("should return true when there is space", func() {
-			Expect(IsAvailableDiskSpace(1, "/")).To(BeTrue())
+			Expect(cldy.IsAvailableDiskSpace(1, "/")).To(BeTrue())
 		})
 	})
 })
+
+func safeClose(closer func() error) {
+	Expect(closer()).To(Not(HaveOccurred()))
+}
+
+func safeRemove(dir string) {
+	Expect(os.RemoveAll(dir)).To(Not(HaveOccurred()))
+}

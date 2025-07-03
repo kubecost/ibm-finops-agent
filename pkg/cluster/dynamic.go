@@ -189,7 +189,6 @@ func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod interface{})
 			castedPod.Status.StartTime.After(time.Now().Add(-dcc.slpDuration)) {
 			dcc.addShortLivedPod(&castedPod)
 		}
-		return
 	}
 }
 
@@ -209,7 +208,7 @@ func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interfa
 			log.Warnf("Not trimming or sanitizing non-unstructured resource: %s", reflect.TypeOf(resource))
 			return resource, nil
 		}
-		casted = cleanResource(casted, parseMetricsData)
+		_ = cleanResource(casted, parseMetricsData)
 		return resource, nil
 	}
 }

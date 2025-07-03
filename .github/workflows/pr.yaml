@@ -64,6 +64,11 @@ jobs:
         run: |
           make test
 
+      - name: Test
+        working-directory: ./ibm-finops-agent
+        run: |
+          make ci-lint
+
       - name: get-pr-info
         shell: bash
         env:

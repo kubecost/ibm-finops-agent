@@ -106,7 +106,7 @@ func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
 	}
 
 	if len(body) == 0 || config.EnvID == "" {
-		return nil, fmt.Errorf("key access, key secret, and env id must all be set to upload to cloudability.")
+		return nil, fmt.Errorf("key access, key secret, and env id must all be set to upload to cloudability")
 	}
 
 	frontdoorURL, cloudabilityURL := getURLsFromRegion(config.Region)
@@ -388,7 +388,7 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 		return err
 	}
 	if resp.StatusCode == http.StatusOK {
-		log.Infof("successfully uploaded metric sample %s to cloudability", payload.FileName)
+		log.Infof("Successfully uploaded metric sample %s to cloudability", payload.FileName)
 	}
 	return nil
 }
@@ -432,7 +432,7 @@ func getURLsFromRegion(region string) (string, string) {
 	case "hybrid-me":
 		return meFrontdoorURL, usCloudabilityURL
 	default:
-		log.Warnf("customer region is invalid. Defaulting to US region.")
+		log.Warnf("Customer region is invalid. Defaulting to US region.")
 		return usFrontdoorURL, usCloudabilityURL
 	}
 }
@@ -450,7 +450,7 @@ func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageSer
 	}
 
 	if customS3Bucket == "" || customS3Region == "" {
-		return nil, fmt.Errorf("both custom bucket and custom region must be set for custom s3 configuration.")
+		return nil, fmt.Errorf("both custom bucket and custom region must be set for custom s3 configuration")
 	}
 
 	uploadClient, err := newUploadClient(customS3Region)
@@ -479,7 +479,7 @@ func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 		MaxRetries: aws.Int(3)},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("Could not establish AWS Session, "+
+		return nil, fmt.Errorf("could not establish AWS Session, "+
 			"ensure AWS environment variables are set correctly: %s", err)
 	}
 	svc := s3.New(sess)
@@ -489,12 +489,12 @@ func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 	}, nil
 }
 
-func (cs3c CustomS3Client) Upload(payload UploadPayload) error {
+func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
-		return fmt.Errorf("Unable to open metric sample file %v", err)
+		return fmt.Errorf("unable to open metric sample file %v", err)
 	}
-	defer fileReader.Close()
+	defer safeClose(fileReader.Close, &err)
 
 	key, err := generateSampleKey(payload.FileName, payload.ClusterUID)
 	if err != nil {
@@ -512,7 +512,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) error {
 		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
 	}
 
-	log.Infof("successfully uploaded metric sample %s to custom S3 bucket: %s",
+	log.Infof("Successfully uploaded metric sample %s to custom S3 bucket: %s",
 		payload.FileName, cs3c.S3Bucket)
 	return nil
 }
@@ -534,7 +534,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		return nil, nil
 	}
 	if blobContainerName == "" || customBlobUrl == "" {
-		return nil, fmt.Errorf("both container name and blob url must be set for all custom azure blob configurations.")
+		return nil, fmt.Errorf("both container name and blob url must be set for all custom azure blob configurations")
 	}
 
 	body, err := azureClientSecret.GetSecret()
@@ -552,7 +552,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 	if azureTenantID == "" && azureClientID == "" && len(body) == 0 {
 		uploadClient, err := newBlobManagedIdentityClient(customBlobUrl)
 		if err != nil {
-			return nil, fmt.Errorf("Could not establish Azure client with managed identity, "+
+			return nil, fmt.Errorf("could not establish Azure client with managed identity, "+
 				"ensure Azure environment variables are set correctly: %s", err)
 		}
 		if uploadClient != nil {
@@ -563,12 +563,12 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		}
 	} else {
 		if azureTenantID == "" || azureClientID == "" || len(body) == 0 {
-			return nil, fmt.Errorf("tenant id, client id, and client secret must be set for azure client creation.")
+			return nil, fmt.Errorf("tenant id, client id, and client secret must be set for azure client creation")
 		}
 
 		uploadClient, err := newBlobServicePrincipalClient(customBlobUrl, azureTenantID, azureClientID, azureClientSecret)
 		if err != nil {
-			return nil, fmt.Errorf("Could not establish Azure client with environment, "+
+			return nil, fmt.Errorf("could not establish Azure client with environment, "+
 				"ensure all Azure environment variables are set correctly: %s", err)
 		}
 		if uploadClient != nil {
@@ -579,7 +579,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		}
 	}
 
-	return nil, fmt.Errorf("unspecified error generating azure client.")
+	return nil, fmt.Errorf("unspecified error generating azure client")
 }
 
 type CustomBlobUploadService interface {
@@ -648,12 +648,12 @@ type BlobUploadInput struct {
 	Body          *os.File
 }
 
-func (cbc CustomBlobClient) Upload(payload UploadPayload) error {
+func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
-		return fmt.Errorf("Unable to open metric sample file %v", err)
+		return fmt.Errorf("unable to open metric sample file %v", err)
 	}
-	defer fileReader.Close()
+	defer safeClose(fileReader.Close, &err)
 
 	key, err := generateSampleKey(payload.FileName, payload.ClusterUID)
 	if err != nil {
@@ -671,7 +671,7 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) error {
 		return fmt.Errorf("failed to put Object to custom azure blob with error: %s", err)
 	}
 
-	log.Infof("successfully uploaded metric sample %s to custom azure blob: %s",
+	log.Infof("Successfully uploaded metric sample %s to custom azure blob: %s",
 		payload.FileName, cbc.BlobContainerName)
 	return nil
 }

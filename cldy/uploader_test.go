@@ -420,7 +420,7 @@ func updateAgentTimestamp(filePath string, ts int64) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer safeClose(file.Close)
 	data, err := io.ReadAll(file)
 	if err != nil {
 		return err
@@ -458,7 +458,7 @@ func checkCollectionAndConstruction(tempDir string, uploader cldy.Uploader, actu
 func checkScratchEmpty(dir string) {
 	f, err := os.Open(dir)
 	Expect(err).To(Not(HaveOccurred()))
-	defer f.Close()
+	defer safeClose(f.Close)
 	_, err = f.Readdir(1)
 	Expect(err).To(BeEquivalentTo(io.EOF))
 }

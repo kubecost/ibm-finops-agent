@@ -13,7 +13,7 @@ import (
 )
 
 // AttemptEndPoint will hit a specified endpoint with as many retries as it is allotted.
-func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) (*http.Response, error) {
+func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) ([]byte, error) {
 	attempts := c.retries + 1
 
 	for i := uint(0); i < attempts; i++ {
@@ -33,7 +33,7 @@ func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) 
 
 // makeRequest will call out to an endpoint and attempt to decode the body into an existing
 // data type.
-func (c *Client) makeRequest(method string, URL string, bearerToken string) (*http.Response, error) {
+func (c *Client) makeRequest(method string, URL string, bearerToken string) (data []byte, err error) {
 	request, err := http.NewRequest(method, URL, nil)
 	if err != nil {
 		return nil, err
@@ -47,15 +47,17 @@ func (c *Client) makeRequest(method string, URL string, bearerToken string) (*ht
 	if err != nil {
 		return nil, err
 	}
+	defer safeClose(resp.Body.Close, &err)
 
-	if !(resp.StatusCode >= 200 && resp.StatusCode <= 299) {
-		// Drain and close the response body to prevent resource leaks
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("invalid response %s", strconv.Itoa(resp.StatusCode))
 	}
 
-	return resp, nil
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading body of response: %s", err)
+	}
+	return body, nil
 }
 
 type HTTPClient interface {

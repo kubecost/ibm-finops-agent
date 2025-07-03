@@ -20,7 +20,7 @@ import (
 
 var requiredFiles = []string{"baseline-summary", "stats-summary", "statefulsets", "services", "replicationcontrollers", "replicasets", "pods", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces", "jobs", "deployments", "daemonsets", "agent-measurement"}
 
-var ErrDiskSpaceExceeded = errors.New("upload directory cleaned and disk issue persists. omitting current upload.")
+var ErrDiskSpaceExceeded = errors.New("upload directory cleaned and disk issue persists. omitting current upload")
 
 type Uploader interface {
 	AddSample(sample string)
@@ -30,7 +30,6 @@ type Uploader interface {
 
 type CldyUploader struct {
 	config           UploaderConfig
-	tickerCh         time.Ticker
 	sampleSet        *set
 	uploadSet        *set
 	stop             chan struct{}
@@ -65,7 +64,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		log.Warnf("failed to create custom s3 uploader: %v", err)
 	}
 	if s3Client != nil {
-		log.Infof("successfully created custom s3 uploader")
+		log.Infof("Successfully created custom s3 uploader")
 		storageServices = append(storageServices, s3Client)
 	}
 
@@ -75,13 +74,13 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		log.Warnf("failed to create custom azure blob uploader: %v", err)
 	}
 	if blobClient != nil {
-		log.Infof("successfully created custom azure blob uploader")
+		log.Infof("Successfully created custom azure blob uploader")
 		storageServices = append(storageServices, blobClient)
 	}
 
 	// Check if no upload paths were configured
 	if len(storageServices) == 0 {
-		log.Errorf("no complete upload configurations were detected")
+		log.Errorf("No complete upload configurations were detected")
 	}
 
 	uploader := CldyUploader{
@@ -398,14 +397,14 @@ func (cu *CldyUploader) uploadData(path string) error {
 // for multiple outputs
 func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr error) {
 	// create a buffer of double the last upload size
-	if !IsAvailableDiskSpace(cu.lastUploadSize * 2, cu.UploadPathDir) {
+	if !IsAvailableDiskSpace(cu.lastUploadSize*2, cu.UploadPathDir) {
 		err := cu.ClearOldUploadSamples()
 		if err != nil {
 			return err
 		}
 
 		// Omit current sample if cleaning upload directory does not work
-		if !IsAvailableDiskSpace(cu.lastUploadSize * 2, cu.UploadPathDir) {
+		if !IsAvailableDiskSpace(cu.lastUploadSize*2, cu.UploadPathDir) {
 			return ErrDiskSpaceExceeded
 		}
 	}
@@ -417,7 +416,7 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 	for _, src := range srcs {
 		// ensure the src actually exists before trying to tar it
 		if _, err := os.Stat(src.Name()); err != nil {
-			return fmt.Errorf("Unable to tar files - %v", err.Error())
+			return fmt.Errorf("unable to tar files - %v", err.Error())
 		}
 
 		// walk path
@@ -472,7 +471,7 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 }
 
 func (cu *CldyUploader) ClearOldUploadSamples() error {
-	log.Infof("disk space threshold met. attempting to clean uploads over recovery period.")
+	log.Infof("Disk space threshold met. Attempting to clean uploads over recovery period.")
 
 	files, err := os.ReadDir(cu.UploadPathDir)
 	if err != nil {
@@ -487,7 +486,7 @@ func (cu *CldyUploader) ClearOldUploadSamples() error {
 			continue
 		}
 
-		if time.Since(fileInfo.ModTime()) > cu.recoveryPeriod / 2 {
+		if time.Since(fileInfo.ModTime()) > cu.recoveryPeriod/2 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
 				log.Warnf("problem deleting file: %s", err)
