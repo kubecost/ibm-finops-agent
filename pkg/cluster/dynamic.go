@@ -246,7 +246,7 @@ func cleanResourceFieldsFromPath(resource *unstructured.Unstructured, paths []st
 }
 
 func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersionKind, parseMetricsData bool) {
-	log.Infof("Parse Metrics Data: %s", parseMetricsData)
+	log.Infof("Parse Metrics Data: %v", parseMetricsData)
 	var pathsToContainers []string
 	if gvk.Kind == "Pod" {
 		pathsToContainers = []string{"spec.containers", "spec.initContainers"}
