@@ -25,7 +25,7 @@ func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) 
 		if err == nil {
 			return data, nil
 		}
-		log.Warnf("Error making request to %s: %s", URL, err)
+		log.Debugf("Error making request to %s: %s", URL, err)
 	}
 
 	return nil, fmt.Errorf("requests to %v failed", URL)

@@ -130,11 +130,12 @@ func retrieveNodeData(endpoint string, connectionMethods []connectionMethod, bea
 		if err == nil {
 			return data, err
 		} else {
-			log.Warnf("failed to connect to node: %s, error: %s", cm.API.formatEndpoint(endpoint), err)
+			log.Debugf("failed to connect to node: %s, error: %s", cm.API.formatEndpoint(endpoint), err)
 		}
 	}
 
-	return nil, fmt.Errorf("problem getting node address: %v", endpoint)
+	return nil, fmt.Errorf("problem getting node address: %v. "+
+		"Use DEBUG log level for individual connection method errors", endpoint)
 }
 
 // isFargateNode detects if it is a fargate node, disallowing direct connections
