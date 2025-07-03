@@ -42,8 +42,8 @@ const (
 	// InformerResyncIntervalEnvVar is the resync interval for informers
 	InformerResyncIntervalEnvVar = "INFORMER_RESYNC_INTERVAL"
 
-	// ParseMetricsDataEnvVar env var for sanitizing k8s resources
-	ParseMetricsDataEnvVar = "PARSE_METRICS_DATA"
+	// ParseMetricDataEnvVar env var for sanitizing k8s resources
+	ParseMetricDataEnvVar = "PARSE_METRIC_DATA"
 
 	// Prefixes for
 	CloudabilityPrefix = "CLOUDABILITY_"
@@ -136,7 +136,7 @@ func GetInformerReSyncInterval() time.Duration {
 
 // GetSanitizeData returns bool that further sanitizes k8s resources if true
 func GetSanitizeData() bool {
-	return getValueWithPotentialPrefixOrDefault(ParseMetricsDataEnvVar, CloudabilityPrefix, false, cast.ToBool)
+	return getValueWithPotentialPrefixOrDefault(ParseMetricDataEnvVar, CloudabilityPrefix, false, cast.ToBool)
 }
 
 // getValueWithPotentialPrefixOrDefault attempts to read the environment variable raw and then with the specified prefix,
