@@ -412,7 +412,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	}
 	values["insecure"] = strconv.FormatBool(ce.config.ApptioConfig.ProxyInsecure)
 	values["emission_interval"] = ce.emissionInterval.String()
-	values["parse_metrics_data"] = strconv.FormatBool(ce.config.ParseMetricData)
+	values["parse_metric_data"] = strconv.FormatBool(ce.config.ParseMetricData)
 	values["upload_region"] = ce.config.Region
 	values["custom_s3_bucket"] = ce.config.CustomS3UploadBucket
 	values["custom_s3_region"] = ce.config.CustomS3UploadRegion
