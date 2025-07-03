@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"k8s.io/client-go/rest"
 	"net/http"
 	"os"
 	"strings"
@@ -26,18 +25,6 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	forceKubeProxy := env.IsNodeStatsForceKubeProxy()
 	localProxy := env.GetNodeStatsLocalProxy()
 
-	thisConfig, err := rest.InClusterConfig()
-	if err != nil {
-		log.Warnf("failed getting in-cluster config: %s", err.Error())
-	}
-	log.Infof("printing env keyFile %s and certFile %s", keyFile, certFile)
-	// use in cluster cert if certs are not supplied through env
-	if thisConfig != nil && certFile == "" && keyFile == "" {
-		log.Infof("Using in-cluster config for certFile and keyfile")
-		certFile = thisConfig.CertFile
-		keyFile = thisConfig.KeyFile
-	}
-
 	if strings.TrimSpace(clusterName) == "" {
 		return NodeClientConfig{}, fmt.Errorf("cluster name is required and cannot be exclusively whitespace")
 	}
@@ -58,7 +45,6 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 		if err != nil {
 			log.Fatalf("Could not load CA certificate: %v", err)
 		}
-		log.Infof("pulled cert from ca.crt on filesystem")
 
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(pemData)
@@ -80,7 +66,6 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 
 			transport = &http.Transport{TLSClientConfig: tlsConfig}
 		} else {
-			log.Infof("found no certFile so just setting the caCertPool from defaults")
 			tlsConfig = &tls.Config{
 				RootCAs: caCertPool,
 			}
