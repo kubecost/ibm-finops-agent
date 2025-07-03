@@ -246,6 +246,7 @@ func cleanResourceFieldsFromPath(resource *unstructured.Unstructured, paths []st
 }
 
 func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersionKind, parseMetricsData bool) {
+	log.Infof("Parse Metrics Data: %s", parseMetricsData)
 	var pathsToContainers []string
 	if gvk.Kind == "Pod" {
 		pathsToContainers = []string{"spec.containers", "spec.initContainers"}
@@ -271,10 +272,12 @@ func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersio
 		}
 		for i := 0; i < len(containers); i++ {
 			if parseMetricsData {
+				log.Infof("Sanitizing")
 				for _, pathToContainer := range gvkToSanitizePaths[containerGVK] {
 					unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
 				}
 			}
+			log.Infof("Trimming")
 			for _, pathToContainer := range gvkToTrimPaths[containerGVK] {
 				unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
 			}
