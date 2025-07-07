@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -387,8 +388,10 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 	if err != nil || resp == nil {
 		return err
 	}
+
+	
 	if resp.StatusCode == http.StatusOK {
-		log.Infof("Successfully uploaded metric sample %s to cloudability", getFileNameFromKey(uploadURL))
+		log.Infof("Successfully uploaded metric sample %s to cloudability", removeQueryParameters(path.Base(uploadURL)))
 	}
 	return nil
 }
@@ -512,7 +515,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
 	}
 
-	log.Infof("Successfully uploaded metric sample %s to custom S3 bucket: %s", getFileNameFromKey(key), cs3c.S3Bucket)
+	log.Infof("Successfully uploaded metric sample %s to custom S3 bucket: %s", path.Base(key), cs3c.S3Bucket)
 	return nil
 }
 
@@ -670,7 +673,7 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 		return fmt.Errorf("failed to put Object to custom azure blob with error: %s", err)
 	}
 
-	log.Infof("Successfully uploaded metric sample %s to custom azure blob: %s", getFileNameFromKey(key), cbc.BlobContainerName)
+	log.Infof("Successfully uploaded metric sample %s to custom azure blob: %s", path.Base(key), cbc.BlobContainerName)
 	return nil
 }
 
@@ -743,10 +746,7 @@ func (s *valueSecretManager) GetSecret() ([]byte, error) {
 	return []byte(s.keySecret), nil
 }
 
-func getFileNameFromKey(key string) string {
-	dirs := strings.Split(key, "/")
-	if len(dirs) > 0 {
-		return dirs[len(dirs) - 1]
-	}
-	return ""
+// Trims query parameters
+func removeQueryParameters(url string) string {
+	return strings.Split(url, "?")[0]
 }
