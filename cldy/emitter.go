@@ -170,7 +170,8 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 		return fmt.Errorf("failed to create scratch directory: %s", err.Error())
 	}
 
-	ce.currentSamplePath = ce.newCurrentSamplePath()
+	// Since sample count is intiialized at -1, use next path to get 0 as first index
+	ce.currentSamplePath = ce.newNextSamplePath()
 	err = os.Mkdir(ce.currentSamplePath, os.ModePerm)
 	if err != nil {
 		return err
@@ -448,10 +449,6 @@ func (ce *Emitter) getSuffix() string {
 		return ".jsonl"
 	}
 	return ".proto"
-}
-
-func (ce *Emitter) newCurrentSamplePath() string {
-	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt))
 }
 
 func (ce *Emitter) newNextSamplePath() string {

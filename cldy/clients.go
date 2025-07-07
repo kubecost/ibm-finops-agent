@@ -388,7 +388,7 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 		return err
 	}
 	if resp.StatusCode == http.StatusOK {
-		log.Infof("Successfully uploaded metric sample %s to cloudability", payload.FileName)
+		log.Infof("Successfully uploaded metric sample %s to cloudability", payload.FilePath)
 	}
 	return nil
 }
@@ -512,8 +512,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
 	}
 
-	log.Infof("Successfully uploaded metric sample %s to custom S3 bucket: %s",
-		payload.FileName, cs3c.S3Bucket)
+	log.Infof("Successfully uploaded metric sample %s to custom S3 bucket: %s", key, cs3c.S3Bucket)
 	return nil
 }
 
@@ -671,8 +670,7 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 		return fmt.Errorf("failed to put Object to custom azure blob with error: %s", err)
 	}
 
-	log.Infof("Successfully uploaded metric sample %s to custom azure blob: %s",
-		payload.FileName, cbc.BlobContainerName)
+	log.Infof("Successfully uploaded metric sample %s to custom azure blob: %s", key, cbc.BlobContainerName)
 	return nil
 }
 
