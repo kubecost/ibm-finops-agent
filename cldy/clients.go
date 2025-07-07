@@ -388,7 +388,7 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 		return err
 	}
 	if resp.StatusCode == http.StatusOK {
-		log.Infof("Successfully uploaded metric sample %s to cloudability", payload.FilePath)
+		log.Infof("Successfully uploaded metric sample %s to cloudability", payload.FileName)
 	}
 	return nil
 }
