@@ -10,7 +10,7 @@ env:
 
 jobs:
   build_and_publish:
-    runs-on: Kubecost-Linux-Small-x86
+    runs-on: Kubecost-Linux-Large-x86
     permissions:
       contents: read
       id-token: write
