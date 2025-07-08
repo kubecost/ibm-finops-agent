@@ -8,7 +8,6 @@ import (
 	"github.com/ibm/finops-agent/pkg/core/opencost"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/nodes"
-	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -34,7 +33,7 @@ type DataSource interface {
 	StatsSummary() nodes.StatSummaryClient
 
 	// K8s Version Object
-	ClusterMetadata() version.Metadata
+	ClusterMetadata() cluster.Metadata
 }
 
 func NewAgentDataSource(
@@ -63,7 +62,7 @@ func NewAgentDataSource(
 	if err != nil {
 		log.Warnf("Failed to fetch Kubernetes version: %s", err.Error())
 	}
-	clusterMetadata := version.NewClusterMetadata(versionInfo)
+	clusterMetadata := cluster.NewClusterMetadata(versionInfo)
 
 	informerCfg := cluster.LoadInformerConfig()
 	// Create Kubernetes Cluster Cache + Watchers
@@ -113,8 +112,8 @@ type agentDataSource struct {
 	// Node Stats Summary Client
 	nodeStatsSummaryClient nodes.StatSummaryClient
 
-	// K8s Cluster Metadata
-	clusterMetadata version.Metadata
+	// Cluster Metadata
+	clusterMetadata cluster.Metadata
 
 	// TODO: HTTP Server/Proxy for Turbo?
 }
@@ -135,6 +134,6 @@ func (ads *agentDataSource) StatsSummary() nodes.StatSummaryClient {
 	return ads.nodeStatsSummaryClient
 }
 
-func (ads *agentDataSource) ClusterMetadata() version.Metadata {
+func (ads *agentDataSource) ClusterMetadata() cluster.Metadata {
 	return ads.clusterMetadata
 }

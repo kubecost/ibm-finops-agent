@@ -5,7 +5,6 @@ import (
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/nodes"
-	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/clusters"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
@@ -18,7 +17,6 @@ import (
 	stv1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	k8sversion "k8s.io/apimachinery/pkg/version"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
@@ -32,7 +30,7 @@ type MockDataSource struct {
 	ClusterCache           *MockClusterCache
 	MetricsQuerier         *MockMetricsQuerier
 	NodeStatsSummaryClient *MockStatsSummaryClient
-	K8sMetadata            *MockMetadata
+	CMetadata              *MockMetadata
 }
 
 // NewMockDataSource creates a new mock data source implementation with services that track
@@ -45,7 +43,7 @@ func NewMockDataSource() *MockDataSource {
 		ClusterCache:           NewMockClusterCache(),
 		MetricsQuerier:         metrics,
 		NodeStatsSummaryClient: NewMockStatsSummaryClient(),
-		K8sMetadata:            NewMockMetadata(),
+		CMetadata:              NewMockMetadata(),
 	}
 }
 
@@ -65,8 +63,8 @@ func (mds *MockDataSource) StatsSummary() nodes.StatSummaryClient {
 	return mds.NodeStatsSummaryClient
 }
 
-func (mds *MockDataSource) ClusterMetadata() version.Metadata {
-	return mds.K8sMetadata
+func (mds *MockDataSource) ClusterMetadata() cluster.Metadata {
+	return mds.CMetadata
 }
 
 //--------------------------------------------------------------------------
@@ -732,7 +730,7 @@ func (m *MockMetadata) recordCall(method string) {
 }
 
 // Implementation of interface methods
-func (m *MockMetadata) GetVersionInfo() *k8sversion.Info {
+func (m *MockMetadata) GetClusterInfo() *cluster.Info {
 	m.recordCall("GetVersionInfo")
 	return nil
 }

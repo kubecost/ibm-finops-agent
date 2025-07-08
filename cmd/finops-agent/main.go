@@ -95,7 +95,11 @@ func main() {
 		if err != nil {
 			panic("invalid cloudability emitter config: " + err.Error())
 		}
-		cldyConfig.ClusterVersion = version.FormatVersionInfo(dataSource.ClusterMetadata().GetVersionInfo())
+
+		clusterInfo := dataSource.ClusterMetadata().GetClusterInfo()
+		if clusterInfo != nil {
+			cldyConfig.ClusterVersion = version.FormatVersionInfo(clusterInfo.Version)
+		}
 
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
