@@ -171,6 +171,10 @@ func (e *emptyDataSource) StatsSummary() nodes.StatSummaryClient {
 	return nil
 }
 
+func (e *emptyDataSource) ClusterMetadata() cluster.Metadata {
+	return nil
+}
+
 func newCountingEmitter(name string) *countingEmitter {
 	return &countingEmitter{
 		name: name,

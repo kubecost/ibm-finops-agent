@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
@@ -11,7 +10,9 @@ import (
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
+	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
+	"k8s.io/client-go/discovery"
 
 	"github.com/julienschmidt/httprouter"
 )
@@ -30,6 +31,9 @@ type DataSource interface {
 
 	// Node Stats Summary Client
 	StatsSummary() nodes.StatSummaryClient
+
+	// K8s Version Object
+	ClusterMetadata() cluster.Metadata
 }
 
 func NewAgentDataSource(
@@ -48,6 +52,18 @@ func NewAgentDataSource(
 	if err != nil {
 		log.Fatalf("Failed to load Kubernetes config: %s", err.Error())
 	}
+
+	discClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		log.Warnf("Failed to create Kubernetes discovery client: %s", err.Error())
+	}
+
+	versionInfo, err := discClient.ServerVersion()
+	if err != nil {
+		log.Warnf("Failed to fetch Kubernetes version: %s", err.Error())
+	}
+	clusterMetadata := cluster.NewClusterMetadata(versionInfo)
+
 	informerCfg := cluster.LoadInformerConfig()
 	// Create Kubernetes Cluster Cache + Watchers
 	k8sCache, err := cluster.NewDynamicClusterCache(cfg, informerCfg.ResyncInterval, informerCfg.SanitizeData, interval)
@@ -79,6 +95,7 @@ func NewAgentDataSource(
 		metrics:                opencostSource.Metrics(),
 		clusterCache:           k8sCache,
 		nodeStatsSummaryClient: nodeStatsSummaryClient,
+		clusterMetadata:        clusterMetadata,
 	}
 }
 
@@ -94,6 +111,9 @@ type agentDataSource struct {
 
 	// Node Stats Summary Client
 	nodeStatsSummaryClient nodes.StatSummaryClient
+
+	// Cluster Metadata
+	clusterMetadata cluster.Metadata
 
 	// TODO: HTTP Server/Proxy for Turbo?
 }
@@ -112,4 +132,8 @@ func (ads *agentDataSource) Cluster() cluster.ClusterCache {
 
 func (ads *agentDataSource) StatsSummary() nodes.StatSummaryClient {
 	return ads.nodeStatsSummaryClient
+}
+
+func (ads *agentDataSource) ClusterMetadata() cluster.Metadata {
+	return ads.clusterMetadata
 }

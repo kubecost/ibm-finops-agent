@@ -49,6 +49,7 @@ type EmitterConfig struct {
 	EmitAsJson       bool
 	ParseMetricData  bool
 	EmissionInterval time.Duration
+	ClusterVersion   string
 }
 
 const UPLOAD_FREQUENCY = 10
@@ -408,6 +409,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	metrics := map[string]int{}
 	values["agent_version"] = ce.agentVersion
 	values["cluster_name"] = ce.config.ClusterName
+	values["cluster_version"] = ce.config.ClusterVersion
 	if ce.config.ProxyURL != nil {
 		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
 	}

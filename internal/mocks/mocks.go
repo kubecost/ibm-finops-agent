@@ -30,6 +30,7 @@ type MockDataSource struct {
 	ClusterCache           *MockClusterCache
 	MetricsQuerier         *MockMetricsQuerier
 	NodeStatsSummaryClient *MockStatsSummaryClient
+	CMetadata              *MockMetadata
 }
 
 // NewMockDataSource creates a new mock data source implementation with services that track
@@ -42,6 +43,7 @@ func NewMockDataSource() *MockDataSource {
 		ClusterCache:           NewMockClusterCache(),
 		MetricsQuerier:         metrics,
 		NodeStatsSummaryClient: NewMockStatsSummaryClient(),
+		CMetadata:              NewMockMetadata(),
 	}
 }
 
@@ -59,6 +61,10 @@ func (mds *MockDataSource) Metrics() source.MetricsQuerier {
 
 func (mds *MockDataSource) StatsSummary() nodes.StatSummaryClient {
 	return mds.NodeStatsSummaryClient
+}
+
+func (mds *MockDataSource) ClusterMetadata() cluster.Metadata {
+	return mds.CMetadata
 }
 
 //--------------------------------------------------------------------------
@@ -699,4 +705,32 @@ func (m *MockStatsSummaryClient) recordCall(method string) {
 func (m *MockStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	m.recordCall("GetNodeData")
 	return nil, nil
+}
+
+//--------------------------------------------------------------------------
+//  Mock Metadata
+//--------------------------------------------------------------------------
+
+// MockMetadata is a mock implementation of the version.Metadata interface
+// that records the number of times each method is called.
+type MockMetadata struct {
+	Calls map[string]int
+}
+
+// NewMockMetadata creates a new mock metadata
+func NewMockMetadata() *MockMetadata {
+	return &MockMetadata{
+		Calls: make(map[string]int),
+	}
+}
+
+// Helper to record method calls
+func (m *MockMetadata) recordCall(method string) {
+	m.Calls[method]++
+}
+
+// Implementation of interface methods
+func (m *MockMetadata) GetClusterInfo() *cluster.Info {
+	m.recordCall("GetVersionInfo")
+	return nil
 }

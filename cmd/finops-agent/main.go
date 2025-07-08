@@ -15,6 +15,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/http"
+	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -94,6 +95,12 @@ func main() {
 		if err != nil {
 			panic("invalid cloudability emitter config: " + err.Error())
 		}
+
+		clusterInfo := dataSource.ClusterMetadata().GetClusterInfo()
+		if clusterInfo != nil {
+			cldyConfig.ClusterVersion = version.FormatVersionInfo(clusterInfo.Version)
+		}
+
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
 	if env.IsTurboEmitterEnabled() {

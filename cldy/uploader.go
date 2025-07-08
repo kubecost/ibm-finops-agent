@@ -84,11 +84,11 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	}
 
 	uploader := CldyUploader{
-		config:          config,
-		sampleSet:       newSet(),
-		uploadSet:       newSet(),
-		stop:            stop,
-		UploadPathDir:   uploadPathDir,
+		config:        config,
+		sampleSet:     newSet(),
+		uploadSet:     newSet(),
+		stop:          stop,
+		UploadPathDir: uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
 		StorageServices: storageServices,
 		recoveryPeriod:  config.RecoveryPeriod,
