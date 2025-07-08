@@ -88,14 +88,14 @@ func main() {
 		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv()
 		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
 
+		if err := kubecost.ValidateConfig(kubecostEmitterConfig); err != nil {
+			panic("invalid kubecost emitter config: " + err.Error())
+		}
+
 		// Update the snapshot config to include the kubecost emitter's required resources
 		snapshotConfig = snapshotConfig.WithKubernetesSnapshotConfig(
 			emitter.NewKubernetesSnapshotConfigFromEnabled(kubecostEmitterConfig.KubernetesResourcesRequired),
 		)
-
-		if err := kubecost.ValidateConfig(kubecostEmitterConfig); err != nil {
-			panic("invalid kubecost emitter config: " + err.Error())
-		}
 
 		emitters = append(emitters, kubecost.NewKubecostEmitter(diag, kubecostEmitterConfig))
 	}
@@ -109,6 +109,11 @@ func main() {
 		if clusterInfo != nil {
 			cldyConfig.ClusterVersion = version.FormatVersionInfo(clusterInfo.Version)
 		}
+
+		// Update the snapshot config to include the cloudability emitter's required resources
+		snapshotConfig = snapshotConfig.WithKubernetesSnapshotConfig(
+			emitter.NewKubernetesSnapshotConfigFromEnabled(cldyConfig.KubernetesResourcesRequired),
+		)
 
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
