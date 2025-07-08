@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"slices"
 	"time"
 
 	kcenv "github.com/ibm/finops-agent/kubecost/env"
 	"github.com/ibm/finops-agent/kubecost/errors"
+	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/env"
@@ -59,6 +61,7 @@ type EmitterConfig struct {
 	QueryResolution                time.Duration
 	EmitAllocationMinuteResolution bool
 	EmitAssetMinuteResolution      bool
+	KubernetesResourcesRequired    []string
 }
 
 // NewEmitterConfigFromEnv creates a new EmitterConfig from environment variables.
@@ -73,6 +76,8 @@ func NewEmitterConfigFromEnv() *EmitterConfig {
 		QueryResolution:                1 * time.Minute,
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),
 		EmitAssetMinuteResolution:      kcenv.IsMinuteMetricsEnabled(),
+		// Kubecost emitter requires all kubernetes resources to be enabled
+		KubernetesResourcesRequired: slices.Clone(emitter.SnapshotAllResources),
 	}
 }
 

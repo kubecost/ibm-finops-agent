@@ -78,11 +78,20 @@ func main() {
 	emissionInterval := env.GetExporterEmissionInterval()
 	dataSource := core.NewAgentDataSource(router, diag, emissionInterval)
 
-	var emitters []emitter.Emitter
+	// Snapshot configuration will gather specific kubernetes resource requirements
+	// from each emitter that is enabled such that we only snapshot the resources that
+	// are required by the emitters.
+	snapshotConfig := emitter.NewSnapshotConfigFromEnv()
 
+	var emitters []emitter.Emitter
 	if env.IsKubecostEmitterEnabled() {
 		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv()
 		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
+
+		// Update the snapshot config to include the kubecost emitter's required resources
+		snapshotConfig = snapshotConfig.WithKubernetesSnapshotConfig(
+			emitter.NewKubernetesSnapshotConfigFromEnabled(kubecostEmitterConfig.KubernetesResourcesRequired),
+		)
 
 		if err := kubecost.ValidateConfig(kubecostEmitterConfig); err != nil {
 			panic("invalid kubecost emitter config: " + err.Error())
@@ -115,7 +124,7 @@ func main() {
 		}
 	*/
 
-	snapshotProvider := emitter.NewConcurrentSnapshotProvider(emitter.NewSnapshotConfigFromEnv())
+	snapshotProvider := emitter.NewConcurrentSnapshotProvider(snapshotConfig)
 	exporter := emitter.NewExporter(dataSource, snapshotProvider, emitters...)
 
 	if ok := exporter.Start(emissionInterval); !ok {
