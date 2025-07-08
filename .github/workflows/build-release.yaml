@@ -23,13 +23,14 @@ jobs:
       - name: Checkout ibm-finops-agent
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref_name }}
           path: ./ibm-finops-agent
 
       - name: Checkout opencost
         uses: actions/checkout@v4
         with:
           repository: 'opencost/opencost'
-          ref: 'develop'
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
           path: ./opencost
 
