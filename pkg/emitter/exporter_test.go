@@ -10,6 +10,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/nodes"
+	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
@@ -168,6 +169,10 @@ func (e *emptyDataSource) Cluster() cluster.ClusterCache {
 }
 
 func (e *emptyDataSource) StatsSummary() nodes.StatSummaryClient {
+	return nil
+}
+
+func (e *emptyDataSource) ClusterMetadata() version.Metadata {
 	return nil
 }
 

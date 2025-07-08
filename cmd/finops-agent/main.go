@@ -76,7 +76,7 @@ func main() {
 
 	// Initialize/Bootstrap the Agent Data Source
 	emissionInterval := env.GetExporterEmissionInterval()
-	dataSource, versionInfo := core.NewAgentDataSource(router, diag, emissionInterval)
+	dataSource := core.NewAgentDataSource(router, diag, emissionInterval)
 
 	var emitters []emitter.Emitter
 
@@ -95,7 +95,7 @@ func main() {
 		if err != nil {
 			panic("invalid cloudability emitter config: " + err.Error())
 		}
-		cldyConfig.ClusterVersion = version.FormatVersionInfo(versionInfo)
+		cldyConfig.ClusterVersion = version.FormatVersionInfo(dataSource.ClusterMetadata().GetVersionInfo())
 
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}

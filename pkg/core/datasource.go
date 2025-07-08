@@ -8,11 +8,11 @@ import (
 	"github.com/ibm/finops-agent/pkg/core/opencost"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/nodes"
+	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
-	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/discovery"
 
 	"github.com/julienschmidt/httprouter"
@@ -32,13 +32,16 @@ type DataSource interface {
 
 	// Node Stats Summary Client
 	StatsSummary() nodes.StatSummaryClient
+
+	// K8s Version Object
+	ClusterMetadata() version.Metadata
 }
 
 func NewAgentDataSource(
 	router *httprouter.Router,
 	diag diagnostics.DiagnosticService,
 	interval time.Duration,
-) (DataSource, *version.Info) {
+) DataSource {
 	// NOTE: (bolt) This just uses a fairly straight-forward kube client initialization. We should add specific proxy/auth
 	// NOTE: (bolt) requirements for the other data sources.
 	kubeClientset, err := kubeconfig.LoadKubeClient("")
@@ -60,6 +63,7 @@ func NewAgentDataSource(
 	if err != nil {
 		log.Warnf("Failed to fetch Kubernetes version: %s", err.Error())
 	}
+	clusterMetadata := version.NewClusterMetadata(versionInfo)
 
 	informerCfg := cluster.LoadInformerConfig()
 	// Create Kubernetes Cluster Cache + Watchers
@@ -92,7 +96,8 @@ func NewAgentDataSource(
 		metrics:                opencostSource.Metrics(),
 		clusterCache:           k8sCache,
 		nodeStatsSummaryClient: nodeStatsSummaryClient,
-	}, versionInfo
+		clusterMetadata:        clusterMetadata,
+	}
 }
 
 type agentDataSource struct {
@@ -107,6 +112,9 @@ type agentDataSource struct {
 
 	// Node Stats Summary Client
 	nodeStatsSummaryClient nodes.StatSummaryClient
+
+	// K8s Cluster Metadata
+	clusterMetadata version.Metadata
 
 	// TODO: HTTP Server/Proxy for Turbo?
 }
@@ -125,4 +133,8 @@ func (ads *agentDataSource) Cluster() cluster.ClusterCache {
 
 func (ads *agentDataSource) StatsSummary() nodes.StatSummaryClient {
 	return ads.nodeStatsSummaryClient
+}
+
+func (ads *agentDataSource) ClusterMetadata() version.Metadata {
+	return ads.clusterMetadata
 }

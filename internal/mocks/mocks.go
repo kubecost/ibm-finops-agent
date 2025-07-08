@@ -5,6 +5,7 @@ import (
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/nodes"
+	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/clusters"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
@@ -17,6 +18,7 @@ import (
 	stv1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	k8sversion "k8s.io/apimachinery/pkg/version"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
@@ -30,6 +32,7 @@ type MockDataSource struct {
 	ClusterCache           *MockClusterCache
 	MetricsQuerier         *MockMetricsQuerier
 	NodeStatsSummaryClient *MockStatsSummaryClient
+	K8sMetadata            *MockMetadata
 }
 
 // NewMockDataSource creates a new mock data source implementation with services that track
@@ -42,6 +45,7 @@ func NewMockDataSource() *MockDataSource {
 		ClusterCache:           NewMockClusterCache(),
 		MetricsQuerier:         metrics,
 		NodeStatsSummaryClient: NewMockStatsSummaryClient(),
+		K8sMetadata:            NewMockMetadata(),
 	}
 }
 
@@ -59,6 +63,10 @@ func (mds *MockDataSource) Metrics() source.MetricsQuerier {
 
 func (mds *MockDataSource) StatsSummary() nodes.StatSummaryClient {
 	return mds.NodeStatsSummaryClient
+}
+
+func (mds *MockDataSource) ClusterMetadata() version.Metadata {
+	return mds.K8sMetadata
 }
 
 //--------------------------------------------------------------------------
@@ -699,4 +707,32 @@ func (m *MockStatsSummaryClient) recordCall(method string) {
 func (m *MockStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	m.recordCall("GetNodeData")
 	return nil, nil
+}
+
+//--------------------------------------------------------------------------
+//  Mock Metadata
+//--------------------------------------------------------------------------
+
+// MockMetadata is a mock implementation of the version.Metadata interface
+// that records the number of times each method is called.
+type MockMetadata struct {
+	Calls map[string]int
+}
+
+// NewMockMetadata creates a new mock metadata
+func NewMockMetadata() *MockMetadata {
+	return &MockMetadata{
+		Calls: make(map[string]int),
+	}
+}
+
+// Helper to record method calls
+func (m *MockMetadata) recordCall(method string) {
+	m.Calls[method]++
+}
+
+// Implementation of interface methods
+func (m *MockMetadata) GetVersionInfo() *k8sversion.Info {
+	m.recordCall("GetVersionInfo")
+	return nil
 }

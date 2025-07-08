@@ -21,3 +21,21 @@ func FormatVersionInfo(version *version.Info) string {
 	}
 	return ""
 }
+
+type Metadata interface {
+	GetVersionInfo() *version.Info
+}
+
+type ClusterMetdata struct {
+	versionInfo *version.Info
+}
+
+func NewClusterMetadata(versionInfo *version.Info) ClusterMetdata {
+	return ClusterMetdata{
+		versionInfo: versionInfo,
+	}
+}
+
+func (cm ClusterMetdata) GetVersionInfo() *version.Info {
+	return cm.versionInfo
+}
