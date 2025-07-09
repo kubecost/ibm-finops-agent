@@ -132,6 +132,12 @@ func snapshotClusterInfo(infoProvider clusters.ClusterInfoProvider) (*clusters.C
 }
 
 func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfig) (*KubernetesSnapshot, error) {
+	// if we get here, and a kubernetes snapshot config hasn't been provided, enable all resource snapshots by
+	// default
+	if config.KubernetesSnapshot == nil {
+		config.KubernetesSnapshot = NewKubernetesSnapshotConfig().EnableAll()
+	}
+
 	kconfig := config.KubernetesSnapshot
 	return &KubernetesSnapshot{
 		Nodes:                  snapshotResource(kconfig.Nodes, cluster.GetAllNodes),

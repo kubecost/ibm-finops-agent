@@ -143,7 +143,11 @@ func (ksc *KubernetesSnapshotConfig) Set(field string, enabled bool) {
 
 // Append merges the provided KubernetesSnapshotConfig into the current instance, preserving
 // all enabled options. If an option is enabled in either config, it will be enabled in the result.
+// If config is nil, the method returns without making any changes.
 func (ksc *KubernetesSnapshotConfig) Append(config *KubernetesSnapshotConfig) {
+	if config == nil {
+		return
+	}
 	ksc.Nodes = ksc.Nodes || config.Nodes
 	ksc.Pods = ksc.Pods || config.Pods
 	ksc.Namespaces = ksc.Namespaces || config.Namespaces
