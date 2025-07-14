@@ -68,7 +68,7 @@ func NewEmitterConfigFromEnv() *EmitterConfig {
 		ConfigPath:                     env.GetConfigPathWithDefault("/var/configs/"),
 		CloudProviderAPIKey:            env.GetCloudProviderAPIKey(),
 		InstallNamespace:               env.GetInstallNamespace(),
-		BucketConfigFile:               env.GetExportBucketConfigFile(),
+		BucketConfigFile:               kcenv.GetExportBucketConfigFile(),
 		ExportIntervals:                NewExportIntervalConfigFromEnv(),
 		QueryResolution:                1 * time.Minute,
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),

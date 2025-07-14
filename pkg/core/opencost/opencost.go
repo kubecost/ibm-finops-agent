@@ -34,10 +34,7 @@ func NewOpenCostDataSource(
 	conf *OpenCostConfig,
 ) source.OpenCostDataSource {
 	// Create ConfigFileManager for synchronization of shared configuration
-	confManager := config.NewConfigFileManager(&config.ConfigFileManagerOpts{
-		LocalConfigPath:   "/",
-		BucketStoreConfig: "",
-	})
+	confManager := config.NewConfigFileManager(nil)
 
 	clusterCache := cluster.NewOpenCostClusterCacheAdapter(k8sCache)
 
