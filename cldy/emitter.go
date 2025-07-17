@@ -193,7 +193,6 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 		return nil
 	}
 
-	log.Infof("Emitting sample to Cldy %d", ce.sampleCt)
 	ce.nextSamplePath = ce.newNextSamplePath()
 	err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
 	if err != nil {
@@ -212,7 +211,7 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 	ce.Uploader.AddSample(ce.currentSamplePath)
 	ce.sampleCt++
 	ce.currentSamplePath = ce.nextSamplePath
-	log.Info("added sample to Cldy")
+	log.Debugf("Emitted sample to Cldy: %d", ce.sampleCt)
 
 	return nil
 }
