@@ -252,7 +252,7 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("frontdoor service login call failed with status code: %d. "+
-			"Please ensure agent has proper credentials", resp.StatusCode)
+			"Please ensure agent credential values are accurate", resp.StatusCode)
 	}
 
 	openToken = resp.Header.Get("Apptio-Opentoken")
@@ -389,13 +389,15 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 	request.ContentLength = size
 
 	resp, err := s.CldyUploadClient.Do(request, s3UploadDescription)
-	if err != nil || resp == nil {
+	if err != nil {
 		return err
 	}
 
-	if resp.StatusCode == http.StatusOK {
-		log.Infof("Successfully uploaded metric sample %s to cloudability", removeQueryParameters(path.Base(uploadURL)))
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("sample upload failed with status code: %d", resp.StatusCode)
 	}
+
+	log.Infof("Successfully uploaded metric sample %s to cloudability", removeQueryParameters(path.Base(uploadURL)))
 	return nil
 }
 
@@ -407,10 +409,10 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 			return resp, nil
 		}
 		if err != nil {
-			log.Errorf("HTTPS request failed with error: %s", err.Error())
+			log.Warnf("HTTPS request failed with error: %s", err.Error())
 		}
 		if resp != nil {
-			log.Errorf("Request failed with status code: %s", resp.Status)
+			log.Warnf("Request failed with status code: %s", resp.Status)
 		}
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
