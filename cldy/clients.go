@@ -440,7 +440,7 @@ func getURLsFromRegion(region string) (string, string) {
 	case "hybrid-me":
 		return meFrontdoorURL, usCloudabilityURL
 	default:
-		log.Warnf("Invalid region: %s. Defaulting to 'us' region.", region)
+		log.Warnf("Invalid cloudability region: %s. Defaulting to 'us' region.", region)
 		return usFrontdoorURL, usCloudabilityURL
 	}
 }
@@ -662,7 +662,7 @@ type BlobUploadInput struct {
 func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
-		return fmt.Errorf("unable to open metric sample file %w", err)
+		return fmt.Errorf("unable to open metric sample file: %w", err)
 	}
 	defer safeClose(fileReader.Close, &err)
 
