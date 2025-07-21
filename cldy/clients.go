@@ -121,12 +121,12 @@ func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
 		CloudabilityURL:  cloudabilityURL,
 	}
 
-	log.Infof("Testing cloudability upload connection")
+	log.Infof("Testing Cloudability upload connection.")
 	err = apptioService.testUpload()
 	if err != nil {
 		return nil, fmt.Errorf("cloudability test connection failed: %s", err)
 	}
-	log.Infof("Cloudability upload test succeeded")
+	log.Infof("Cloudability upload test succeeded.")
 	return apptioService, nil
 }
 

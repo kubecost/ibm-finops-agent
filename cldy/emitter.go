@@ -159,7 +159,7 @@ func (ce *Emitter) ID() emitter.EmitterID {
 }
 
 func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
-	log.Infof("Initializing cldy emitter")
+	log.Infof("Initializing Cloudability emitter.")
 
 	clusterID := getClusterID(cs.Kubernetes.Namespaces)
 	ce.ClusterID = &clusterID
