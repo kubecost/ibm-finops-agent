@@ -23,7 +23,7 @@ ci-lint:
 
 # Build a local container image with the linux AMD architecture (ALEX TODO: maybe add back the linux tag)
 deploy-local-container:
-	podman build --platform linux/arm64 \
+	docker build --platform linux/arm64 \
 	--build-arg TARGETPLATFORM=linux/arm64 \
 	-t ibm-finops-agent:v1.32.0 -f Dockerfile .
 
