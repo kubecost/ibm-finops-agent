@@ -120,6 +120,9 @@ jobs:
       - name: Build E2E test docker image
         run: docker build -f ./ibm-finops-agent/Dockerfile -t ibm-finops-agent:v1.32.0 .
 
+      - name: kind
+        run: kind version
+
       - name: E2E testing
         run: |
           make -C ./ibm-finops-agent e2e-test
