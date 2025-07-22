@@ -95,6 +95,12 @@ jobs:
         run: |
           go build -o ibm-finops-agent ./cmd/finops-agent/main.go
 
+
+      - name: Alex Awful Tests
+        working-directory: ./ibm-finops-agent
+        run: |
+          make e2e-test
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
