@@ -21,12 +21,6 @@ ci-lint:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.2.1
 	golangci-lint run
 
-# Build a local container image with the linux AMD architecture (ALEX TODO: maybe add back the linux tag)
-deploy-local-container:
-	docker build --platform linux/arm64 \
-	--build-arg TARGETPLATFORM=linux/arm64 \
-	-t ibm-finops-agent:v1.32.0 -f Dockerfile .
-
 # $(call TEST_KUBERNETES, image_tag, prefix, git_commit)
 define TEST_KUBERNETES
 	KUBERNETES_VERSION=$(1) IMAGE=ibm-finops-agent:$(1) TEMP_DIR=$(TEMP_DIR) e2e/e2e.sh; \
@@ -37,7 +31,7 @@ endef
 
 e2e-test: test-k8s-1.32.0
 
-test-k8s-1.32.0: deploy-local-container
+test-k8s-1.32.0:
 	$(call TEST_KUBERNETES,v1.32.0,$(PREFIX))
 
 test-k8s-1.31.0:

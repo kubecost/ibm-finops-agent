@@ -116,10 +116,13 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-      
+
+      - name: Build E2E test docker image
+        run: docker build -f ./ibm-finops-agent/Dockerfile -t ibm-finops-agent:v1.32.0 .
+
       - name: E2E testing
         run: |
-          make -C ./ibm-finops-agent e2e-test
+          make e2e-test
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
