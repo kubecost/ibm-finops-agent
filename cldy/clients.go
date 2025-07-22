@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -236,8 +237,7 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 
 	request, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
-		return "", fmt.Errorf("error in creating http request for frontdoor service: %w. "+
-			"Please ensure keyAccess and keySecret are of a valid format", err)
+		return "", fmt.Errorf("error in creating http request for frontdoor service: %w", err)
 	}
 
 	request.Header.Add("Content-Type", "application/json")
@@ -246,13 +246,18 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 	resp, err := s.CldyUploadClient.Do(request, frontDoorLoginDescription)
 	if err != nil {
 		return "", fmt.Errorf("error connecting to frontdoor service: %w. Please ensure agent"+
-			"is configured to have access to external resources", err)
+			"is able to connect to %s", err, url)
 	}
 	defer safeClose(resp.Body.Close, &rErr)
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("frontdoor service login call failed with status code: %d. "+
-			"Please ensure agent credential values are accurate", resp.StatusCode)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("error reading response body: %w", err)
+		}
+
+		return "", fmt.Errorf("frontdoor service login call failed with status code: %d and "+
+			"response: %s", resp.StatusCode, body)
 	}
 
 	openToken = resp.Header.Get("Apptio-Opentoken")
