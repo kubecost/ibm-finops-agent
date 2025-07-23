@@ -56,13 +56,13 @@ deploy(){
   
   if [ "${CI}" = "true" ]; then
     docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
-    ${CI_KUBECTL} apply -f -  < e2e-deployment.yaml
+    ${CI_KUBECTL} apply -f -  < e2e/e2e-deployment.yaml
     ${CI_KUBECTL} -n ibm-finops-agent patch deployment unified-agent --patch "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{${ENVS} }]}}}}"
     sleep 10
     ${CI_KUBECTL} create ns stress
     ${CI_KUBECTL} -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
   else
-    kubectl apply -f deploy/kubernetes/cloudability-metrics-agent.yaml
+    kubectl apply -f e2e/e2e-deployment.yaml
     kubectl -n ibm-finops-agent patch deployment unified-agent --patch \
   "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{${CONTAINER}, ${ENVS} }]}}}}"
     sleep 10
