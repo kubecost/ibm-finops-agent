@@ -25,10 +25,11 @@ setup_kind() {
   export PATH=$(go env GOPATH)/bin:$PATH
 
   cleanup
-  if ! (kind create cluster --name=e2e-${KUBERNETES_VERSION} --image=docker.io/library/${IMAGE}) ; then
+  if ! (kind create cluster --name=e2e-${KUBERNETES_VERSION} --image=kindest/node:${KUBERNETES_VERSION}) ; then
     echo "Could not create kind cluster"
     exit 1
   fi
+
 
   sleep 2
   kubectl version

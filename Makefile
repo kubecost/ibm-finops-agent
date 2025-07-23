@@ -23,7 +23,7 @@ ci-lint:
 
 # $(call TEST_KUBERNETES, image_tag, prefix, git_commit)
 define TEST_KUBERNETES
-	KUBERNETES_VERSION=$(1) IMAGE=ibm-finops-agent:$(1) TEMP_DIR=$(TEMP_DIR) e2e/e2e.sh; \
+	KUBERNETES_VERSION=$(1) IMAGE=ibm-finops-agent:v0.0.25 TEMP_DIR=$(TEMP_DIR) e2e/e2e.sh; \
 		if [ $$? != 0 ]; then \
 			exit 1; \
 		fi;
@@ -32,7 +32,7 @@ endef
 e2e-test: test-k8s-1.32.0
 
 test-k8s-1.32.0:
-	$(call TEST_KUBERNETES,v1.32.0,$(PREFIX))
+	$(call TEST_KUBERNETES,v1.32.0,$(PREFIX),"v0.0.25")
 
 test-k8s-1.31.0:
 	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(1.31.0) --bin-dir $(LOCALBIN) -p path)" go test ./...
