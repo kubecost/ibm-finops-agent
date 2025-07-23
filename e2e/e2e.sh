@@ -34,13 +34,13 @@ setup_kind() {
   sleep 2
   kubectl version
 
-    i=0
-    until [ $i -ge 5 ]
-    do
-      kind load podman-image ${IMAGE} --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
-      n=$[$i+1]
-      sleep 15
-    done
+  i=0
+  until [ $i -ge 5 ]
+  do
+    kind load docker-image ${IMAGE} --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
+    n=$[$i+1]
+    sleep 15
+  done
 }
 
 deploy(){
@@ -57,13 +57,13 @@ deploy(){
   if [ "${CI}" = "true" ]; then
     docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
     ${CI_KUBECTL} apply -f -  < deploy/kubernetes/cloudability-metrics-agent.yaml
-    ${CI_KUBECTL} -n cloudability patch deployment metrics-agent --patch "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{${CONTAINER}, ${ENVS} }]}}}}"
+    ${CI_KUBECTL} -n ibm-finops-agent patch deployment unified-agent --patch "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{${CONTAINER}, ${ENVS} }]}}}}"
     sleep 10
     ${CI_KUBECTL} create ns stress
     ${CI_KUBECTL} -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
   else
     kubectl apply -f deploy/kubernetes/cloudability-metrics-agent.yaml
-    kubectl -n cloudability patch deployment metrics-agent --patch \
+    kubectl -n ibm-finops-agent patch deployment unified-agent --patch \
   "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{${CONTAINER}, ${ENVS} }]}}}}"
     sleep 10
     kubectl create ns stress
