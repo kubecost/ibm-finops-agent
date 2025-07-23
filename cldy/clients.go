@@ -245,7 +245,7 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 
 	resp, err := s.CldyUploadClient.Do(request, frontDoorLoginDescription)
 	if err != nil {
-		return "", fmt.Errorf("error connecting to frontdoor service: %w. Please ensure agent"+
+		return "", fmt.Errorf("error connecting to frontdoor service: %w. Please ensure agent "+
 			"is able to connect to %s", err, url)
 	}
 	defer safeClose(resp.Body.Close, &rErr)
@@ -312,7 +312,7 @@ func (s *ApptioServiceImpl) testUpload() error {
 			return nil
 		}
 		if err != nil {
-			log.Warnf("Cloudability test HTTPS request failed with error: %s. Please ensure agent"+
+			log.Warnf("Cloudability test HTTPS request failed with error: %s. Please ensure agent "+
 				"is configured to have access to external resources", err.Error())
 		}
 		if resp != nil {
@@ -523,7 +523,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 
 	err = cs3c.UploadClient.Do(sampleToUpload)
 	if err != nil {
-		return fmt.Errorf("failed to put sample to custom S3 with error: %w. Please ensure agent"+
+		return fmt.Errorf("failed to put sample to custom S3 with error: %w. Please ensure agent "+
 			"is configured to have access to external resources", err)
 	}
 
@@ -684,7 +684,7 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 
 	err = cbc.UploadClient.Do(sampleToUpload)
 	if err != nil {
-		return fmt.Errorf("failed to put sample to custom azure blob with error: %s. Please ensure agent"+
+		return fmt.Errorf("failed to put sample to custom azure blob with error: %s. Please ensure agent "+
 			"is configured to have access to external resources", err)
 	}
 
