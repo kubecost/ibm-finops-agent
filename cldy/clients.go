@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -121,12 +122,12 @@ func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
 		CloudabilityURL:  cloudabilityURL,
 	}
 
-	log.Infof("Testing cloudability upload connection")
+	log.Infof("Testing Cloudability upload connection.")
 	err = apptioService.testUpload()
 	if err != nil {
 		return nil, fmt.Errorf("cloudability test connection failed: %s", err)
 	}
-	log.Infof("Cloudability upload test succeeded")
+	log.Infof("Cloudability upload test succeeded.")
 	return apptioService, nil
 }
 
@@ -244,13 +245,19 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 
 	resp, err := s.CldyUploadClient.Do(request, frontDoorLoginDescription)
 	if err != nil {
-		return "", fmt.Errorf("error connecting to frontdoor service: %w", err)
+		return "", fmt.Errorf("error connecting to frontdoor service: %w. Please ensure agent "+
+			"is able to connect to %s", err, url)
 	}
 	defer safeClose(resp.Body.Close, &rErr)
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("frontdoor service login call failed with status "+
-			"code: %d", resp.StatusCode)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("error reading response body: %w", err)
+		}
+
+		return "", fmt.Errorf("frontdoor service login call failed with status code: %d and "+
+			"response: %s", resp.StatusCode, body)
 	}
 
 	openToken = resp.Header.Get("Apptio-Opentoken")
@@ -305,10 +312,11 @@ func (s *ApptioServiceImpl) testUpload() error {
 			return nil
 		}
 		if err != nil {
-			log.Warnf("Test HTTPS request failed with error %s", err.Error())
+			log.Warnf("Cloudability test HTTPS request failed with error: %s. Please ensure agent "+
+				"is configured to have access to external resources", err.Error())
 		}
 		if resp != nil {
-			log.Warnf("Test upload %d failed with status code %s", i, resp.Status)
+			log.Warnf("Cloudability test upload %d failed with status code: %s", i, resp.Status)
 		}
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
@@ -343,7 +351,8 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 
 	resp, err := s.CldyUploadClient.Do(request, presignedURLDescription)
 	if err != nil {
-		return "", fmt.Errorf("error connecting to cloudability: %w", err)
+		return "", fmt.Errorf("error connecting to cloudability: %w. Please ensure agent is "+
+			"configured to have access to external resources", err)
 	}
 	defer safeClose(resp.Body.Close, &rErr)
 
@@ -385,29 +394,30 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 	request.ContentLength = size
 
 	resp, err := s.CldyUploadClient.Do(request, s3UploadDescription)
-	if err != nil || resp == nil {
+	if err != nil {
 		return err
 	}
 
-	
-	if resp.StatusCode == http.StatusOK {
-		log.Infof("Successfully uploaded metric sample %s to cloudability", removeQueryParameters(path.Base(uploadURL)))
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("sample upload failed with status code: %d", resp.StatusCode)
 	}
+
+	log.Infof("Successfully uploaded metric sample %s to cloudability", removeQueryParameters(path.Base(uploadURL)))
 	return nil
 }
 
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
 	for i := 1; i < 4; i++ {
-		log.Infof("Attempt %d: %s", i, requestDescription)
+		log.Debugf("Attempt %d: %s", i, requestDescription)
 		resp, err := ac.client.Do(req)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 			return resp, nil
 		}
 		if err != nil {
-			log.Errorf("HTTPS request failed with error %s", err.Error())
+			log.Warnf("HTTPS request failed with error: %s", err.Error())
 		}
 		if resp != nil {
-			log.Errorf("Request failed with status code %s", resp.Status)
+			log.Warnf("Request failed with status code: %s", resp.Status)
 		}
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
@@ -435,7 +445,7 @@ func getURLsFromRegion(region string) (string, string) {
 	case "hybrid-me":
 		return meFrontdoorURL, usCloudabilityURL
 	default:
-		log.Warnf("Customer region is invalid. Defaulting to US region.")
+		log.Warnf("Invalid cloudability region: %s. Defaulting to 'us' region.", region)
 		return usFrontdoorURL, usCloudabilityURL
 	}
 }
@@ -453,7 +463,8 @@ func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageSer
 	}
 
 	if customS3Bucket == "" || customS3Region == "" {
-		return nil, fmt.Errorf("both custom bucket and custom region must be set for custom s3 configuration")
+		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_S3_UPLOAD_BUCKET and CLOUDABILITY_CUSTOM_S3_UPLOAD_REGION " +
+			"must be set for custom S3 configuration")
 	}
 
 	uploadClient, err := newUploadClient(customS3Region)
@@ -483,7 +494,7 @@ func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("could not establish AWS Session, "+
-			"ensure AWS environment variables are set correctly: %s", err)
+			"ensure Cloudability AWS environment variables are set correctly: %s", err)
 	}
 	svc := s3.New(sess)
 
@@ -495,7 +506,7 @@ func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
-		return fmt.Errorf("unable to open metric sample file %v", err)
+		return fmt.Errorf("unable to open metric sample file: %w", err)
 	}
 	defer safeClose(fileReader.Close, &err)
 
@@ -512,7 +523,8 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 
 	err = cs3c.UploadClient.Do(sampleToUpload)
 	if err != nil {
-		return fmt.Errorf("failed to put Object to custom S3 with error: %s", err)
+		return fmt.Errorf("failed to put sample to custom S3 with error: %w. Please ensure agent "+
+			"is configured to have access to external resources", err)
 	}
 
 	log.Infof("Successfully uploaded metric sample %s to custom S3 bucket: %s", path.Base(key), cs3c.S3Bucket)
@@ -536,7 +548,8 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		return nil, nil
 	}
 	if blobContainerName == "" || customBlobUrl == "" {
-		return nil, fmt.Errorf("both container name and blob url must be set for all custom azure blob configurations")
+		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CONTAINER_NAME and CLOUDABILITY_CUSTOM_AZURE_BLOB_URL " +
+			"must be set for all custom azure blob configurations")
 	}
 
 	body, err := azureClientSecret.GetSecret()
@@ -555,7 +568,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		uploadClient, err := newBlobManagedIdentityClient(customBlobUrl)
 		if err != nil {
 			return nil, fmt.Errorf("could not establish Azure client with managed identity, "+
-				"ensure Azure environment variables are set correctly: %s", err)
+				"ensure Azure environment variables are set correctly: %w", err)
 		}
 		if uploadClient != nil {
 			return CustomBlobClient{
@@ -565,13 +578,14 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		}
 	} else {
 		if azureTenantID == "" || azureClientID == "" || len(body) == 0 {
-			return nil, fmt.Errorf("tenant id, client id, and client secret must be set for azure client creation")
+			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_TENANT_ID, CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_ID, " +
+				"and CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_SECRET_FILEPATH must be set for Azure client creation through environment")
 		}
 
 		uploadClient, err := newBlobServicePrincipalClient(customBlobUrl, azureTenantID, azureClientID, azureClientSecret)
 		if err != nil {
-			return nil, fmt.Errorf("could not establish Azure client with environment, "+
-				"ensure all Azure environment variables are set correctly: %s", err)
+			return nil, fmt.Errorf("could not establish Azure client through environment, "+
+				"ensure all Azure environment variables are set correctly: %w", err)
 		}
 		if uploadClient != nil {
 			return CustomBlobClient{
@@ -653,7 +667,7 @@ type BlobUploadInput struct {
 func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
-		return fmt.Errorf("unable to open metric sample file %v", err)
+		return fmt.Errorf("unable to open metric sample file: %w", err)
 	}
 	defer safeClose(fileReader.Close, &err)
 
@@ -670,7 +684,8 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 
 	err = cbc.UploadClient.Do(sampleToUpload)
 	if err != nil {
-		return fmt.Errorf("failed to put Object to custom azure blob with error: %s", err)
+		return fmt.Errorf("failed to put sample to custom azure blob with error: %s. Please ensure agent "+
+			"is configured to have access to external resources", err)
 	}
 
 	log.Infof("Successfully uploaded metric sample %s to custom azure blob: %s", path.Base(key), cbc.BlobContainerName)

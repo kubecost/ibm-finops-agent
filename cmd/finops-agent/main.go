@@ -104,7 +104,7 @@ func main() {
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
 	if env.IsTurboEmitterEnabled() {
-		log.Warnf("turbo emitter not yet implemented.")
+		log.Infof("Turbonomic emitter not yet implemented.")
 		//emitters = append(emitters, emitter.NewTurboEmitter(dataSource))
 	}
 
