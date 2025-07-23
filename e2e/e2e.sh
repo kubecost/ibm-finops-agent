@@ -10,7 +10,7 @@ if [ "$OS" = "Darwin" ]; then
   export WORKINGDIR=/private${TEMP_DIR}/testdata/e2e/e2e-${KUBERNETES_VERSION}
 else
   export WORKINGDIR=${TEMP_DIR}/testdata/e2e/e2e-${KUBERNETES_VERSION}
-  export CI_KUBECTL="podman exec -i e2e-${KUBERNETES_VERSION}-control-plane kubectl --server=https://127.0.0.1:6443"
+  export CI_KUBECTL="docker exec -i e2e-${KUBERNETES_VERSION}-control-plane kubectl --server=https://127.0.0.1:6443"
 fi
 
 cleanup() {
@@ -38,7 +38,7 @@ setup_kind() {
   until [ $i -ge 5 ]
   do
     kind load docker-image ${IMAGE} --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
-    n=$[$i+1]
+    i=$[$i+1]
     sleep 15
   done
 }
@@ -85,14 +85,14 @@ wait_for_metrics() {
 }
 
 get_sample_data(){
-  echo "Waiting for agent data collection check: podman cp e2e-${KUBERNETES_VERSION}-control-plane:/tmp ${WORKINGDIR}"
+  echo "Waiting for agent data collection check: docker cp e2e-${KUBERNETES_VERSION}-control-plane:/tmp ${WORKINGDIR}"
   sleep 30
   if [ "${CI}" = "true" ]; then
     POD=$(${CI_KUBECTL} get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
     echo "pod is $POD"
     ${CI_KUBECTL} cp ibm-finops-agent/${POD}:/tmp /root/export
     sleep 10
-    podman cp e2e-${KUBERNETES_VERSION}-control-plane:/root/export ${WORKINGDIR}
+    docker cp e2e-${KUBERNETES_VERSION}-control-plane:/root/export ${WORKINGDIR}
   else
     POD=$(kubectl get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
     kubectl cp ibm-finops-agent/$POD:/tmp ${WORKINGDIR}
