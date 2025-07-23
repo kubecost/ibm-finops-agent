@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    name: "unified-agent"
+  name: "unified-agent"
+  namespace: ibm-finops-agent
+spec:
+  selector:
+    matchLabels:
+      app: unified-agent
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: unified-agent
+    spec:
+      serviceAccount: "ibm-finops-agent"
+      containers:
+        - image: e2e/ibm-finops-agent:latest
+          imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              memory: ".25Gi"
+              cpu: ".25"
+            limits:
+              memory: ".25Gi"
+              cpu: ".25"
+          livenessProbe:
+            exec:
+              command:
+                - touch
+                - tmp/healthy
+            initialDelaySeconds: 120
+            periodSeconds: 600
+          name: "unified-agent"
+          args:
+            - "kubernetes"
+          env:
+            - name: CLOUDABILITY_ENV_ID
+              value: dfa07190-0acb-4758-8d1b-a76fb6c6730e
+            - name: KUBECOST_EMITTER_ENABLED
+              value: "false"
+            - name: OPENCOST_SOURCE_ENABLED
+              value: "false"
+            - name: TURBO_EMITTER_ENABLED
+              value: "false"
+            - name: CLOUDY_EMITTER_ENABLED
+              value: "false"
+            - name: CLOUDABILITY_UPLOAD_REGION
+              value: staging
+            - name: CLOUDABILITY_SCRATCH_DIR
+              value: /tmp
+            - name: EXPORTER_EMISSION_INTERVAL
+              value: "20s"

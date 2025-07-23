@@ -56,8 +56,8 @@ deploy(){
   
   if [ "${CI}" = "true" ]; then
     docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
-    ${CI_KUBECTL} apply -f -  < deploy/kubernetes/cloudability-metrics-agent.yaml
-    ${CI_KUBECTL} -n ibm-finops-agent patch deployment unified-agent --patch "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{${CONTAINER}, ${ENVS} }]}}}}"
+    ${CI_KUBECTL} apply -f -  < e2e-deployment.yaml
+    ${CI_KUBECTL} -n ibm-finops-agent patch deployment unified-agent --patch "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{${ENVS} }]}}}}"
     sleep 10
     ${CI_KUBECTL} create ns stress
     ${CI_KUBECTL} -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
@@ -74,11 +74,11 @@ deploy(){
 wait_for_metrics() {
   # Wait for metrics-agent pod ready
   if [ "${CI}" = "true" ]; then
-    while [[ $(${CI_KUBECTL} get pods -n cloudability -l app=metrics-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
+    while [[ $(${CI_KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
       echo "waiting for pod ready" && sleep 5;
     done
   else
-    while [[ $(kubectl get pods -n cloudability -l app=metrics-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
+    while [[ $(kubectl get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
       echo "waiting for pod ready" && sleep 5;
     done
   fi
@@ -88,14 +88,14 @@ get_sample_data(){
   echo "Waiting for agent data collection check: podman cp e2e-${KUBERNETES_VERSION}-control-plane:/tmp ${WORKINGDIR}"
   sleep 30
   if [ "${CI}" = "true" ]; then
-    POD=$(${CI_KUBECTL} get pod -n cloudability -l app=metrics-agent -o jsonpath="{.items[0].metadata.name}")
+    POD=$(${CI_KUBECTL} get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
     echo "pod is $POD"
-    ${CI_KUBECTL} cp cloudability/${POD}:/tmp /root/export
+    ${CI_KUBECTL} cp ibm-finops-agent/${POD}:/tmp /root/export
     sleep 10
     podman cp e2e-${KUBERNETES_VERSION}-control-plane:/root/export ${WORKINGDIR}
   else
-    POD=$(kubectl get pod -n cloudability -l app=metrics-agent -o jsonpath="{.items[0].metadata.name}")
-    kubectl cp cloudability/$POD:/tmp ${WORKINGDIR}
+    POD=$(kubectl get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
+    kubectl cp ibm-finops-agent/$POD:/tmp ${WORKINGDIR}
   fi
 }
 
@@ -106,7 +106,7 @@ run_tests() {
 
 trap cleanup EXIT
 setup_kind
-# deploy
-# wait_for_metrics
-# get_sample_data
-# run_tests
+deploy
+wait_for_metrics
+get_sample_data
+run_tests
