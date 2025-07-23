@@ -118,7 +118,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build E2E test docker image
-        run: docker buildx build -f ./ibm-finops-agent/Dockerfile -t ibm-finops-agent:v1.32.0 --platform=linux/arm64 .
+        run: docker build -f ./ibm-finops-agent/Dockerfile -t ibm-finops-agent:v1.32.0 .
 
       - name: kind
         run: kind version
