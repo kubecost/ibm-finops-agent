@@ -11,7 +11,7 @@ import (
 
 func CreateTestBucketConfigFile(t *testing.T, contents string) string {
 	dir := t.TempDir()
-	testBucketConfigFile := path.Join(dir, "storage-config.yaml")
+	testBucketConfigFile := path.Join(dir, "federated-store.yaml")
 	err := os.WriteFile(testBucketConfigFile, []byte(contents), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write test bucket config file: %v", err)

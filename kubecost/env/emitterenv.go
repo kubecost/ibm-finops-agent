@@ -51,5 +51,5 @@ func GetDiagnosticsExportInterval() time.Duration {
 
 // GetExportBucketConfigFile returns the file path for the export bucket
 func GetExportBucketConfigFile() string {
-	return path.Join(ocenv.GetConfigPathWithDefault(ocenv.DefaultConfigMountPath), "storage-config.yaml")
+	return path.Join(ocenv.GetConfigPathWithDefault(ocenv.DefaultConfigMountPath), "federated-store.yaml")
 }
