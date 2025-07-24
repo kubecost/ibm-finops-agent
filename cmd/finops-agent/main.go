@@ -99,6 +99,8 @@ func main() {
 		clusterInfo := dataSource.ClusterMetadata().GetClusterInfo()
 		if clusterInfo != nil {
 			cldyConfig.ClusterVersion = version.FormatVersionInfo(clusterInfo.Version)
+			cldyConfig.ClusterVersionMajor = clusterInfo.Version.Major
+			cldyConfig.ClusterVersionMinor = clusterInfo.Version.Minor
 		}
 
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
