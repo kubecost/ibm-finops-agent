@@ -414,8 +414,8 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values["cluster_name"] = ce.config.ClusterName
 	values["cluster_version"] = ce.config.ClusterVersion
 	// for backwards compatibility with the metrics-agent
-	values["cluster_version_major"] = "test"
-	values["cluster_version_minor"] = "Test"
+	values["cluster_version_major"] = ce.config.ClusterVersionMajor
+	values["cluster_version_minor"] = ce.config.ClusterVersionMinor
 	if ce.config.ProxyURL != nil {
 		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
 	}
