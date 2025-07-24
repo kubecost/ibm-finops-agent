@@ -29,6 +29,7 @@ const baseline = "baseline"
 const stats = "stats"
 const scratchPath = "scratch"
 const uploadPath = "upload"
+const agentName = "ibm-finops-agent"
 
 type Emitter struct {
 	config            EmitterConfig
@@ -46,10 +47,12 @@ type Emitter struct {
 
 type EmitterConfig struct {
 	UploaderConfig
-	EmitAsJson       bool
-	ParseMetricData  bool
-	EmissionInterval time.Duration
-	ClusterVersion   string
+	EmitAsJson          bool
+	ParseMetricData     bool
+	EmissionInterval    time.Duration
+	ClusterVersion      string
+	ClusterVersionMajor string
+	ClusterVersionMinor string
 }
 
 const UPLOAD_FREQUENCY = 10
@@ -407,8 +410,12 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values := map[string]string{}
 	metrics := map[string]int{}
 	values["agent_version"] = ce.agentVersion
+	values["agent_name"] = agentName
 	values["cluster_name"] = ce.config.ClusterName
 	values["cluster_version"] = ce.config.ClusterVersion
+	// for backwards compatibility with the metrics-agent
+	values["cluster_version_major"] = "test"
+	values["cluster_version_minor"] = "Test"
 	if ce.config.ProxyURL != nil {
 		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
 	}
