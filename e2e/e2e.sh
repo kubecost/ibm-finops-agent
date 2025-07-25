@@ -38,6 +38,7 @@ setup_kind() {
   until [ $i -ge 5 ]
   do
     kind load docker-image ${IMAGE} --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
+    #kind load image-archive testimage.tar --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
     i=$[$i+1]
     sleep 15
   done
@@ -53,15 +54,12 @@ deploy(){
   
   if [ "${CI}" = "true" ]; then
     docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
-    ${CI_KUBECTL} create namespace ibm-finops-agent
     ${CI_KUBECTL} apply -f -  < e2e/e2e-deployment.yaml
     sleep 10
     ${CI_KUBECTL} create ns stress
     ${CI_KUBECTL} -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
   else
-    kubectl create namespace ibm-finops-agent
     kubectl apply -f e2e/e2e-deployment.yaml
-  "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{${CONTAINER}, ${ENVS} }]}}}}"
     sleep 10
     kubectl create ns stress
     kubectl -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
@@ -86,19 +84,29 @@ get_sample_data(){
   sleep 30
   if [ "${CI}" = "true" ]; then
     POD=$(${CI_KUBECTL} get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
+    FLDR=$(${CI_KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
+    SMPL=$(${CI_KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
     echo "pod is $POD"
+    sleep 60
+    ${CI_KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> root/export/file_list.txt
+    ${CI_KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/agent-measurement.json > root/export/agent-measurement.json
+    sleep 10
     ${CI_KUBECTL} cp ibm-finops-agent/${POD}:/tmp /root/export
     sleep 10
     docker cp e2e-${KUBERNETES_VERSION}-control-plane:/root/export ${WORKINGDIR}
   else
     POD=$(kubectl get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
-    kubectl cp ibm-finops-agent/$POD:/tmp ${WORKINGDIR}
+    FLDR=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
+    SMPL=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
+    sleep 60
+    kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
+    kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/agent-measurement.json > ${WORKINGDIR}/agent-measurement.json
   fi
 }
 
 run_tests() {
-  echo "running tests: WORKING_DIR=${WORKINGDIR} KUBERNETES_VERSION=${KUBERNETES_VERSION} go test ./testdata/e2e/... -v"
-  WORKING_DIR=${WORKINGDIR} KUBERNETES_VERSION=${KUBERNETES_VERSION} go test ./testdata/e2e/... -v
+  echo "running tests: WORKING_DIR=${WORKINGDIR} KUBERNETES_VERSION=${KUBERNETES_VERSION} go test ./e2e -v"
+  WORKING_DIR=${WORKINGDIR} KUBERNETES_VERSION=${KUBERNETES_VERSION} go test ./e2e -v
 }
 
 trap cleanup EXIT

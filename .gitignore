@@ -29,3 +29,5 @@ go.work.sum
 .idea
 .vscode
 
+# Test images for e2e
+testimage.tar
