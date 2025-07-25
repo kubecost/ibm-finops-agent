@@ -30,15 +30,22 @@ setup_kind() {
     exit 1
   fi
 
-
   sleep 2
   kubectl version
+
+  if [ "${CI}" != "true" ]; then
+    podman save -o e2e_test_image.tar localhost/e2e/ibm-finops-agent:v1.32.0
+  fi
 
   i=0
   until [ $i -ge 5 ]
   do
-    kind load docker-image ${IMAGE} --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
-    #kind load image-archive testimage.tar --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
+    if [ "${CI}" = "true" ]; then
+      kind load docker-image ${IMAGE} --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
+    else
+      # Errors when trying to load docker-image if it is built with podman
+      kind load image-archive e2e_test_image.tar --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
+    fi
     i=$[$i+1]
     sleep 15
   done
@@ -60,6 +67,9 @@ deploy(){
     ${CI_KUBECTL} -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
   else
     kubectl apply -f e2e/e2e-deployment.yaml
+    kubectl -n ibm-finops-agent patch deployment unified-agent --patch \
+  "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{\"name\": \"unified-agent\", \"image\": \"localhost/e2e/ibm-finops-agent:v1.32.0\" }]}}}}"
+
     sleep 10
     kubectl create ns stress
     kubectl -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m

@@ -29,5 +29,5 @@ go.work.sum
 .idea
 .vscode
 
-# Test images for e2e
-testimage.tar
+# Local image archive for e2e testing
+e2e_test_image.tar

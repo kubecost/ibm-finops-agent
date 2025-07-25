@@ -9,8 +9,8 @@ import (
 )
 
 func TestMetricSample(t *testing.T) {
-	const stress = "stress"
-	const metricsAgent = "metrics-agent"
+	// const stress = "stress"
+	// const metricsAgent = "metrics-agent"
 	wd := os.Getenv("WORKING_DIR")
 	if wd == "" {
 		t.Skip("Skipping outside of k8s tests")
