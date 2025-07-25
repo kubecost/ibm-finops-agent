@@ -12,6 +12,10 @@ func TestMetricSample(t *testing.T) {
 	const stress = "stress"
 	const metricsAgent = "metrics-agent"
 	wd := os.Getenv("WORKING_DIR")
+	if wd == "" {
+		t.Skip("Skipping outside of k8s tests")
+	}
+
 	// kv := os.Getenv("KUBERNETES_VERSION")
 	// versionParts := strings.Split(kv, ".")
 	// minorVersion, err := strconv.Atoi(versionParts[1])
