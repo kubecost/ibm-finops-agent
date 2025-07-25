@@ -98,12 +98,12 @@ get_sample_data(){
     SMPL=$(${CI_KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
     echo "pod is $POD"
     sleep 60
-    ${CI_KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> root/export/file_list.txt
-    ${CI_KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/agent-measurement.json > root/export/agent-measurement.json
-    sleep 10
-    ${CI_KUBECTL} cp ibm-finops-agent/${POD}:/tmp /root/export
-    sleep 10
-    docker cp e2e-${KUBERNETES_VERSION}-control-plane:/root/export ${WORKINGDIR}
+    ${CI_KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
+    ${CI_KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/agent-measurement.json > ${WORKINGDIR}/agent-measurement.json
+    # sleep 10
+    # ${CI_KUBECTL} cp ibm-finops-agent/${POD}:/tmp /root/export
+    # sleep 10
+    # docker cp e2e-${KUBERNETES_VERSION}-control-plane:/root/export ${WORKINGDIR}
   else
     POD=$(kubectl get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
     FLDR=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
