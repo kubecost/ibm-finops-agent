@@ -5,12 +5,14 @@ set -e
 : ${IMAGE:?Need to set metrics-agent IMAGE variable to test}
 : ${KUBERNETES_VERSION:?Need to set KUBERNETES_VERSION to test}
 
+# Maybe this should be CI = true instead of OS = darwin
 OS=$(uname)
 if [ "$OS" = "Darwin" ]; then
   export WORKINGDIR=/private${TEMP_DIR}/testdata/e2e/e2e-${KUBERNETES_VERSION}
+  export KUBECTL="kubectl"
 else
   export WORKINGDIR=${TEMP_DIR}/testdata/e2e/e2e-${KUBERNETES_VERSION}
-  export CI_KUBECTL="docker exec -i e2e-${KUBERNETES_VERSION}-control-plane kubectl --server=https://127.0.0.1:6443"
+  export KUBECTL="docker exec -i e2e-${KUBERNETES_VERSION}-control-plane kubectl --server=https://127.0.0.1:6443"
 fi
 
 cleanup() {
@@ -61,57 +63,35 @@ deploy(){
   
   if [ "${CI}" = "true" ]; then
     docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
-    ${CI_KUBECTL} apply -f -  < e2e/e2e-deployment.yaml
-    sleep 10
-    ${CI_KUBECTL} create ns stress
-    ${CI_KUBECTL} -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
+    ${KUBECTL} apply -f -  < e2e/e2e-deployment.yaml
   else
-    kubectl apply -f e2e/e2e-deployment.yaml
+    ${KUBECTL} apply -f e2e/e2e-deployment.yaml
     kubectl -n ibm-finops-agent patch deployment unified-agent --patch \
-  "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{\"name\": \"unified-agent\", \"image\": \"localhost/e2e/ibm-finops-agent:v1.32.0\" }]}}}}"
-
-    sleep 10
-    kubectl create ns stress
-    kubectl -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
+    "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{\"name\": \"unified-agent\", \"image\": \"localhost/e2e/ibm-finops-agent:v1.32.0\" }]}}}}"
   fi
+  
+  sleep 10
+  ${KUBECTL} create ns stress
+  ${KUBECTL} -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
 }
 
 wait_for_metrics() {
   # Wait for metrics-agent pod ready
-  if [ "${CI}" = "true" ]; then
-    while [[ $(${CI_KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
-      echo "waiting for pod ready" && sleep 5;
-    done
-  else
-    while [[ $(kubectl get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
-      echo "waiting for pod ready" && sleep 5;
-    done
-  fi
+  while [[ $(${KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
+    echo "waiting for pod ready" && sleep 5;
+  done
+
 }
 
 get_sample_data(){
   echo "Waiting for agent data collection check: docker cp e2e-${KUBERNETES_VERSION}-control-plane:/tmp ${WORKINGDIR}"
   sleep 30
-  if [ "${CI}" = "true" ]; then
-    POD=$(${CI_KUBECTL} get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
-    FLDR=$(${CI_KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
-    SMPL=$(${CI_KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
-    echo "pod is $POD"
-    sleep 60
-    ${CI_KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
-    ${CI_KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/agent-measurement.json > ${WORKINGDIR}/agent-measurement.json
-    # sleep 10
-    # ${CI_KUBECTL} cp ibm-finops-agent/${POD}:/tmp /root/export
-    # sleep 10
-    # docker cp e2e-${KUBERNETES_VERSION}-control-plane:/root/export ${WORKINGDIR}
-  else
-    POD=$(kubectl get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
-    FLDR=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
-    SMPL=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
-    sleep 60
-    kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
-    kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/agent-measurement.json > ${WORKINGDIR}/agent-measurement.json
-  fi
+  POD=$(${KUBECTL} get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
+  FLDR=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
+  SMPL=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
+  sleep 60
+  ${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
+  ${KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/agent-measurement.json > ${WORKINGDIR}/agent-measurement.json
 }
 
 run_tests() {
