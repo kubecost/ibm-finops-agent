@@ -78,7 +78,7 @@ deploy(){
 wait_for_metrics() {
   # Wait for metrics-agent pod ready
   while [[ $(${KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
-    echo "waiting for pod ready" && sleep 5;
+    echo "waiting for pod ready" && ${KUBECTL} describe deployment -n ibm-finops-agent unified-agent && sleep 30;
   done
 
 }
