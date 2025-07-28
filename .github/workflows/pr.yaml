@@ -117,18 +117,25 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-      - name: Build and push Docker image
+      - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./ibm-finops-agent/Dockerfile
-          push: true
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             DUCK_VERSION=v0.9.2
             version=${{ steps.meta.outputs.version }}
             commit=${{ github.sha }}
+
+      - name: E2E testing
+        run: |
+          make -C ./ibm-finops-agent e2e-test IMAGE_TAG=${{ steps.meta.outputs.tags }}
+
+      - name: Push Docker image
+        run: docker push ${{ steps.meta.outputs.tags }}
 
 #   notify-fail:
 #     needs: [test-cost-model]

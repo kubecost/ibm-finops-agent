@@ -1,0 +1,166 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ibm-finops-agent
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ibm-finops-agent
+  namespace: ibm-finops-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ibm-finops-agent
+  namespace: kube-system
+rules:
+  - apiGroups:
+      - ""
+      - "extensions"
+      - "apps"
+      - "batch"
+      - "policy"
+      - "storage.k8s.io"
+    resources:
+      - "namespaces"
+      - "replicationcontrollers"
+      - "services"
+      - "nodes"
+      - "nodes/spec"
+      - "pods"
+      - "jobs"
+      - "cronjobs"
+      - "persistentvolumes"
+      - "persistentvolumeclaims"
+      - "deployments"
+      - "replicasets"
+      - "daemonsets"
+      - "poddisruptionbudgets"
+      - "storageclasses"
+      - "statefulsets"
+    verbs:
+      - "get"
+      - "watch"
+      - "list"
+  - apiGroups: [""]
+    resources:
+      - "services/proxy"
+      - "pods/proxy"
+      - "nodes/proxy"
+      - "nodes/stats"
+      - "nodes/metrics"
+      - "stats/summary"
+    verbs:
+      - "get"
+      - "list"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ibm-finops-agent
+  namespace: kube-system
+subjects:
+  - kind: ServiceAccount
+    name: ibm-finops-agent
+    namespace: ibm-finops-agent
+roleRef:
+  kind: ClusterRole
+  name: ibm-finops-agent
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ibm-finops-agent
+  namespace: ibm-finops-agent
+rules:
+  - apiGroups: ["*"]
+    resources:
+      - "pods"
+      - "pods/log"
+    verbs:
+      - "get"
+      - "list"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ibm-finops-agent
+  namespace: ibm-finops-agent
+subjects:
+  - kind: ServiceAccount
+    name: ibm-finops-agent
+    namespace: ibm-finops-agent
+roleRef:
+  kind: Role
+  name: unified-agent
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    name: "unified-agent"
+  name: "unified-agent"
+  namespace: ibm-finops-agent
+spec:
+  selector:
+    matchLabels:
+      app: unified-agent
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: unified-agent
+    spec:
+      serviceAccount: "ibm-finops-agent"
+      containers:
+        - image: e2e/ibm-finops-agent:v1.32.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              memory: ".25Gi"
+              cpu: ".25"
+            limits:
+              memory: ".25Gi"
+              cpu: ".25"
+          livenessProbe:
+            exec:
+              command:
+                - touch
+                - tmp/healthy
+            initialDelaySeconds: 120
+            periodSeconds: 600
+          name: "unified-agent"
+          args:
+            - "kubernetes"
+          env:
+            - name: CLOUDABILITY_ENV_ID
+              value: dfa07190-0acb-4758-8d1b-a76fb6c6730e
+            - name: KUBECOST_EMITTER_ENABLED
+              value: "false"
+            - name: OPENCOST_SOURCE_ENABLED
+              value: "false"
+            - name: TURBO_EMITTER_ENABLED
+              value: "false"
+            - name: CLOUDY_EMITTER_ENABLED
+              value: "true"
+            - name: CLOUDABILITY_UPLOAD_REGION
+              value: staging
+            - name: CLOUDABILITY_SCRATCH_DIR
+              value: /tmp
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: CLOUDABILITY_CLUSTER_NAME
+              value: "e2e"
+            - name: CLOUDABILITY_EMISSION_INTERVAL
+              value: "10s"
