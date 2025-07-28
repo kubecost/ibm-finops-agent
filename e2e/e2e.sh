@@ -64,10 +64,10 @@ deploy(){
   if [ "${CI}" = "true" ]; then
     docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
     ${KUBECTL} apply -f -  < e2e/e2e_deployment.yaml
+    ${KUBECTL} -n ibm-finops-agent patch deployment unified-agent --patch \
+    "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{\"name\": \"unified-agent\", \"image\": \"${IMAGE}\" }]}}}}"
   else
     ${KUBECTL} apply -f e2e/e2e_deployment.yaml
-    kubectl -n ibm-finops-agent patch deployment unified-agent --patch \
-    "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{\"name\": \"unified-agent\", \"image\": \"localhost/e2e/ibm-finops-agent:e2e\" }]}}}}"
   fi
 
   sleep 10
@@ -78,7 +78,7 @@ deploy(){
 wait_for_metrics() {
   # Wait for metrics-agent pod ready
   while [[ $(${KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
-    echo "waiting for pod ready" && ${KUBECTL} describe deployment -n ibm-finops-agent unified-agent && sleep 30;
+    echo "waiting for pod ready" && sleep 5;
   done
 
 }

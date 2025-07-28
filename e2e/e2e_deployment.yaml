@@ -116,7 +116,7 @@ spec:
     spec:
       serviceAccount: "ibm-finops-agent"
       containers:
-        - image: e2e/ibm-finops-agent:v1.32.0
+        - image: localhost/e2e/ibm-finops-agent:e2e
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true
