@@ -9,6 +9,10 @@ ifndef TEMP_DIR
 TEMP_DIR:=$(shell mktemp -d /tmp/ibm-finops-agent.XXXXXX)
 endif
 
+ifndef IMAGE_TAG
+IMAGE_TAG:=localhost/e2e/ibm-finops-agent:e2e
+endif
+
 test: envtest
 	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile coverage.out
 
@@ -29,15 +33,13 @@ define TEST_KUBERNETES
 		fi;
 endef
 
-e2e-test: test-k8s-1.32.0 test-k8s-1.31.0 test-k8s-1.30.0 test-k8s-1.29.0
+# These commands only work when called from a higher directory via -C (since they rely on the opencost repo)
+e2e-test: setup-e2e test-k8s-1.32.0 test-k8s-1.31.0 test-k8s-1.30.0 test-k8s-1.29.0
 
-# This is broken right now, just build image (according to podman build) and have IMAGE_TAG set to whatever
-# setup-e2e:
-# 	@if [ -z "${IMAGE_TAG}" ]; then \
-# 		IMAGE_TAG="localhost/e2e/ibm-finops-agent:e2e"; \
-# 		echo "${IMAGE_TAG}"; \ 
-# 		podman build -f ibm-finops-agent/Dockerfile -t "${IMAGE_TAG}" . --build-arg TARGETPLATFORM="linux/arm64"; \
-# 	fi
+setup-e2e:
+	@if [ "${IMAGE_TAG}" = "localhost/e2e/ibm-finops-agent:e2e" ]; then \
+    	podman build -f ibm-finops-agent/Dockerfile -t "${IMAGE_TAG}" . --build-arg TARGETPLATFORM="linux/arm64"; \
+	fi
 
 test-k8s-1.32.0:
 	$(call TEST_KUBERNETES,v1.32.0)
