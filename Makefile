@@ -33,13 +33,8 @@ define TEST_KUBERNETES
 		fi;
 endef
 
-# These commands only work when called from a higher directory via -C (since they rely on the opencost repo)
-e2e-test: setup-e2e test-k8s-1.32.0 test-k8s-1.31.0 test-k8s-1.30.0 test-k8s-1.29.0
-
-setup-e2e:
-	@if [ "${IMAGE_TAG}" = "localhost/e2e/ibm-finops-agent:e2e" ]; then \
-    	podman build -f ibm-finops-agent/Dockerfile -t "${IMAGE_TAG}" . --build-arg TARGETPLATFORM="linux/arm64"; \
-	fi
+# To run the e2e tests locally, have an image built off the total UA docker file and export it to IMAGE_TAG
+e2e-test:test-k8s-1.32.0 test-k8s-1.31.0 test-k8s-1.30.0 test-k8s-1.29.0
 
 test-k8s-1.32.0:
 	$(call TEST_KUBERNETES,v1.32.0)
