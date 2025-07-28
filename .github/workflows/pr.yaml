@@ -117,11 +117,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-      # - name: Build Docker image
-      #   run: |
-      #     docker buildx build . -f ./ibm-finops-agent/Dockerfile -t ${{ steps.meta.outputs.tags }} -l ${{ steps.meta.outputs.labels }}
-      #     --build-arg DUCK_VERSION=v0.9.2 --build-arg version=${{ steps.meta.outputs.version }} --build-arg commit=${{ github.sha }}
-
+      - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
