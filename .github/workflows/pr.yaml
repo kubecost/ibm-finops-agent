@@ -125,8 +125,7 @@ jobs:
           push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: |
-            type=docker,type=image
+          load: true
           build-args: |
             DUCK_VERSION=v0.9.2
             version=${{ steps.meta.outputs.version }}
