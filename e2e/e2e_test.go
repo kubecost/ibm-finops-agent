@@ -12,11 +12,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-
 var _ = Describe("E2E", func() {
 	t := GinkgoT()
 	kv := os.Getenv("KUBERNETES_VERSION")
-	knownFiles["stats-summary-e2e-" + kv + "-control-plane.json"] = false
+	knownFiles["stats-summary-e2e-"+kv+"-control-plane.json"] = false
 
 	var wd string
 
@@ -27,7 +26,7 @@ var _ = Describe("E2E", func() {
 		}
 	})
 	Context("Test sample", func() {
-		It("has the correct list of files", func() {
+		It("has the complete list of files", func() {
 			f, err := os.Open(wd + "/file_list.txt")
 			if err != nil {
 				t.Fatalf("failed to open file: %s", err)
@@ -60,7 +59,7 @@ var _ = Describe("E2E", func() {
 			}
 		})
 
-		It("has the correct node data", func() {
+		It("has the correct node metadata", func() {
 			f, err := os.Open(wd + "/nodes.jsonl")
 			if err != nil {
 				t.Fatalf("failed to open file: %s", err)
@@ -90,7 +89,7 @@ var _ = Describe("E2E", func() {
 			}
 		})
 
-		It("has the correct namespace data", func() {
+		It("has the correct namespace metadata", func() {
 			f, err := os.Open(wd + "/namespaces.jsonl")
 			if err != nil {
 				t.Fatalf("failed to open file: %s", err)
@@ -125,7 +124,7 @@ var _ = Describe("E2E", func() {
 			Expect(namespaceNames).To(ContainElement("ibm-finops-agent"))
 		})
 
-		It("has the correct pod data", func() {
+		It("has the correct pod metadata", func() {
 			f, err := os.Open(wd + "/pods.jsonl")
 			if err != nil {
 				t.Fatalf("failed to open file: %s", err)
@@ -165,17 +164,17 @@ var _ = Describe("E2E", func() {
 })
 
 var knownFiles = map[string]bool{
-	"agent-measurement.json": false,
-	"daemonsets.jsonl": false,
-	"deployments.jsonl": false,
-	"jobs.jsonl": false,
-	"namespaces.jsonl": false,
-	"nodes.jsonl": false,
+	"agent-measurement.json":       false,
+	"daemonsets.jsonl":             false,
+	"deployments.jsonl":            false,
+	"jobs.jsonl":                   false,
+	"namespaces.jsonl":             false,
+	"nodes.jsonl":                  false,
 	"persistentvolumeclaims.jsonl": false,
-	"persistentvolumes.jsonl": false,
-	"pods.jsonl": false,
-	"replicasets.jsonl": false,
+	"persistentvolumes.jsonl":      false,
+	"pods.jsonl":                   false,
+	"replicasets.jsonl":            false,
 	"replicationcontrollers.jsonl": false,
-	"services.jsonl": false,
-	"statefulsets.jsonl": false,
+	"services.jsonl":               false,
+	"statefulsets.jsonl":           false,
 }
