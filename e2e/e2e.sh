@@ -89,11 +89,13 @@ wait_for_metrics() {
 }
 
 get_sample_data(){
+  echo "Waiting for agent to initialize"
+  sleep 30
   POD=$(${KUBECTL} get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
   FLDR=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
   SMPL=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
   echo "Waiting for agent sample to populate"
-  sleep 90
+  sleep 60
   echo "Copying agent sample to ${WORKINGDIR}"
   ${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
   ${KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
