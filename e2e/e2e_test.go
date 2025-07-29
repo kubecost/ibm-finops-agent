@@ -156,7 +156,7 @@ var _ = Describe("E2E", func() {
 				fmt.Printf("%s", pod.Name)
 			}
 
-			// // Has namespace for stress pod and agent deployment
+			// Has namespace for stress pod and agent deployment
 			Expect(podNames).To(ContainElement(ContainSubstring("stress")))
 			Expect(podNames).To(ContainElement(ContainSubstring("unified-agent")))
 		})
