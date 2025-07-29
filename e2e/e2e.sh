@@ -24,7 +24,7 @@ cleanup() {
 }
 
 setup_kind() {
-  export PATH=$(go env GOPATH)/bin:$PATH
+  export PATH=$PATH:$(go env GOPATH)/bin
 
   cleanup
   if ! (kind create cluster --name=e2e-${KUBERNETES_VERSION} --image=kindest/node:${KUBERNETES_VERSION}) ; then
@@ -36,7 +36,7 @@ setup_kind() {
   kubectl version
 
   if [ "${CI}" != "true" ]; then
-    podman save -o e2e_image_archive.tar localhost/e2e/ibm-finops-agent:e2e
+    docker save -o e2e_image_archive.tar localhost/e2e/ibm-finops-agent:e2e
   fi
 
   i=0
@@ -79,7 +79,7 @@ wait_for_metrics() {
   i=0
   until [ $i -ge 10 ]
   do 
-    if [ $(${KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]; then
+    if [[ $(${KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
       echo "agent pod is ready!" && break
     fi
     echo "waiting for agent pod to be ready"
@@ -93,7 +93,7 @@ get_sample_data(){
   FLDR=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
   SMPL=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
   echo "Waiting for agent sample to populate"
-  sleep 60
+  sleep 80
   echo "Copying agent sample to ${WORKINGDIR}"
   ${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
   ${KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
