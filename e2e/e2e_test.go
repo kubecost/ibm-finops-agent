@@ -3,7 +3,6 @@ package e2e_test
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 
@@ -28,14 +27,10 @@ var _ = Describe("E2E", func() {
 	Context("Test sample", func() {
 		It("has the complete list of files", func() {
 			f, err := os.Open(wd + "/file_list.txt")
-			if err != nil {
-				t.Fatalf("failed to open file: %s", err)
-			}
+			Expect(err).NotTo(HaveOccurred())
 			defer func() {
 				err = f.Close()
-				if err != nil {
-					t.Fatalf("failed to close file: %s", err)
-				}
+				Expect(err).NotTo(HaveOccurred())
 			}()
 
 			scanner := bufio.NewScanner(f)
@@ -48,9 +43,8 @@ var _ = Describe("E2E", func() {
 				}
 			}
 
-			if err := scanner.Err(); err != nil {
-				t.Fatal(err)
-			}
+			err = scanner.Err()
+			Expect(err).NotTo(HaveOccurred())
 
 			for file, val := range knownFiles {
 				if !val {
@@ -61,14 +55,10 @@ var _ = Describe("E2E", func() {
 
 		It("has the correct node metadata", func() {
 			f, err := os.Open(wd + "/nodes.jsonl")
-			if err != nil {
-				t.Fatalf("failed to open file: %s", err)
-			}
+			Expect(err).NotTo(HaveOccurred())
 			defer func() {
 				err = f.Close()
-				if err != nil {
-					t.Fatalf("failed to close file: %s", err)
-				}
+				Expect(err).NotTo(HaveOccurred())
 			}()
 
 			decoder := json.NewDecoder(f)
@@ -78,9 +68,7 @@ var _ = Describe("E2E", func() {
 				if err == io.EOF {
 					break
 				}
-				if err != nil {
-					t.Fatalf("Error decoding JSON: %s", err)
-				}
+				Expect(err).NotTo(HaveOccurred())
 
 				// Has name of node
 				Expect(node.Name).To(ContainSubstring("e2e-" + kv + "-control-plane"))
@@ -91,14 +79,10 @@ var _ = Describe("E2E", func() {
 
 		It("has the correct namespace metadata", func() {
 			f, err := os.Open(wd + "/namespaces.jsonl")
-			if err != nil {
-				t.Fatalf("failed to open file: %s", err)
-			}
+			Expect(err).NotTo(HaveOccurred())
 			defer func() {
 				err = f.Close()
-				if err != nil {
-					t.Fatalf("failed to close file: %s", err)
-				}
+				Expect(err).NotTo(HaveOccurred())
 			}()
 
 			var namespaceNames []string
@@ -110,9 +94,7 @@ var _ = Describe("E2E", func() {
 				if err == io.EOF {
 					break
 				}
-				if err != nil {
-					t.Fatalf("Error decoding JSON: %s", err)
-				}
+				Expect(err).NotTo(HaveOccurred())
 
 				namespaceNames = append(namespaceNames, namespace.Name)
 				// Has fields removed according to ParseMetricData
@@ -126,14 +108,10 @@ var _ = Describe("E2E", func() {
 
 		It("has the correct pod metadata", func() {
 			f, err := os.Open(wd + "/pods.jsonl")
-			if err != nil {
-				t.Fatalf("failed to open file: %s", err)
-			}
+			Expect(err).NotTo(HaveOccurred())
 			defer func() {
 				err = f.Close()
-				if err != nil {
-					t.Fatalf("failed to close file: %s", err)
-				}
+				Expect(err).NotTo(HaveOccurred())
 			}()
 
 			var podNames []string
@@ -145,15 +123,11 @@ var _ = Describe("E2E", func() {
 				if err == io.EOF {
 					break
 				}
-				if err != nil {
-					t.Fatalf("Error decoding JSON: %s", err)
-				}
+				Expect(err).NotTo(HaveOccurred())
 
 				podNames = append(podNames, pod.Name)
 				// Has fields removed according to ParseMetricData
 				Expect(pod.Finalizers).To(BeEmpty())
-
-				fmt.Printf("%s", pod.Name)
 			}
 
 			// Has namespace for stress pod and agent deployment

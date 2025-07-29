@@ -35,7 +35,10 @@ endef
 
 # To run the e2e tests locally, have an image built off the total UA docker file tagged 'localhost/e2e/ibm-finops-agent:e2e'
 # and export it to IMAGE_TAG. This could be manually configured by editing it in the e2e_deployment.yaml and e2e.sh files
-e2e-test:test-k8s-1.32.0 test-k8s-1.31.0 test-k8s-1.30.0 test-k8s-1.29.0
+e2e-test:test-k8s-1.33.0 test-k8s-1.32.0 test-k8s-1.31.0 test-k8s-1.30.0 
+
+test-k8s-1.33.0:
+	$(call TEST_KUBERNETES,v1.33.0)
 
 test-k8s-1.32.0:
 	$(call TEST_KUBERNETES,v1.32.0)
@@ -45,6 +48,3 @@ test-k8s-1.31.0:
 
 test-k8s-1.30.0:
 	$(call TEST_KUBERNETES,v1.30.0)
-
-test-k8s-1.29.0:
-	$(call TEST_KUBERNETES,v1.29.0)

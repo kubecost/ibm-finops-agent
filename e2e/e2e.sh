@@ -45,7 +45,7 @@ setup_kind() {
     if [ "${CI}" = "true" ]; then
       kind load docker-image ${IMAGE} --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
     else
-      # Errors when trying to load docker-image if it is built with podman
+      # Errors when trying to load docker-image if it is built with podman but is fine with an image-archive
       kind load image-archive e2e_image_archive.tar --name e2e-${KUBERNETES_VERSION} && echo "${IMAGE} image added to cluster" && break
     fi
     i=$[$i+1]
@@ -76,20 +76,25 @@ deploy(){
 }
 
 wait_for_metrics() {
-  # Wait for metrics-agent pod ready
-  while [[ $(${KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
-    echo "waiting for pod ready" && sleep 5;
+  i=0
+  until [ $i -ge 10 ]
+  do 
+    if [ $(${KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]; then
+      echo "agent pod is ready!" && break
+    fi
+    echo "waiting for agent pod to be ready"
+    i=$[$i+1]
+    sleep 5
   done
-
 }
 
 get_sample_data(){
-  echo "Waiting for agent data collection check: docker cp e2e-${KUBERNETES_VERSION}-control-plane:/tmp ${WORKINGDIR}"
-  sleep 30
   POD=$(${KUBECTL} get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
   FLDR=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
   SMPL=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
+  echo "Waiting for agent sample to populate"
   sleep 60
+  echo "Copying agent sample to ${WORKINGDIR}"
   ${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
   ${KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
   ${KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/namespaces.jsonl > ${WORKINGDIR}/namespaces.jsonl
