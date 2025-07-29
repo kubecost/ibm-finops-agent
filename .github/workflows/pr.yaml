@@ -131,12 +131,10 @@ jobs:
             version=${{ steps.meta.outputs.version }}
             commit=${{ github.sha }}
 
-      - name: Docker Images (TEMP)
-        run: docker images
-
       - name: E2E testing
+        working-directory: ./ibm-finops-agent
         run: |
-          make -C ./ibm-finops-agent e2e-test IMAGE_TAG=${{ steps.meta.outputs.tags }}
+          make e2e-test IMAGE_TAG=${{ steps.meta.outputs.tags }}
 
       - name: Push Docker image
         run: docker push ${{ steps.meta.outputs.tags }}
