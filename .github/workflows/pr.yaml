@@ -137,7 +137,7 @@ jobs:
           make e2e-test IMAGE_TAG=${{ fromJSON(steps.meta.outputs.json).tags[0] }}
 
       - name: Push Docker image
-        run: docker push ${{ steps.meta.outputs.tags }}
+        run: docker push ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
 
 #   notify-fail:
 #     needs: [test-cost-model]
