@@ -47,12 +47,13 @@ type Emitter struct {
 
 type EmitterConfig struct {
 	UploaderConfig
-	EmitAsJson          bool
-	ParseMetricData     bool
-	EmissionInterval    time.Duration
-	ClusterVersion      string
-	ClusterVersionMajor string
-	ClusterVersionMinor string
+	EmitAsJson                  bool
+	ParseMetricData             bool
+	EmissionInterval            time.Duration
+	KubernetesResourcesRequired []string
+	ClusterVersion              string
+	ClusterVersionMajor         string
+	ClusterVersionMinor         string
 }
 
 const UPLOAD_FREQUENCY = 10
@@ -122,6 +123,21 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		EmitAsJson:       viper.GetBool("EMIT_AS_JSON"),
 		ParseMetricData:  viper.GetBool("PARSE_METRIC_DATA"),
 		EmissionInterval: viper.GetDuration("EMISSION_INTERVAL"),
+		// Cloudy emitter requires the following kubernetes resources to be enabled
+		KubernetesResourcesRequired: []string{
+			emitter.SnapshotNodes,
+			emitter.SnapshotPods,
+			emitter.SnapshotDeployments,
+			emitter.SnapshotNamespaces,
+			emitter.SnapshotServices,
+			emitter.SnapshotDaemonSets,
+			emitter.SnapshotStatefulSets,
+			emitter.SnapshotJobs,
+			emitter.SnapshotReplicaSets,
+			emitter.SnapshotPersistentVolumes,
+			emitter.SnapshotPersistentVolumeClaims,
+			emitter.SnapshotReplicationControllers,
+		},
 	}, nil
 }
 
