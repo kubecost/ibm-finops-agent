@@ -60,7 +60,7 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 	var k8sSnapshot *KubernetesSnapshot
 	group.Go(func() error {
 		var err error
-		k8sSnapshot, err = snapshotKubernetes(ds.Cluster())
+		k8sSnapshot, err = snapshotKubernetes(ds.Cluster(), csp.config)
 		return err
 	})
 
@@ -131,24 +131,39 @@ func snapshotClusterInfo(infoProvider clusters.ClusterInfoProvider) (*clusters.C
 	return clusterInfo, nil
 }
 
-func snapshotKubernetes(cluster clustercache.ClusterCache) (*KubernetesSnapshot, error) {
+func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfig) (*KubernetesSnapshot, error) {
+	// if we get here, and a kubernetes snapshot config hasn't been provided, enable all resource snapshots by
+	// default
+	if config.KubernetesSnapshot == nil {
+		config.KubernetesSnapshot = NewKubernetesSnapshotConfig().EnableAll()
+	}
+
+	kconfig := config.KubernetesSnapshot
 	return &KubernetesSnapshot{
-		Nodes:                  cluster.GetAllNodes(),
-		Pods:                   cluster.GetAllPods(),
-		ShortLivedPods:         cluster.GetAllShortLivedPods(),
-		Namespaces:             cluster.GetAllNamespaces(),
-		Services:               cluster.GetAllServices(),
-		DaemonSets:             cluster.GetAllDaemonSets(),
-		Deployments:            cluster.GetAllDeployments(),
-		StatefulSets:           cluster.GetAllStatefulSets(),
-		ReplicaSets:            cluster.GetAllReplicaSets(),
-		PersistentVolumes:      cluster.GetAllPersistentVolumes(),
-		PersistentVolumeClaims: cluster.GetAllPersistentVolumeClaims(),
-		StorageClasses:         cluster.GetAllStorageClasses(),
-		Jobs:                   cluster.GetAllJobs(),
-		PodDisruptionBudgets:   cluster.GetAllPodDisruptionBudgets(),
-		ReplicationControllers: cluster.GetAllReplicationControllers(),
+		Nodes:                  snapshotResource(kconfig.Nodes, cluster.GetAllNodes),
+		Pods:                   snapshotResource(kconfig.Pods, cluster.GetAllPods),
+		ShortLivedPods:         cluster.GetAllShortLivedPods(), // always snapshot short-lived pods to reset buffer
+		Namespaces:             snapshotResource(kconfig.Namespaces, cluster.GetAllNamespaces),
+		Services:               snapshotResource(kconfig.Services, cluster.GetAllServices),
+		DaemonSets:             snapshotResource(kconfig.DaemonSets, cluster.GetAllDaemonSets),
+		Deployments:            snapshotResource(kconfig.Deployments, cluster.GetAllDeployments),
+		StatefulSets:           snapshotResource(kconfig.StatefulSets, cluster.GetAllStatefulSets),
+		ReplicaSets:            snapshotResource(kconfig.ReplicaSets, cluster.GetAllReplicaSets),
+		PersistentVolumes:      snapshotResource(kconfig.PersistentVolumes, cluster.GetAllPersistentVolumes),
+		PersistentVolumeClaims: snapshotResource(kconfig.PersistentVolumeClaims, cluster.GetAllPersistentVolumeClaims),
+		StorageClasses:         snapshotResource(kconfig.StorageClasses, cluster.GetAllStorageClasses),
+		Jobs:                   snapshotResource(kconfig.Jobs, cluster.GetAllJobs),
+		PodDisruptionBudgets:   snapshotResource(kconfig.PodDisruptionBudgets, cluster.GetAllPodDisruptionBudgets),
+		ReplicationControllers: snapshotResource(kconfig.ReplicationControllers, cluster.GetAllReplicationControllers),
 	}, nil
+}
+
+// snapshots a specific resource based on the provided flag.
+func snapshotResource[T any](flag bool, resourceGetter func() []T) []T {
+	if !flag {
+		return []T{}
+	}
+	return resourceGetter()
 }
 
 func snapshotNodeStats(client nodes.StatSummaryClient) (*NodeStatsSummary, error) {

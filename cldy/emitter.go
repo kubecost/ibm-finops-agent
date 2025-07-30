@@ -29,6 +29,7 @@ const baseline = "baseline"
 const stats = "stats"
 const scratchPath = "scratch"
 const uploadPath = "upload"
+const agentName = "ibm-finops-agent"
 
 type Emitter struct {
 	config            EmitterConfig
@@ -46,10 +47,13 @@ type Emitter struct {
 
 type EmitterConfig struct {
 	UploaderConfig
-	EmitAsJson       bool
-	ParseMetricData  bool
-	EmissionInterval time.Duration
-	ClusterVersion   string
+	EmitAsJson                  bool
+	ParseMetricData             bool
+	EmissionInterval            time.Duration
+	KubernetesResourcesRequired []string
+	ClusterVersion              string
+	ClusterVersionMajor         string
+	ClusterVersionMinor         string
 }
 
 const UPLOAD_FREQUENCY = 10
@@ -119,6 +123,21 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		EmitAsJson:       viper.GetBool("EMIT_AS_JSON"),
 		ParseMetricData:  viper.GetBool("PARSE_METRIC_DATA"),
 		EmissionInterval: viper.GetDuration("EMISSION_INTERVAL"),
+		// Cloudy emitter requires the following kubernetes resources to be enabled
+		KubernetesResourcesRequired: []string{
+			emitter.SnapshotNodes,
+			emitter.SnapshotPods,
+			emitter.SnapshotDeployments,
+			emitter.SnapshotNamespaces,
+			emitter.SnapshotServices,
+			emitter.SnapshotDaemonSets,
+			emitter.SnapshotStatefulSets,
+			emitter.SnapshotJobs,
+			emitter.SnapshotReplicaSets,
+			emitter.SnapshotPersistentVolumes,
+			emitter.SnapshotPersistentVolumeClaims,
+			emitter.SnapshotReplicationControllers,
+		},
 	}, nil
 }
 
@@ -159,7 +178,7 @@ func (ce *Emitter) ID() emitter.EmitterID {
 }
 
 func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
-	log.Infof("Initializing cldy emitter")
+	log.Infof("Initializing Cloudability emitter.")
 
 	clusterID := getClusterID(cs.Kubernetes.Namespaces)
 	ce.ClusterID = &clusterID
@@ -193,7 +212,6 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 		return nil
 	}
 
-	log.Infof("Emitting sample to Cldy %d", ce.sampleCt)
 	ce.nextSamplePath = ce.newNextSamplePath()
 	err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
 	if err != nil {
@@ -212,7 +230,7 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 	ce.Uploader.AddSample(ce.currentSamplePath)
 	ce.sampleCt++
 	ce.currentSamplePath = ce.nextSamplePath
-	log.Info("added sample to Cldy")
+	log.Debugf("Emitted sample to Cldy: %d", ce.sampleCt)
 
 	return nil
 }
@@ -408,8 +426,12 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values := map[string]string{}
 	metrics := map[string]int{}
 	values["agent_version"] = ce.agentVersion
+	values["agent_name"] = agentName
 	values["cluster_name"] = ce.config.ClusterName
 	values["cluster_version"] = ce.config.ClusterVersion
+	// for backwards compatibility with the metrics-agent
+	values["cluster_version_major"] = ce.config.ClusterVersionMajor
+	values["cluster_version_minor"] = ce.config.ClusterVersionMinor
 	if ce.config.ProxyURL != nil {
 		values["outbound_proxy_url"] = ce.config.ProxyURL.Path
 	}

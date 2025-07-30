@@ -26,7 +26,6 @@ require (
 	github.com/opencost/opencost/modules/prometheus-source v0.0.1-unpublished
 	github.com/prometheus/client_golang v1.22.0
 	github.com/rs/cors v1.8.2
-	github.com/rs/zerolog v1.26.1
 	github.com/spf13/cast v1.3.1
 	github.com/spf13/viper v1.8.1
 	k8s.io/api v0.33.1
@@ -154,6 +153,7 @@ require (
 	github.com/prometheus/common v0.63.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rs/xid v1.6.0 // indirect
+	github.com/rs/zerolog v1.26.1 // indirect
 	github.com/scaleway/scaleway-sdk-go v1.0.0-beta.9 // indirect
 	github.com/shopspring/decimal v0.0.0-20180709203117-cd690d0c9e24 // indirect
 	github.com/sony/gobreaker v0.5.0 // indirect

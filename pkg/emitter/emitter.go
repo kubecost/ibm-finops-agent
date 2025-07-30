@@ -15,7 +15,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
-// KubernetesSnapshot contains the state of a Kubernetes cluster at a given point in time.
+// KubernetesSnapshot contains the state of a Kubernetes cluster at a give n point in time.
 type KubernetesSnapshot struct {
 	Nodes                  []*v1.Node
 	Pods                   []*v1.Pod
