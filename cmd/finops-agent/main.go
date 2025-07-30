@@ -108,6 +108,8 @@ func main() {
 		clusterInfo := dataSource.ClusterMetadata().GetClusterInfo()
 		if clusterInfo != nil {
 			cldyConfig.ClusterVersion = version.FormatVersionInfo(clusterInfo.Version)
+			cldyConfig.ClusterVersionMajor = clusterInfo.Version.Major
+			cldyConfig.ClusterVersionMinor = clusterInfo.Version.Minor
 		}
 
 		// Update the snapshot config to include the cloudability emitter's required resources
@@ -118,7 +120,7 @@ func main() {
 		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
 	if env.IsTurboEmitterEnabled() {
-		log.Warnf("turbo emitter not yet implemented.")
+		log.Infof("Turbonomic emitter not yet implemented.")
 		//emitters = append(emitters, emitter.NewTurboEmitter(dataSource))
 	}
 
