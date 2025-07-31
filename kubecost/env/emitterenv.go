@@ -9,7 +9,9 @@ import (
 )
 
 const (
-	MinuteMetricsEnabledEnvVar = "MINUTE_METRICS_ENABLED"
+	HeartbeatExportEnabledEnvVar   = "HEARTBEAT_EXPORT_ENABLED"
+	DiagnosticsExportEnabledEnvVar = "DIAGNOSTICS_EXPORT_ENABLED"
+	MinuteMetricsEnabledEnvVar     = "MINUTE_METRICS_ENABLED"
 
 	AllocationExportIntervalEnvVar     = "ALLOCATION_EXPORT_INTERVAL"
 	AssetExportIntervalEnvVar          = "ASSET_EXPORT_INTERVAL"
@@ -44,9 +46,19 @@ func GetHeartbeatExportInterval() time.Duration {
 	return coreenv.GetDuration(HeartbeatExportIntervalEnvVar, 5*time.Minute)
 }
 
+// IsHeartbeatExportEnabled returns true if the heartbeat export is enabled.
+func IsHeartbeatExportEnabled() bool {
+	return coreenv.GetBool(HeartbeatExportEnabledEnvVar, true)
+}
+
 // GetDiagnosticsExportInterval returns the configured interval for diagnostics exports.
 func GetDiagnosticsExportInterval() time.Duration {
 	return coreenv.GetDuration(DiagnosticsExportIntervalEnvVar, 3*time.Minute)
+}
+
+// IsDiagnosticsExportEnabled returns true if the diagnostics export is enabled.
+func IsDiagnosticsExportEnabled() bool {
+	return coreenv.GetBool(DiagnosticsExportEnabledEnvVar, true)
 }
 
 // GetExportBucketConfigFile returns the file path for the export bucket
