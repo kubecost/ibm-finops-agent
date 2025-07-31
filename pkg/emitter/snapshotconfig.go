@@ -22,6 +22,7 @@ const (
 	SnapshotJobs                   = "jobs"
 	SnapshotPodDisruptionBudgets   = "poddisruptionbudgets"
 	SnapshotReplicationControllers = "replicationcontrollers"
+	SnapshotResourceQuotas         = "resourcequotas"
 )
 
 // SnapshotAllResources is a list of all Kubernetes resources that can be snapshotted.
@@ -42,6 +43,7 @@ var SnapshotAllResources = []string{
 	SnapshotJobs,
 	SnapshotPodDisruptionBudgets,
 	SnapshotReplicationControllers,
+	SnapshotResourceQuotas,
 }
 
 // KubernetesSnapshotConfig holds the configuration for Kubernetes snapshotting options, which is simply a
@@ -61,6 +63,7 @@ type KubernetesSnapshotConfig struct {
 	Jobs                   bool
 	PodDisruptionBudgets   bool
 	ReplicationControllers bool
+	ResourceQuotas         bool
 }
 
 // NewKubernetesSnapshotConfig creates a new KubernetesSnapshotConfig instance with all fields set to false.
@@ -136,6 +139,8 @@ func (ksc *KubernetesSnapshotConfig) Set(field string, enabled bool) {
 		ksc.PodDisruptionBudgets = enabled
 	case SnapshotReplicationControllers:
 		ksc.ReplicationControllers = enabled
+	case SnapshotResourceQuotas:
+		ksc.ResourceQuotas = enabled
 	default:
 		log.Warnf("Unknown Kubernetes resource '%s' in snapshot configuration, ignoring.", field)
 	}
@@ -162,6 +167,7 @@ func (ksc *KubernetesSnapshotConfig) Append(config *KubernetesSnapshotConfig) {
 	ksc.Jobs = ksc.Jobs || config.Jobs
 	ksc.PodDisruptionBudgets = ksc.PodDisruptionBudgets || config.PodDisruptionBudgets
 	ksc.ReplicationControllers = ksc.ReplicationControllers || config.ReplicationControllers
+	ksc.ResourceQuotas = ksc.ResourceQuotas || config.ResourceQuotas
 }
 
 // SnapshotConfig holds the configuration for general snapshotting options.

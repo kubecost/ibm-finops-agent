@@ -155,6 +155,7 @@ func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfi
 		Jobs:                   snapshotResource(kconfig.Jobs, cluster.GetAllJobs),
 		PodDisruptionBudgets:   snapshotResource(kconfig.PodDisruptionBudgets, cluster.GetAllPodDisruptionBudgets),
 		ReplicationControllers: snapshotResource(kconfig.ReplicationControllers, cluster.GetAllReplicationControllers),
+		ResourceQuotas:         snapshotResource(kconfig.ResourceQuotas, cluster.GetAllResourceQuotas),
 	}, nil
 }
 

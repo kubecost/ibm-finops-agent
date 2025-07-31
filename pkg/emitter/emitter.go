@@ -32,6 +32,7 @@ type KubernetesSnapshot struct {
 	Jobs                   []*batchv1.Job
 	PodDisruptionBudgets   []*policyv1.PodDisruptionBudget
 	ReplicationControllers []*v1.ReplicationController
+	ResourceQuotas         []*v1.ResourceQuota
 }
 
 // NodeStatsSummary contains summary data sets

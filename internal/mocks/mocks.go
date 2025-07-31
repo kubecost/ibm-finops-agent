@@ -149,6 +149,7 @@ type MockClusterCache struct {
 	Jobs                   []*batchv1.Job
 	PodDisruptionBudgets   []*policyv1.PodDisruptionBudget
 	ReplicationControllers []*v1.ReplicationController
+	ResourceQuotas         []*v1.ResourceQuota
 	UnstructuredObjects    map[schema.GroupVersionResource][]*unstructured.Unstructured
 }
 
@@ -263,6 +264,12 @@ func (m *MockClusterCache) GetAllPodDisruptionBudgets() []*policyv1.PodDisruptio
 func (m *MockClusterCache) GetAllReplicationControllers() []*v1.ReplicationController {
 	m.recordCall("GetAllReplicationControllers")
 	return m.ReplicationControllers
+}
+
+// GetAllResourceQuotas implements ClusterCache interface
+func (m *MockClusterCache) GetAllResourceQuotas() []*v1.ResourceQuota {
+	m.recordCall("GetAllResourceQuotas")
+	return m.ResourceQuotas
 }
 
 // ListUnstructuredByGroupVersionResource implements ClusterCache interface
