@@ -36,7 +36,7 @@ setup_kind() {
   kubectl version
 
   if [ "${CI}" != "true" ]; then
-    podman save -o e2e_image_archive.tar localhost/e2e/ibm-finops-agent:e2e
+    docker save -o e2e_image_archive.tar localhost/e2e/ibm-finops-agent:e2e
   fi
 
   i=0
