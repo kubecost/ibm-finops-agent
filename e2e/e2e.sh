@@ -36,7 +36,7 @@ setup_kind() {
   kubectl version
 
   if [ "${CI}" != "true" ]; then
-    docker save -o e2e_image_archive.tar localhost/e2e/ibm-finops-agent:e2e
+    podman save -o e2e_image_archive.tar localhost/e2e/ibm-finops-agent:e2e
   fi
 
   i=0
@@ -80,7 +80,7 @@ wait_for_metrics() {
   until [ $i -ge 10 ]
   do 
     if [[ $(${KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
-      echo "agent pod is ready!" && break
+      echo "Agent pod is ready!" && break
     fi
     echo "waiting for agent pod to be ready"
     i=$[$i+1]
@@ -89,13 +89,36 @@ wait_for_metrics() {
 }
 
 get_sample_data(){
-  echo "Waiting for agent to initialize"
-  sleep 30
   POD=$(${KUBECTL} get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
+  i=0
+  until [ $i -ge 5 ]
+  do
+    if [[ -n $(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/) ]]; then
+      echo "Scratch directory exists!"
+      break
+    fi
+    
+    echo "Waiting for scratch directory to initialize"
+    sleep 30
+    i=$[$i+1]
+  done
+
   FLDR=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
   SMPL=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
-  echo "Waiting for agent sample to populate"
-  sleep 60
+
+  i=0
+  until [ $i -ge 5 ]
+  do
+    if [[ $(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/$FLDR | wc -l) -gt 1 ]]; then
+      echo "Sample is populated!"
+      break
+    fi
+    
+    echo "Waiting for sample to populate"
+    sleep 30
+    i=$[$i+1]
+  done
+
   echo "Copying agent sample to ${WORKINGDIR}"
   ${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
   ${KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
