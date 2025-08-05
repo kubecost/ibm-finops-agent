@@ -163,7 +163,6 @@ func (kcc *OpenCostClusterCacheAdapter) GetAllReplicationControllers() []*cluste
 	return rcs
 }
 
-/*
 func (kcc *OpenCostClusterCacheAdapter) GetAllResourceQuotas() []*clustercache.ResourceQuota {
 	cc := kcc.clusterCache
 
@@ -173,4 +172,3 @@ func (kcc *OpenCostClusterCacheAdapter) GetAllResourceQuotas() []*clustercache.R
 	}
 	return rqs
 }
-*/
