@@ -53,10 +53,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	clusterCache := adapters.NewClusterCacheAdapter(snapshot.Kubernetes)
 	metricsQuerier := adapters.NewMetricsQuerierAdapter(snapshot.Metrics)
 
-	confManager := config.NewConfigFileManager(&config.ConfigFileManagerOpts{
-		LocalConfigPath:   "/",
-		BucketStoreConfig: "",
-	})
+	confManager := config.NewConfigFileManager(nil)
 
 	cloudProvider, err := provider.NewProvider(clusterCache, ke.config.CloudProviderAPIKey, confManager)
 	if err != nil {
@@ -94,7 +91,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 
 	bucketStore, err := storage.NewBucketStorage(bucketConfig)
 	if err != nil {
-		log.Errorf("Failed to create federated storage, please check your configuration and bucket security settings: %s", err)
+		log.Errorf("Failed to create export bucket storage, please check your configuration and bucket security settings: %s", err)
 		return fmt.Errorf("failed to create bucket storage: %w", err)
 	}
 

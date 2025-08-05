@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opencost/opencost/pkg/env"
+	"github.com/opencost/opencost/core/pkg/env"
 )
 
-func CreateTestBucketConfigFile(t *testing.T, fileName string, contents string) string {
+func CreateTestBucketConfigFile(t *testing.T, contents string) string {
 	dir := t.TempDir()
-	testBucketConfigFile := path.Join(dir, fileName)
+	testBucketConfigFile := path.Join(dir, "federated-store.yaml")
 	err := os.WriteFile(testBucketConfigFile, []byte(contents), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write test bucket config file: %v", err)
@@ -23,29 +23,14 @@ func CreateTestBucketConfigFile(t *testing.T, fileName string, contents string) 
 		}
 	})
 
-	return testBucketConfigFile
+	return dir
 
-}
-
-func TestMissingEnvVarValidateConfig(t *testing.T) {
-	t.Setenv("CLUSTER_ID", "test-cluster")
-	t.Setenv(env.ExportBucketConfigFileEnvVar, "")
-
-	config := NewEmitterConfigFromEnv()
-	if err := ValidateConfig(config); err == nil {
-		t.Fatal("Expected ValidateConfig to fail due to missing env var for bucket config file, but it succeeded")
-	} else {
-		t.Logf("ValidateConfig failed as expected: %v", err)
-		msg := err.Error()
-		if !strings.Contains(msg, "configuration missing valid ExportBucketConfigFile") {
-			t.Fatalf("Expected error message to contain 'configuration missing valid ExportBucketConfigFile', got: %s", msg)
-		}
-	}
 }
 
 func TestMissingBucketConfigFileValidateConfig(t *testing.T) {
 	t.Setenv("CLUSTER_ID", "test-cluster")
-	t.Setenv(env.ExportBucketConfigFileEnvVar, "made-up-path.yaml")
+	tempDir := os.TempDir()
+	t.Setenv(env.ConfigPathEnvVar, tempDir)
 
 	config := NewEmitterConfigFromEnv()
 	if err := ValidateConfig(config); err == nil {
@@ -60,7 +45,7 @@ func TestMissingBucketConfigFileValidateConfig(t *testing.T) {
 }
 
 func TestInvalidBucketConfigFileValidateConfig(t *testing.T) {
-	testBucketConfigFile := CreateTestBucketConfigFile(t, "test-bucket-config.yaml", `type: GCS
+	tempDir := CreateTestBucketConfigFile(t, `type: GCS
 config:
   bucket: unified-agent-test
   service_account: |-
@@ -69,8 +54,8 @@ config:
       "junk": "not valid",
     }`)
 
-	t.Setenv("CLUSTER_ID", "test-cluster")
-	t.Setenv(env.ExportBucketConfigFileEnvVar, testBucketConfigFile)
+	t.Setenv(env.ClusterIDEnvVar, "test-cluster")
+	t.Setenv(env.ConfigPathEnvVar, tempDir)
 
 	config := NewEmitterConfigFromEnv()
 	if err := ValidateConfig(config); err == nil {
@@ -87,10 +72,10 @@ config:
 func TestValidBucketValidateConfig(t *testing.T) {
 	t.Skip("Test Requires a Valid Bucket Configuration")
 
-	testBucketConfigFile := CreateTestBucketConfigFile(t, "test-bucket-config.yaml", `<valid bucket config contents>`)
+	tempDir := CreateTestBucketConfigFile(t, `<valid bucket config contents>`)
 
-	t.Setenv("CLUSTER_ID", "test-cluster")
-	t.Setenv(env.ExportBucketConfigFileEnvVar, testBucketConfigFile)
+	t.Setenv(env.ClusterIDEnvVar, "test-cluster")
+	t.Setenv(env.ConfigPathEnvVar, tempDir)
 
 	config := NewEmitterConfigFromEnv()
 	if err := ValidateConfig(config); err != nil {

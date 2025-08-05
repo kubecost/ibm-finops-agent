@@ -10,6 +10,7 @@ import (
 	kcenv "github.com/ibm/finops-agent/kubecost/env"
 	"github.com/ibm/finops-agent/kubecost/errors"
 	"github.com/ibm/finops-agent/pkg/emitter"
+	coreenv "github.com/opencost/opencost/core/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/env"
@@ -67,11 +68,11 @@ type EmitterConfig struct {
 // NewEmitterConfigFromEnv creates a new EmitterConfig from environment variables.
 func NewEmitterConfigFromEnv() *EmitterConfig {
 	return &EmitterConfig{
-		ClusterID:                      env.GetClusterID(),
-		ConfigPath:                     env.GetConfigPathWithDefault("/var/configs/"),
+		ClusterID:                      coreenv.GetClusterID(),
+		ConfigPath:                     coreenv.GetConfigPath(),
 		CloudProviderAPIKey:            env.GetCloudProviderAPIKey(),
-		InstallNamespace:               env.GetInstallNamespace(),
-		BucketConfigFile:               env.GetExportBucketConfigFile(),
+		InstallNamespace:               coreenv.GetInstallNamespace(""),
+		BucketConfigFile:               kcenv.GetExportBucketConfigFile(),
 		ExportIntervals:                NewExportIntervalConfigFromEnv(),
 		QueryResolution:                1 * time.Minute,
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),
