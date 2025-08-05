@@ -2,9 +2,10 @@ package opencost
 
 import (
 	"context"
-	"github.com/opencost/opencost/core/pkg/storage"
 	"os"
 	"time"
+
+	"github.com/opencost/opencost/core/pkg/storage"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/nodes"
@@ -34,10 +35,7 @@ func NewOpenCostDataSource(
 	conf *OpenCostConfig,
 ) source.OpenCostDataSource {
 	// Create ConfigFileManager for synchronization of shared configuration
-	confManager := config.NewConfigFileManager(&config.ConfigFileManagerOpts{
-		LocalConfigPath:   "/",
-		BucketStoreConfig: "",
-	})
+	confManager := config.NewConfigFileManager(nil)
 
 	clusterCache := cluster.NewOpenCostClusterCacheAdapter(k8sCache)
 
@@ -68,6 +66,7 @@ func NewOpenCostDataSource(
 
 		return ds, e
 	}
+
 	if conf.CollectorDataSourceEnabled {
 		fn = func() (source.OpenCostDataSource, error) {
 			var store storage.Storage
@@ -101,7 +100,7 @@ func NewOpenCostDataSource(
 	)
 
 	if fatalErr != nil {
-		log.Fatalf("Failed to create Prometheus data source: %s", fatalErr)
+		log.Fatalf("Failed to create opencost data source: %s", fatalErr)
 		panic(fatalErr)
 	}
 
