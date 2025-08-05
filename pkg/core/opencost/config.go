@@ -2,6 +2,7 @@ package opencost
 
 import (
 	"github.com/ibm/finops-agent/kubecost/env"
+	coreenv "github.com/opencost/opencost/core/pkg/env"
 	ocenv "github.com/opencost/opencost/pkg/env"
 )
 
@@ -15,7 +16,7 @@ type OpenCostConfig struct {
 // NewOpenCostConfig creates a new OpenCostConfig with values parsed from the environment variables.
 func NewOpenCostConfigFromEnv() *OpenCostConfig {
 	return &OpenCostConfig{
-		ConfigPath:                 ocenv.GetConfigPathWithDefault("/var/configs/"),
+		ConfigPath:                 coreenv.GetConfigPath(),
 		CloudProviderAPIKey:        ocenv.GetCloudProviderAPIKey(),
 		CollectorDataSourceEnabled: ocenv.IsCollectorDataSourceEnabled(),
 		BucketConfigFile:           env.GetExportBucketConfigFile(),

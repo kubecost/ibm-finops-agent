@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opencost/opencost/pkg/env"
+	"github.com/opencost/opencost/core/pkg/env"
 )
 
 func CreateTestBucketConfigFile(t *testing.T, contents string) string {
@@ -54,7 +54,7 @@ config:
       "junk": "not valid",
     }`)
 
-	t.Setenv("CLUSTER_ID", "test-cluster")
+	t.Setenv(env.ClusterIDEnvVar, "test-cluster")
 	t.Setenv(env.ConfigPathEnvVar, tempDir)
 
 	config := NewEmitterConfigFromEnv()
@@ -74,7 +74,7 @@ func TestValidBucketValidateConfig(t *testing.T) {
 
 	tempDir := CreateTestBucketConfigFile(t, `<valid bucket config contents>`)
 
-	t.Setenv("CLUSTER_ID", "test-cluster")
+	t.Setenv(env.ClusterIDEnvVar, "test-cluster")
 	t.Setenv(env.ConfigPathEnvVar, tempDir)
 
 	config := NewEmitterConfigFromEnv()

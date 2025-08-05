@@ -5,7 +5,6 @@ import (
 	"time"
 
 	coreenv "github.com/opencost/opencost/core/pkg/env"
-	ocenv "github.com/opencost/opencost/pkg/env"
 )
 
 const (
@@ -63,5 +62,5 @@ func IsDiagnosticsExportEnabled() bool {
 
 // GetExportBucketConfigFile returns the file path for the export bucket
 func GetExportBucketConfigFile() string {
-	return path.Join(ocenv.GetConfigPathWithDefault(ocenv.DefaultConfigMountPath), "federated-store.yaml")
+	return path.Join(coreenv.GetConfigPath(), "federated-store.yaml")
 }
