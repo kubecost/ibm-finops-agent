@@ -82,22 +82,22 @@ deploy(){
     kubectl config get-contexts
     kubectl cluster-info
 
-    docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
-    ${DOCKER_EXEC} ${HELM_INSTALL}
+    # docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
+    ${HELM_INSTALL}
   else
     ${DOCKER_EXEC} ${HELM_INSTALL}
   fi
 
   sleep 10
-  ${DOCKER_EXEC} kubectl create ns stress
-  ${DOCKER_EXEC} kubectl -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
+  kubectl create ns stress
+  kubectl -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
 }
 
 wait_for_metrics() {
   i=0
   until [ $i -ge 10 ]
   do 
-    if [[ $(${DOCKER_EXEC} kubectl get pods -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
+    if [[ $(kubectl get pods -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
       echo "Agent pod is ready!" && break
     fi
     echo "waiting for agent pod to be ready"
