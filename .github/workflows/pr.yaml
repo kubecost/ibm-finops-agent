@@ -2,7 +2,7 @@ name: Unit Tests and Build Docker Image
 
 on:
   schedule:
-    - cron: "0 14 * * *"
+      - cron: '0 14 * * *'
   pull_request:
     branches:
       - develop
@@ -12,7 +12,7 @@ on:
       - develop
 
   merge_group:
-    types: [checks_requested]
+      types: [checks_requested]
 
 jobs:
   test-finops-agent:
@@ -25,7 +25,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: "stable"
+          go-version: 'stable'
 
       - uses: actions/checkout@v4
         with:
@@ -33,19 +33,19 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          repository: "opencost/opencost"
-          ref: "develop"
+          repository: 'opencost/opencost'
+          ref: 'develop'
           fetch-depth: 0
           path: ./opencost
 
-      #   - name: Attempt to check out matching branch name, or target branch name of OC
-      #     run: |
-      #         pushd ./opencost
-      #         echo "Attempting to check out matching branch ${{ github.head_ref }} in OC. If that fails, check out ${{ github.base_ref }}"
-      #         set -x
-      #         git checkout "${{ github.head_ref }}" || git checkout "${{ github.base_ref }}" || true
-      #         set +x
-      #         popd
+    #   - name: Attempt to check out matching branch name, or target branch name of OC
+    #     run: |
+    #         pushd ./opencost
+    #         echo "Attempting to check out matching branch ${{ github.head_ref }} in OC. If that fails, check out ${{ github.base_ref }}"
+    #         set -x
+    #         git checkout "${{ github.head_ref }}" || git checkout "${{ github.base_ref }}" || true
+    #         set +x
+    #         popd
 
       # Saves us from having to redownload all modules
       - name: Go Mod cache
@@ -85,10 +85,10 @@ jobs:
           name: code-coverage
           retention-days: 5
           path: |
-            coverage.out
-            pr_num.txt
-            base.txt
-            head.txt
+                coverage.out
+                pr_num.txt
+                base.txt
+                head.txt
 
       - name: Build Go binary
         working-directory: ./ibm-finops-agent
@@ -135,6 +135,63 @@ jobs:
         uses: azure/setup-helm@v1
         with:
           version: 3.18.4
+
+      - name: E2E testing
+        working-directory: ./ibm-finops-agent
+        run: |
+          make e2e-test IMAGE_TAG=${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+
+      - name: Push Docker image
+        run: docker push ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+
+#   notify-fail:
+#     needs: [test-cost-model]
+#     runs-on: Kubecost-Linux-Small-x86
+#     if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled() && github.ref == 'refs/heads/develop' }}
+#     steps:
+#       - name: Slack notify
+#         id: slack
+#         uses: slackapi/slack-github-action@v2
+#         with:
+#           webhook-type: webhook-trigger
+#           payload: |
+#             {
+#               "workflow": "${{github.workflow}}",
+#               "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+#               "message": "KCM Develop branch unit testing has failed! Please check the logs for more information."
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }} 
+
+  set-labels:
+    needs: [test-finops-agent]
+    runs-on: Kubecost-Linux-Small-x86
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
+    steps:
+      - name: label unit tests failing
+        if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled()}}
+        uses: andymckay/labeler@1.0.4
+        with:
+          add-labels: "unit tests failed"
+      - uses: mondeja/remove-labels-gh-action@v2
+        if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled()}}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          labels: |
+            unit tests passed
+      - name: Label unit tests passing
+        if: ${{ always()  && !contains(needs.*.result, 'failure') && !cancelled()}}
+        uses: andymckay/labeler@1.0.4
+        with:
+          add-labels: "unit tests passed"
+      - uses: mondeja/remove-labels-gh-action@v2
+        if: ${{ always()  && !contains(needs.*.result, 'failure') && !cancelled()}}
+        with:
+            token: ${{ secrets.GITHUB_TOKEN }}
+            labels: |
+              unit tests failed
+
+      
 
       - name: E2E testing
         working-directory: ./ibm-finops-agent

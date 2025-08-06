@@ -7,10 +7,10 @@ set -e
 
 if [ "${CI}" != "true" ]; then
   export WORKINGDIR=/private${TEMP_DIR}/testdata/e2e/e2e-${KUBERNETES_VERSION}
-  export DOCKER_EXEC=""
+  DOCKER=podman
 else
   export WORKINGDIR=${TEMP_DIR}/testdata/e2e/e2e-${KUBERNETES_VERSION}
-  export DOCKER_EXEC="docker exec -i e2e-${KUBERNETES_VERSION}-control-plane"
+  DOCKER=docker
 fi
 
 IMAGE_TAG="${IMAGE##*:}"
@@ -39,7 +39,7 @@ setup_kind() {
   kubectl version
 
   if [ "${CI}" != "true" ]; then
-    podman save -o e2e_image_archive.tar localhost/e2e/ibm-finops-agent:e2e
+    ${DOCKER} save -o e2e_image_archive.tar localhost/e2e/ibm-finops-agent:e2e
   fi
 
   i=0
@@ -78,16 +78,7 @@ deploy(){
     exit 1
   fi
 
-  if [ "${CI}" = "true" ]; then
-    kubectl config get-contexts
-    kubectl cluster-info
-
-    # docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
-    ${HELM_INSTALL}
-  else
-    ${DOCKER_EXEC} ${HELM_INSTALL}
-  fi
-
+  ${HELM_INSTALL}
   sleep 10
   kubectl create ns stress
   kubectl -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
@@ -100,48 +91,49 @@ wait_for_metrics() {
     if [[ $(kubectl get pods -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
       echo "Agent pod is ready!" && break
     fi
-    echo "waiting for agent pod to be ready"
+    echo "Waiting for agent pod to be ready..."
     i=$[$i+1]
     sleep 5
   done
 }
 
 get_sample_data(){
-  POD=$(${DOCKER_EXEC} kubectl get pod -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o jsonpath="{.items[0].metadata.name}")
+  POD=$(kubectl get pod -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o jsonpath="{.items[0].metadata.name}")
   i=0
   until [ $i -ge 5 ]
   do
-    if [[ -n $(${DOCkER_EXEC} kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/) ]]; then
+    if [[ -n $(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/) ]]; then
       echo "Scratch directory exists!"
       break
     fi
     
-    echo "Waiting for scratch directory to initialize"
+    echo "Waiting for scratch directory to initialize..."
     sleep 30
     i=$[$i+1]
   done
 
-  FLDR=$(${DOCKER_EXEC} kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
-  SMPL=$(${DOCKER_EXEC} kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
+  FLDR=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
+  SMPL=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
 
   i=0
   until [ $i -ge 5 ]
   do
-    if [[ $(${DOCKER_EXEC} kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/$FLDR | wc -l) -gt 1 ]]; then
+    if [[ $(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/$FLDR | wc -l) -gt 1 ]]; then
       echo "Sample is populated!"
       break
     fi
     
-    echo "Waiting for sample to populate"
+    echo "Waiting for sample to populate..."
     sleep 30
     i=$[$i+1]
   done
 
   echo "Copying agent sample to ${WORKINGDIR}"
-  ${DOCKER_EXEC} kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
-  ${DOCKER_EXEC} kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
-  ${DOCKER_EXEC} kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/namespaces.jsonl > ${WORKINGDIR}/namespaces.jsonl
-  ${DOCKER_EXEC} kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/pods.jsonl > ${WORKINGDIR}/pods.jsonl
+  # Copy all file names into file_list.txt
+  kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
+  kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
+  kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/namespaces.jsonl > ${WORKINGDIR}/namespaces.jsonl
+  kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/pods.jsonl > ${WORKINGDIR}/pods.jsonl
 }
 
 run_tests() {
