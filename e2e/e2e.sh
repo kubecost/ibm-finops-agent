@@ -5,6 +5,8 @@ set -e
 : ${IMAGE:?Need to set metrics-agent IMAGE variable to test}
 : ${KUBERNETES_VERSION:?Need to set KUBERNETES_VERSION to test}
 
+# Assumes that you're running podman and macOS locally.
+# This could be handled by some params if we want to handle alternative dev envs.
 if [ "${CI}" != "true" ]; then
   export WORKINGDIR=/private${TEMP_DIR}/testdata/e2e/e2e-${KUBERNETES_VERSION}
   DOCKER=podman
@@ -112,6 +114,7 @@ get_sample_data(){
     i=$[$i+1]
   done
 
+  # Retrieve sample name
   FLDR=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
   SMPL=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
 
@@ -131,6 +134,7 @@ get_sample_data(){
   echo "Copying agent sample to ${WORKINGDIR}"
   # Copy all file names into file_list.txt
   kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
+  # Copy notable files to working dir
   kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
   kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/namespaces.jsonl > ${WORKINGDIR}/namespaces.jsonl
   kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/pods.jsonl > ${WORKINGDIR}/pods.jsonl

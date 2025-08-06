@@ -34,10 +34,10 @@ define TEST_KUBERNETES
 endef
 
 # To run the e2e tests locally, have an image built off the total UA docker file tagged 'localhost/e2e/ibm-finops-agent:e2e'
-# and export it to IMAGE_TAG. This could be manually configured by editing it in the e2e_deployment.yaml and e2e.sh files
-e2e-test: e2e-chart test-k8s-1.33.0 test-k8s-1.32.0 test-k8s-1.31.0 test-k8s-1.30.0 
+# and export it to IMAGE_TAG. This could be manually configured by editing the HELM_INSTALL variable in the e2e.sh files
+e2e-test: add-e2e-chart test-k8s-1.33.0 test-k8s-1.32.0 test-k8s-1.31.0 test-k8s-1.30.0 
 
-e2e-chart:
+add-e2e-chart:
 	helm repo add e2e-test https://kubecost.github.io/finops-agent-chart
 
 test-k8s-1.33.0:
