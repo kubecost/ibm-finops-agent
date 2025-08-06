@@ -79,6 +79,9 @@ deploy(){
   fi
 
   if [ "${CI}" = "true" ]; then
+    kubectl config get-contexts
+    kubectl cluster-info
+
     docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
     ${DOCKER_EXEC} ${HELM_INSTALL}
   else
