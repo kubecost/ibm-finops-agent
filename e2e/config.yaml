@@ -1,0 +1,17 @@
+type: S3
+config:
+  bucket: kubecost-store
+  endpoint: "localstack:4566"
+  access_key: ""
+  insecure: true
+  signature_version2: false
+  secret_key: ""
+  put_user_metadata:
+    "X-Amz-Acl": "bucket-owner-full-control"
+  http_config:
+    idle_conn_timeout: 90s
+    response_header_timeout: 2m
+    insecure_skip_verify: false
+  trace:
+    enable: true
+  part_size: 134217728

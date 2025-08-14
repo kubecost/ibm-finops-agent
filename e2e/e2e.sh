@@ -58,20 +58,6 @@ setup_kind() {
   done
 }
 
-HELM_INSTALL="helm install unified-agent e2e-test/finops-agent \
---set agent.kubecost.enabled=false \
---set agent.cloudability.uploadRegion="staging" \
---set agent.cloudability.secret.create=true \
---set agent.cloudability.secret.cloudabilityAccessKey="XXX" \
---set agent.cloudability.secret.cloudabilitySecretKey="XXX" \
---set agent.cloudability.secret.cloudabilityEnvId="XXX" \
---set agent.cloudability.emissionInterval="10s" \
---set image.registry="${IMAGE_REG}" \
---set image.repository="${IMAGE_REPO}" \
---set image.tag="${IMAGE_TAG}" \
---set clusterId="e2e" \
---create-namespace -n ibm-finops-agent"
-
 deploy(){
   mkdir -p -m 0777 ${WORKINGDIR}
 
@@ -80,8 +66,30 @@ deploy(){
     exit 1
   fi
 
-  ${HELM_INSTALL}
-  sleep 10
+  kubectl create namespace ibm-finops-agent
+  
+  # Localstack bucket setup
+  helm install localstack localstack/localstack -n ibm-finops-agent
+  sleep 5
+  LOCALSTACK_POD=$(kubectl get pods -n ibm-finops-agent -l "app.kubernetes.io/name=localstack" -o jsonpath="{.items[0].metadata.name}")
+  i=0
+  until [ $i -ge 5 ]
+  do 
+    if [[ $(kubectl get pods -n ibm-finops-agent -l "app.kubernetes.io/name=localstack" -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
+      echo "Localstack pod is ready!" && break
+    fi
+    echo "Waiting for localstack pod to be ready..."
+    i=$[$i+1]
+    sleep 20
+  done
+
+  # Create kubecost-store bucket
+  kubectl exec -n ibm-finops-agent $LOCALSTACK_POD -- awslocal s3 mb s3://kubecost-store
+
+  # Install unified-agent
+  helm install unified-agent e2e-test/finops-agent -n ibm-finops-agent -f e2e/values.yaml
+
+  # Create stress namespace & pod
   kubectl create ns stress
   kubectl -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
 }
