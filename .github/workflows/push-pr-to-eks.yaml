@@ -27,13 +27,9 @@ jobs:
             echo "Error: PR number must be a positive integer"
             exit 1
           fi
-          if [[ ! "${{ github.event.inputs.helm_chart_version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Helm chart version must be in semver format (e.g., 0.2.3)"
-            exit 1
-          fi
           echo "Input validation passed:"
           echo "  PR Number: ${{ github.event.inputs.pr_number }}"
-          echo "  Helm Chart Version: ${{ github.event.inputs.helm_chart_version }}"
+          echo "  Helm Chart: ${{ github.event.inputs.helm_chart_version }}"
 
       - name: Download Helm chart
         run: |
