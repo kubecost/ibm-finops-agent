@@ -35,7 +35,7 @@ jobs:
       - name: Deploy Helm chart
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_695 }}:role/${{ secrets.AWS_DEPLOY_ROLE }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_695 }}:role/${{ secrets.AWS_DEPLOY_ROLE_695 }}
           aws-region: us-east-1
       - run: |
           git clone "https://github.com/kubecost/finops-agent-chart.git"
