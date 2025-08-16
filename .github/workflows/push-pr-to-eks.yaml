@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 jobs:
-  download_helm_chart:
+  deploy_helm_chart:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -38,12 +38,6 @@ jobs:
           cd finops-agent-chart
           git checkout ${{ github.event.inputs.helm_chart_version }}
           echo "Helm chart version ${{ github.event.inputs.helm_chart_version }} checked out successfully"
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: download_helm_chart
-    steps:
-      - uses: actions/checkout@v5
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -58,7 +52,7 @@ jobs:
             --docker-password=${{ secrets.IBM_GITHUB_TOKEN }} || true
 
           helm upgrade --install finops-agent-pr${{ github.event.inputs.pr_number }} \
-            ./finops-agent-chart/charts/finops-agent \
+            ./charts/finops-agent \
             --namespace=finops-agent-pr${{ github.event.inputs.pr_number }} \
             --set fullImageName=ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
             --set global.imagePullSecrets[0]=ghcr-token
