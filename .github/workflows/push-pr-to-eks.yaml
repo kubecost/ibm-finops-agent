@@ -16,6 +16,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  packages: read
 
 jobs:
   deploy_helm_chart:
@@ -48,7 +49,7 @@ jobs:
           kubectl create namespace finops-agent-pr${{ github.event.inputs.pr_number }} || true
           kubectl create secret docker-registry ghcr-token \
             --docker-server=ghcr.io \
-            --docker-username=${{ github.actor }} \
+            --docker-username=${{ github.repository_owner }} \
             --docker-password=${{ secrets.GITHUB_TOKEN }} \
             --namespace=finops-agent-pr${{ github.event.inputs.pr_number }} || true
 
