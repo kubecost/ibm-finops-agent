@@ -37,6 +37,7 @@ jobs:
           git clone "https://github.com/kubecost/finops-agent-chart.git"
           cd finops-agent-chart
           git checkout ${{ github.event.inputs.helm_chart_version }}
+          helm dependency update ./charts/finops-agent
           echo "Helm chart version ${{ github.event.inputs.helm_chart_version }} checked out successfully"
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -49,7 +50,8 @@ jobs:
           kubectl create secret docker-registry ghcr-token \
             --docker-server=ghcr.io \
             --docker-username=kubecost \
-            --docker-password=${{ secrets.IBM_GITHUB_TOKEN }} || true
+            --docker-password=${{ secrets.IBM_GITHUB_TOKEN }} \
+            --namespace=finops-agent-pr${{ github.event.inputs.pr_number }} || true
 
           helm upgrade --install finops-agent-pr${{ github.event.inputs.pr_number }} \
             ./charts/finops-agent \
