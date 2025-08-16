@@ -31,13 +31,13 @@ jobs:
           echo "Input validation passed:"
           echo "  PR Number: ${{ github.event.inputs.pr_number }}"
           echo "  Helm Chart: ${{ github.event.inputs.helm_chart_version }}"
-          - name: Configure AWS credentials
-          uses: aws-actions/configure-aws-credentials@v4
-          with:
-            role-to-assume: arn:aws:iam::297945954695:role/github-push-finops-agent-to-eks
-            aws-region: us-east-1
-      - name: Checkout Helm chart
-        run: |
+
+      - name: Deploy Helm chart
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_695 }}:role/${{ secrets.AWS_DEPLOY_ROLE }}
+          aws-region: us-east-1
+      - run: |
           git clone "https://github.com/kubecost/finops-agent-chart.git"
           cd finops-agent-chart
           git checkout ${{ github.event.inputs.helm_chart_version }}
@@ -45,9 +45,7 @@ jobs:
           echo "Helm chart version ${{ github.event.inputs.helm_chart_version }} checked out successfully"
 
           aws eks update-kubeconfig --name eks-auto1-us-east-1 --region us-east-1
-
           kubectl create namespace finops-agent-pr${{ github.event.inputs.pr_number }} || true
-
           kubectl create secret docker-registry ghcr-token \
             --docker-server=ghcr.io \
             --docker-username=kubecost \
