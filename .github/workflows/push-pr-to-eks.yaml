@@ -48,8 +48,8 @@ jobs:
           kubectl create namespace finops-agent-pr${{ github.event.inputs.pr_number }} || true
           kubectl create secret docker-registry ghcr-token \
             --docker-server=ghcr.io \
-            --docker-username=kubecost \
-            --docker-password=${{ secrets.IBM_GITHUB_TOKEN }} \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
             --namespace=finops-agent-pr${{ github.event.inputs.pr_number }} || true
 
           helm upgrade --install finops-agent-pr${{ github.event.inputs.pr_number }} \
