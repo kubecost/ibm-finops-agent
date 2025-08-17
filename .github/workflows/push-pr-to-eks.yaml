@@ -93,7 +93,7 @@ jobs:
             ./charts/finops-agent \
             --namespace=finops-agent-pr${{ github.event.inputs.pr_number }} \
             --set clusterId=eks-auto1-us-east-1 \
-            --set fullImageName=${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
+            --set fullImageName=${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
             --set global.imagePullSecrets[0]=aws-ecr-token
 
       - name: Cleanup on failure
