@@ -44,13 +44,25 @@ jobs:
           sudo apt-get install -y skopeo
       - run: |
             echo "Pushing image to AWS ECR using skopeo"
-            aws ecr get-login-password --region us-east-1 \
-              | skopeo login \
-                  --username AWS \
-                  --password-stdin ${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com
+            echo "Source image: ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}"
+            echo "Destination: ${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}"
+            
+            # Get ECR auth token and use it with skopeo
+            ECR_PASSWORD=$(aws ecr get-login-password --region us-east-1)
+            echo "ECR authentication successful"
+            
+            # Test skopeo inspect to verify source image accessibility
+            echo "Testing source image accessibility..."
+            skopeo inspect docker://ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
+            
+            echo "Starting image copy with skopeo..."
             skopeo copy --all --preserve-digests \
+              --dest-username AWS \
+              --dest-password "$ECR_PASSWORD" \
               docker://ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
               docker://${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
+            
+            echo "Image copy completed successfully"
 
       - name: Deploy Helm chart
         uses: aws-actions/configure-aws-credentials@v4
