@@ -65,7 +65,7 @@ jobs:
               --dest-username AWS \
               --dest-password "$ECR_PASSWORD" \
               docker://ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
-              docker://${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
+              docker://${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
             
             echo "Image copy completed successfully"
 
