@@ -51,22 +51,22 @@ jobs:
             echo "Pushing image to AWS ECR using skopeo"
             echo "Source image: ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}"
             echo "Destination: ${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}"
-            
+
             # Get ECR auth token and use it with skopeo
             ECR_PASSWORD=$(aws ecr get-login-password --region us-east-1)
             echo "ECR authentication successful"
-            
+
             # Test skopeo inspect to verify source image accessibility
             echo "Testing source image accessibility..."
             skopeo inspect docker://ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
-            
+
             echo "Starting image copy with skopeo..."
             skopeo copy --all --preserve-digests \
               --dest-username AWS \
               --dest-password "$ECR_PASSWORD" \
               docker://ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
               docker://${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
-            
+
             echo "Image copy completed successfully"
 
       - name: Deploy Helm chart
@@ -89,12 +89,19 @@ jobs:
             --docker-password=$(aws ecr get-login-password --region us-east-1) \
             --namespace=finops-agent-pr${{ github.event.inputs.pr_number }} || true
 
+            # create federated store secret
+          echo "${{ secrets.FEDERATED_STORE_IBM_FINOPS_AGENT_WORKFLOWS_US_EAST_1_BASE64 }}" | base64 -d > /tmp/federated-store.yaml
+          kubectl create secret generic federated-store --from-file=federated-store.yaml=/tmp/federated-store.yaml --dry-run=client -o yaml > /tmp/federated-store-secret.yaml
+          kubectl apply -f /tmp/federated-store-secret.yaml -n finops-agent-pr${{ github.event.inputs.pr_number }} --force
+
+          # deploy helm chart
           helm upgrade --install finops-agent-pr${{ github.event.inputs.pr_number }} \
             ./charts/finops-agent \
             --namespace=finops-agent-pr${{ github.event.inputs.pr_number }} \
             --set clusterId=eks-auto1-us-east-1 \
             --set fullImageName=${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
-            --set "global.imagePullSecrets[0]=aws-ecr-token"
+            --set "global.imagePullSecrets[0]=aws-ecr-token" \
+            --set federatedStorage.existingSecret=federated-store
 
       - name: Cleanup on failure
         if: failure()
@@ -105,7 +112,7 @@ jobs:
       - name: Output success message
         if: success()
         run: |
-          echo "Deployment completed successfully and has been deployed to EKS"
+          echo "Deployment completed successfully"
           echo "cluster: eks-auto1-us-east-1"
           echo "namespace: finops-agent-pr${{ github.event.inputs.pr_number }}"
           echo "image: ${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}"
