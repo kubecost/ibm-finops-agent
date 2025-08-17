@@ -38,11 +38,19 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_695 }}:role/${{ secrets.AWS_DEPLOY_ROLE_695 }}
           aws-region: us-east-1
+      - name: Install skopeo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo
       - run: |
-            echo "Pushing image to AWS ECR"
-            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com
-            docker tag ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} ${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
-            docker push ${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
+            echo "Pushing image to AWS ECR using skopeo"
+            aws ecr get-login-password --region us-east-1 \
+              | skopeo login \
+                  --username AWS \
+                  --password-stdin ${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com
+            skopeo copy --all --preserve-digests \
+              docker://ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
+              docker://${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
 
       - name: Deploy Helm chart
         uses: aws-actions/configure-aws-credentials@v4
