@@ -32,7 +32,12 @@ jobs:
           echo "Input validation passed:"
           echo "  PR Number: ${{ github.event.inputs.pr_number }}"
           echo "  Helm Chart: ${{ github.event.inputs.helm_chart_version }}"
-
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push Image to AWS ECR
         uses: aws-actions/configure-aws-credentials@v4
         with:
