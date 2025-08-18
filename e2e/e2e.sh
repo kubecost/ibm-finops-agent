@@ -87,7 +87,10 @@ deploy(){
   kubectl exec -n ibm-finops-agent $LOCALSTACK_POD -- awslocal s3 mb s3://kubecost-store
 
   # Install unified-agent
-  helm install unified-agent ibm-finops/finops-agent -n ibm-finops-agent -f e2e/values.yaml
+  helm install unified-agent ibm-finops/finops-agent -n ibm-finops-agent -f e2e/values.yaml \
+  --set image.registry="${IMAGE_REG}" \
+  --set image.repository="${IMAGE_REPO}" \
+  --set image.tag="${IMAGE_TAG}" \
 
   # Create stress namespace & pod
   kubectl create ns stress
@@ -101,7 +104,6 @@ wait_for_metrics() {
     if [[ $(kubectl get pods -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
       echo "Agent pod is ready!" && break
     fi
-    kubectl get pods -n ibm-finops-agent --show-labels
     echo "Waiting for agent pod to be ready..."
     i=$[$i+1]
     sleep 10

@@ -1,8 +1,4 @@
 clusterId: "e2e"
-image:
-  registry: localhost
-  repository: e2e/ibm-finops-agent
-  tag: e2e
 exportBucket:
   secret:
     create: true
