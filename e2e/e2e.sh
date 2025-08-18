@@ -90,7 +90,11 @@ deploy(){
   helm install unified-agent ibm-finops/finops-agent -n ibm-finops-agent -f e2e/values.yaml \
   --set image.registry="${IMAGE_REG}" \
   --set image.repository="${IMAGE_REPO}" \
-  --set image.tag="${IMAGE_TAG}" \
+  --set image.tag="${IMAGE_TAG}"
+
+  echo ${IMAGE_REG}
+  echo ${IMAGE_REPO}
+  echo ${IMAGE_TAG}
 
   # Create stress namespace & pod
   kubectl create ns stress
@@ -99,12 +103,13 @@ deploy(){
 
 wait_for_metrics() {
   i=0
-  until [ $i -ge 15 ]
+  until [ $i -ge 10 ]
   do 
     if [[ $(kubectl get pods -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
       echo "Agent pod is ready!" && break
     fi
     echo "Waiting for agent pod to be ready..."
+    kubectl get pods -n ibm-finops-agent --show-labels
     i=$[$i+1]
     sleep 10
   done
