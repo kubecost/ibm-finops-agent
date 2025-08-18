@@ -96,14 +96,14 @@ deploy(){
 
 wait_for_metrics() {
   i=0
-  until [ $i -ge 10 ]
+  until [ $i -ge 15 ]
   do 
     if [[ $(kubectl get pods -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
       echo "Agent pod is ready!" && break
     fi
     echo "Waiting for agent pod to be ready..."
     i=$[$i+1]
-    sleep 5
+    sleep 10
   done
 }
 
