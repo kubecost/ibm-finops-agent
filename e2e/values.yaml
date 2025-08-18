@@ -3,7 +3,6 @@ image:
   registry: localhost
   repository: e2e/ibm-finops-agent
   tag: e2e
-gcpKey: "AIzaSyDXQPG_MHUEy9neR7stolq6l0ujXmjJlvk"
 exportBucket:
   secret:
     create: true

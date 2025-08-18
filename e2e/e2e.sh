@@ -70,7 +70,7 @@ deploy(){
   
   # Localstack bucket setup
   helm install localstack localstack/localstack -n ibm-finops-agent
-  sleep 5
+  sleep 15
   LOCALSTACK_POD=$(kubectl get pods -n ibm-finops-agent -l "app.kubernetes.io/name=localstack" -o jsonpath="{.items[0].metadata.name}")
   i=0
   until [ $i -ge 5 ]
