@@ -87,7 +87,7 @@ deploy(){
   kubectl exec -n ibm-finops-agent $LOCALSTACK_POD -- awslocal s3 mb s3://kubecost-store
 
   # Install unified-agent
-  helm install unified-agent e2e-test/finops-agent -n ibm-finops-agent -f e2e/values.yaml
+  helm install unified-agent ibm-finops/finops-agent -n ibm-finops-agent -f e2e/values.yaml
 
   # Create stress namespace & pod
   kubectl create ns stress
