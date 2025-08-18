@@ -11,13 +11,15 @@ on:
         description: "finops-agent-chart branch/tag to use for deployment (e.g. 'main', 'v0.2.3')"
         required: true
         type: string
+        default: "main"
 
 permissions:
   id-token: write
   contents: read
+  packages: read
 
 jobs:
-  download_helm_chart:
+  deploy_helm_chart:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -27,44 +29,79 @@ jobs:
             echo "Error: PR number must be a positive integer"
             exit 1
           fi
-          if [[ ! "${{ github.event.inputs.helm_chart_version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Helm chart version must be in semver format (e.g., 0.2.3)"
-            exit 1
-          fi
           echo "Input validation passed:"
           echo "  PR Number: ${{ github.event.inputs.pr_number }}"
-          echo "  Helm Chart Version: ${{ github.event.inputs.helm_chart_version }}"
-
-      - name: Download Helm chart
+          echo "  Helm Chart: ${{ github.event.inputs.helm_chart_version }}"
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push Image to AWS ECR
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_695 }}:role/${{ secrets.AWS_DEPLOY_ROLE_695 }}
+          aws-region: us-east-1
+      - name: Install skopeo
         run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+      - run: |
+            echo "Pushing image to AWS ECR using skopeo"
+            echo "Source image: ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}"
+            echo "Destination: ${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}"
+
+            # Get ECR auth token and use it with skopeo
+            ECR_PASSWORD=$(aws ecr get-login-password --region us-east-1)
+            echo "ECR authentication successful"
+
+            # Test skopeo inspect to verify source image accessibility
+            echo "Testing source image accessibility..."
+            skopeo inspect docker://ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
+
+            echo "Starting image copy with skopeo..."
+            skopeo copy --all --preserve-digests \
+              --dest-username AWS \
+              --dest-password "$ECR_PASSWORD" \
+              docker://ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
+              docker://${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}
+
+            echo "Image copy completed successfully"
+
+      - name: Deploy Helm chart
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_695 }}:role/${{ secrets.AWS_DEPLOY_ROLE_695 }}
+          aws-region: us-east-1
+      - run: |
           git clone "https://github.com/kubecost/finops-agent-chart.git"
           cd finops-agent-chart
           git checkout ${{ github.event.inputs.helm_chart_version }}
+          helm dependency update ./charts/finops-agent
           echo "Helm chart version ${{ github.event.inputs.helm_chart_version }} checked out successfully"
 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: download_helm_chart
-    steps:
-      - uses: actions/checkout@v5
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::297945954695:role/github-push-finops-agent-to-eks
-          aws-region: us-east-1
-      - run: |
           aws eks update-kubeconfig --name eks-auto1-us-east-1 --region us-east-1
           kubectl create namespace finops-agent-pr${{ github.event.inputs.pr_number }} || true
-          kubectl create secret docker-registry ghcr-token \
-            --docker-server=ghcr.io \
-            --docker-username=kubecost \
-            --docker-password=${{ secrets.IBM_GITHUB_TOKEN }} || true
+          kubectl create secret docker-registry aws-ecr-token \
+            --docker-server=${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com \
+            --docker-username=AWS \
+            --docker-password=$(aws ecr get-login-password --region us-east-1) \
+            --namespace=finops-agent-pr${{ github.event.inputs.pr_number }} || true
 
+            # create federated store secret
+          echo "${{ secrets.FEDERATED_STORE_IBM_FINOPS_AGENT_WORKFLOWS_US_EAST_1_BASE64 }}" | base64 -d > /tmp/federated-store.yaml
+          kubectl create secret generic federated-store --from-file=federated-store.yaml=/tmp/federated-store.yaml --dry-run=client -o yaml > /tmp/federated-store-secret.yaml
+          kubectl apply -f /tmp/federated-store-secret.yaml -n finops-agent-pr${{ github.event.inputs.pr_number }} --force
+
+          # deploy helm chart
           helm upgrade --install finops-agent-pr${{ github.event.inputs.pr_number }} \
-            ./finops-agent-chart/charts/finops-agent \
+            ./charts/finops-agent \
             --namespace=finops-agent-pr${{ github.event.inputs.pr_number }} \
-            --set fullImageName=ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
-            --set global.imagePullSecrets[0]=ghcr-token
+            --set clusterId=eks-auto1-us-east-1 \
+            --set fullImageName=${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
+            --set "global.imagePullSecrets[0]=aws-ecr-token" \
+            --set federatedStorage.existingSecret=federated-store
 
       - name: Cleanup on failure
         if: failure()
@@ -75,7 +112,7 @@ jobs:
       - name: Output success message
         if: success()
         run: |
-          echo "Deployment completed successfully and has been deployed to EKS"
+          echo "Deployment completed successfully"
           echo "cluster: eks-auto1-us-east-1"
           echo "namespace: finops-agent-pr${{ github.event.inputs.pr_number }}"
-          echo "image: ghcr.io/kubecost/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}"
+          echo "image: ${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }}"

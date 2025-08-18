@@ -31,3 +31,5 @@ go.work.sum
 
 # Local image archive for e2e testing
 e2e_image_archive.tar
+.kubeconfig
+temp/
