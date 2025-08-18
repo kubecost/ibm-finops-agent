@@ -101,6 +101,7 @@ wait_for_metrics() {
     if [[ $(kubectl get pods -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
       echo "Agent pod is ready!" && break
     fi
+    kubectl get pods -n ibm-finops-agent --show-labels
     echo "Waiting for agent pod to be ready..."
     i=$[$i+1]
     sleep 10
