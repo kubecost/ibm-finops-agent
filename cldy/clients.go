@@ -92,7 +92,7 @@ type CloudabilityClustersUploadInfo struct {
 	RequestID string `json:"requestId"`
 }
 
-func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
+func NewApptioService(config ApptioConfig) (StorageService, error) {
 	body, err := config.SecretManager.GetSecret()
 	if err != nil {
 		return nil, err
@@ -135,8 +135,8 @@ func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
 
 // ApptioClient is the client used in the cloudability uploader
 type ApptioClient struct {
-	client      *http.Client
-	proxyClient *http.Client
+	Client      *http.Client
+	ProxyClient *http.Client
 	maxRetries  int
 }
 
@@ -183,7 +183,7 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 			netTransport = transport
 		} else {
 			proxyHttpClient = http.Client{
-				Timeout: config.Timeout,
+				Timeout:   config.Timeout,
 				Transport: transport,
 			}
 		}
@@ -194,8 +194,8 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		Transport: netTransport,
 	}
 	return ApptioClient{
-		client:      &httpClient,
-		proxyClient: &proxyHttpClient,
+		Client:      &httpClient,
+		ProxyClient: &proxyHttpClient,
 		maxRetries:  3,
 	}
 }
@@ -328,7 +328,7 @@ func (s *ApptioServiceImpl) testUpload() error {
 
 	// Allow multiple attempts for test upload
 	for i := 1; i < 4; i++ {
-		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
+		resp, err := s.CldyUploadClient.(ApptioClient).Client.Do(request)
 		// Should return 403 with improper url
 		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
 			return nil
@@ -448,10 +448,10 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 
 func (ac ApptioClient) doWithPotentialProxy(req *http.Request) (*http.Response, error) {
 	// Proxy only on the containers/upload endpoint when the proxyClient has been set by UseProxyForGettingUploadURLOnly
-	if ac.proxyClient != nil && strings.Contains(req.URL.Path, clustersUploadEndpoint) {
-		return ac.proxyClient.Do(req)
+	if ac.ProxyClient != nil && strings.Contains(req.URL.Path, clustersUploadEndpoint) {
+		return ac.ProxyClient.Do(req)
 	}
-	return ac.client.Do(req)
+	return ac.Client.Do(req)
 }
 
 // Converts region to urls in (FrontdoorURL, CloudabilityURL) format.

@@ -51,7 +51,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	}
 
 	var storageServices []StorageService
-	apptioService, err := NewApptioSerivce(config.ApptioConfig)
+	apptioService, err := NewApptioService(config.ApptioConfig)
 	if err != nil {
 		log.Errorf("Failed to create cloudability uploader: %v", err)
 	}
