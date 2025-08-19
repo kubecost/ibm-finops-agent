@@ -50,6 +50,8 @@ const frontDoorLoginDescription = "performing login request to FrontDoor using K
 const presignedURLDescription = "acquiring presigned URL from Cloudability with acquired Open-token"
 const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
 
+const clustersUploadEndpoint = "/v3/internal/containers/clusters/upload"
+
 // StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob
 type StorageService interface {
 	Upload(payload UploadPayload) error
@@ -133,8 +135,9 @@ func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
 
 // ApptioClient is the client used in the cloudability uploader
 type ApptioClient struct {
-	client     *http.Client
-	maxRetries int
+	client      *http.Client
+	proxyClient *http.Client
+	maxRetries  int
 }
 
 // NewApptioClient creates a client with support for various customer configurations
@@ -149,6 +152,12 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		TLSHandshakeTimeout: config.Timeout,
 	}
 
+	var proxyHttpClient http.Client
+
+	if config.ProxyURL == nil && config.UseProxyForGettingUploadURLOnly {
+		log.Warnf("UseProxyForGettingUploadURLOnly is set, but ProxyUrl is not. Skipping proxy setup.")
+	}
+
 	// configure outbound proxy
 	if config.ProxyURL != nil {
 		ConnectHeader := http.Header{}
@@ -158,7 +167,7 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 			ConnectHeader.Add(proxyAuthHeader, basicAuth)
 		}
 
-		netTransport = &http.Transport{
+		transport := &http.Transport{
 			Proxy:               http.ProxyURL(config.ProxyURL),
 			ProxyConnectHeader:  ConnectHeader,
 			TLSHandshakeTimeout: config.Timeout,
@@ -167,6 +176,17 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 				InsecureSkipVerify: config.ProxyInsecure,
 			},
 		}
+
+		// Set proxyHttpClient only if UseProxyForGettingUploadURLOnly is true. Normal http client should be used
+		// in other situations, and it can still have a proxy.
+		if !config.UseProxyForGettingUploadURLOnly {
+			netTransport = transport
+		} else {
+			proxyHttpClient = http.Client{
+				Timeout: config.Timeout,
+				Transport: transport,
+			}
+		}
 	}
 
 	httpClient := http.Client{
@@ -174,30 +194,32 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		Transport: netTransport,
 	}
 	return ApptioClient{
-		client:     &httpClient,
-		maxRetries: 3,
+		client:      &httpClient,
+		proxyClient: &proxyHttpClient,
+		maxRetries:  3,
 	}
 }
 
 type ApptioConfig struct {
-	ClusterName                  string
-	SecretManager                SecretManager
-	EnvID                        string
-	OpenToken                    string
-	CustomerType                 string
-	Timeout                      time.Duration
-	Retries                      int
-	ProxyURL                     *url.URL
-	ProxyAuth                    string
-	ProxyInsecure                bool
-	Region                       string
-	CustomS3UploadBucket         string
-	CustomS3UploadRegion         string
-	CustomAzureBlobContainerName string
-	CustomAzureBlobUrl           string
-	CustomAzureTenantID          string
-	CustomAzureClientID          string
-	CustomAzureClientSecret      SecretManager
+	ClusterName                     string
+	SecretManager                   SecretManager
+	EnvID                           string
+	OpenToken                       string
+	CustomerType                    string
+	Timeout                         time.Duration
+	Retries                         int
+	ProxyURL                        *url.URL
+	ProxyAuth                       string
+	ProxyInsecure                   bool
+	Region                          string
+	CustomS3UploadBucket            string
+	CustomS3UploadRegion            string
+	CustomAzureBlobContainerName    string
+	CustomAzureBlobUrl              string
+	CustomAzureTenantID             string
+	CustomAzureClientID             string
+	CustomAzureClientSecret         SecretManager
+	UseProxyForGettingUploadURLOnly bool
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -327,7 +349,7 @@ func (s *ApptioServiceImpl) testUpload() error {
 // getUploadURL request to Cloudability to gather the presigned s3 URL that allows the agent to
 // upload to Apptio's S3 bucket
 func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL string, rErr error) {
-	url := fmt.Sprintf("%s/v3/internal/containers/clusters/upload", s.CloudabilityURL)
+	url := fmt.Sprintf("%s%s", s.CloudabilityURL, clustersUploadEndpoint)
 	body, err := json.Marshal(map[string]interface{}{
 		"clusterUID":   payload.ClusterUID,
 		"fileName":     payload.FileName,
@@ -409,7 +431,7 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
 	for i := 1; i < 4; i++ {
 		log.Debugf("Attempt %d: %s", i, requestDescription)
-		resp, err := ac.client.Do(req)
+		resp, err := ac.doWithPotentialProxy(req)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 			return resp, nil
 		}
@@ -422,6 +444,14 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
+}
+
+func (ac ApptioClient) doWithPotentialProxy(req *http.Request) (*http.Response, error) {
+	// Proxy only on the containers/upload endpoint when the proxyClient has been set by UseProxyForGettingUploadURLOnly
+	if ac.proxyClient != nil && strings.Contains(req.URL.Path, clustersUploadEndpoint) {
+		return ac.proxyClient.Do(req)
+	}
+	return ac.client.Do(req)
 }
 
 // Converts region to urls in (FrontdoorURL, CloudabilityURL) format.
