@@ -101,7 +101,7 @@ jobs:
             --set global.clusterId=eks-auto1-us-east-1 \
             --set fullImageName=${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
             --set "global.imagePullSecrets[0]=registry-pull-aws-ecr" \
-            --set global.federatedStorage.existingSecretName=federated-store
+            --set global.federatedStorage.existingSecret=federated-store
 
       - name: Cleanup on failure
         if: failure()
