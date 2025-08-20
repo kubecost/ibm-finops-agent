@@ -83,7 +83,7 @@ jobs:
 
           aws eks update-kubeconfig --name eks-auto1-us-east-1 --region us-east-1
           kubectl create namespace finops-agent-pr${{ github.event.inputs.pr_number }} || true
-          kubectl create secret docker-registry aws-ecr-token \
+          kubectl create secret docker-registry registry-pull-aws-ecr \
             --docker-server=${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com \
             --docker-username=AWS \
             --docker-password=$(aws ecr get-login-password --region us-east-1) \
@@ -98,10 +98,10 @@ jobs:
           helm upgrade --install finops-agent-pr${{ github.event.inputs.pr_number }} \
             ./charts/finops-agent \
             --namespace=finops-agent-pr${{ github.event.inputs.pr_number }} \
-            --set clusterId=eks-auto1-us-east-1 \
+            --set global.clusterId=eks-auto1-us-east-1 \
             --set fullImageName=${{ secrets.AWS_ACCOUNT_ID_695 }}.dkr.ecr.us-east-1.amazonaws.com/ibm-finops-agent:pr-${{ github.event.inputs.pr_number }} \
-            --set "global.imagePullSecrets[0]=aws-ecr-token" \
-            --set federatedStorage.existingSecret=federated-store
+            --set "global.imagePullSecrets[0]=registry-pull-aws-ecr" \
+            --set global.federatedStorage.existingSecretName=federated-store
 
       - name: Cleanup on failure
         if: failure()
