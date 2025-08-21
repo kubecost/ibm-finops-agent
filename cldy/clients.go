@@ -211,7 +211,8 @@ func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
 	return func(request *http.Request) (*url.URL, error) {
 		if config.UseProxyForGettingUploadURLOnly {
 			// agent configured to only use proxy for GetUploadURL and frontdoor login requests
-			if request.URL.Path == clustersUploadEndpoint || strings.Contains(request.URL.Path, "https://frontdoor") {
+			if request.URL.Path == clustersUploadEndpoint || 
+				(strings.Contains(request.URL.Host, "frontdoor") && strings.Contains(request.URL.Path, "/service/apikeylogin")) {
 				return config.ProxyURL, nil
 			}
 			return nil, nil

@@ -21,7 +21,6 @@ var _ = Describe("Client Proxy", func() {
 
 		It("should not be used when Proxy URL is not set", func() {
 			config := cldy.ApptioConfig{
-				UseProxyForGettingUploadURLOnly: false,
 				ProxyURL:                        &url.URL{},
 			}
 
@@ -39,7 +38,6 @@ var _ = Describe("Client Proxy", func() {
 		})
 		It("should be used when Proxy URL is set", func() {
 			config := cldy.ApptioConfig{
-				UseProxyForGettingUploadURLOnly: false,
 				ProxyURL:                        proxyURL,
 			}
 
