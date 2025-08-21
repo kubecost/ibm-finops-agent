@@ -135,9 +135,8 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 
 // ApptioClient is the client used in the cloudability uploader
 type ApptioClient struct {
-	Client      *http.Client
-	ProxyClient *http.Client
-	maxRetries  int
+	client     *http.Client
+	maxRetries int
 }
 
 // NewApptioClient creates a client with support for various customer configurations
@@ -152,8 +151,6 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		TLSHandshakeTimeout: config.Timeout,
 	}
 
-	var proxyHttpClient http.Client
-
 	if config.ProxyURL == nil && config.UseProxyForGettingUploadURLOnly {
 		log.Warnf("UseProxyForGettingUploadURLOnly is set, but ProxyUrl is not. Skipping proxy setup.")
 	}
@@ -167,25 +164,14 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 			ConnectHeader.Add(proxyAuthHeader, basicAuth)
 		}
 
-		transport := &http.Transport{
-			Proxy:               http.ProxyURL(config.ProxyURL),
+		netTransport = &http.Transport{
+			Proxy:               BuildProxyFunc(config),
 			ProxyConnectHeader:  ConnectHeader,
 			TLSHandshakeTimeout: config.Timeout,
 			TLSClientConfig: &tls.Config{
 				//nolint gas
 				InsecureSkipVerify: config.ProxyInsecure,
 			},
-		}
-
-		// Set proxyHttpClient only if UseProxyForGettingUploadURLOnly is true. Normal http client should be used
-		// in other situations, and it can still have a proxy.
-		if !config.UseProxyForGettingUploadURLOnly {
-			netTransport = transport
-		} else {
-			proxyHttpClient = http.Client{
-				Timeout:   config.Timeout,
-				Transport: transport,
-			}
 		}
 	}
 
@@ -194,9 +180,8 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		Transport: netTransport,
 	}
 	return ApptioClient{
-		Client:      &httpClient,
-		ProxyClient: &proxyHttpClient,
-		maxRetries:  3,
+		client:     &httpClient,
+		maxRetries: 3,
 	}
 }
 
@@ -220,6 +205,21 @@ type ApptioConfig struct {
 	CustomAzureClientID             string
 	CustomAzureClientSecret         SecretManager
 	UseProxyForGettingUploadURLOnly bool
+}
+
+func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
+	return func(request *http.Request) (*url.URL, error) {
+		if config.UseProxyForGettingUploadURLOnly {
+			// agent configured to only use proxy for GetUploadURL and frontdoor login requests
+			if request.URL.Path == clustersUploadEndpoint || strings.Contains(request.URL.Path, "https://frontdoor") {
+				return config.ProxyURL, nil
+			}
+			return nil, nil
+		}
+
+		// proxy enabled for all requests
+		return config.ProxyURL, nil
+	}
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -328,7 +328,7 @@ func (s *ApptioServiceImpl) testUpload() error {
 
 	// Allow multiple attempts for test upload
 	for i := 1; i < 4; i++ {
-		resp, err := s.CldyUploadClient.(ApptioClient).Client.Do(request)
+		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
 		// Should return 403 with improper url
 		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
 			return nil
@@ -431,7 +431,7 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
 	for i := 1; i < 4; i++ {
 		log.Debugf("Attempt %d: %s", i, requestDescription)
-		resp, err := ac.doWithPotentialProxy(req)
+		resp, err := ac.client.Do(req)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 			return resp, nil
 		}
@@ -444,14 +444,6 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
-}
-
-func (ac ApptioClient) doWithPotentialProxy(req *http.Request) (*http.Response, error) {
-	// Proxy only on the containers/upload endpoint when the proxyClient has been set by UseProxyForGettingUploadURLOnly
-	if ac.ProxyClient != nil && strings.Contains(req.URL.Path, clustersUploadEndpoint) {
-		return ac.ProxyClient.Do(req)
-	}
-	return ac.Client.Do(req)
 }
 
 // Converts region to urls in (FrontdoorURL, CloudabilityURL) format.

@@ -1,10 +1,8 @@
 package cldy_test
 
 import (
-	"bytes"
-	"io"
 	"net/http"
-	"strings"
+	"net/url"
 
 	"github.com/ibm/finops-agent/cldy"
 	. "github.com/onsi/ginkgo/v2"
@@ -13,79 +11,168 @@ import (
 
 const clustersUploadEndpoint = "/v3/internal/containers/clusters/upload"
 
-var _ = Describe("Client", func() {
-	Context("GetUploadURL", func() {
-		It("should force use proxy when proxyClient is set", func() {
-			proxyResponseBody := "Proxy Success!"
+var _ = Describe("Client Proxy", func() {
+	Context("Clusters Upload", func() {
+		proxyExample := "https://proxy.example.com"
+		proxyURL, err := url.Parse(proxyExample)
+		Expect(err).ToNot(HaveOccurred())
 
-			// Create request with clusters endpoint
-			req, err := http.NewRequest(http.MethodGet, clustersUploadEndpoint, strings.NewReader(""))
-			Expect(err).ToNot(HaveOccurred())
+		requestURL := "https://api.cloudability.com/v3/internal/containers/clusters/upload"
 
-			// Set client with mock round tripper to simulate http call
-			client := cldy.ApptioClient{
-				ProxyClient: &http.Client{
-					Transport: MockRoundTripper(func(req *http.Request) (*http.Response, error) {
-						return &http.Response{
-							StatusCode: http.StatusOK,
-							Body:       io.NopCloser(bytes.NewBufferString(proxyResponseBody)),
-						}, nil
-					}),
-				},
+		It("should not be used when Proxy URL is not set", func() {
+			config := cldy.ApptioConfig{
+				UseProxyForGettingUploadURLOnly: false,
+				ProxyURL:                        &url.URL{},
 			}
 
-			resp, err := client.Do(req, "test")
+			proxyFunc := cldy.BuildProxyFunc(config)
+			var request *http.Request
+			request, err := http.NewRequest("POST", requestURL, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Validate response has unique body set by round tripper
-			body, err := io.ReadAll(resp.Body)
+			var actualURL *url.URL
+			actualURL, err = proxyFunc(request)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(string(body)).To(Equal(proxyResponseBody))
+
+			Expect(actualURL.Host).To(Equal(config.ProxyURL.Host))
+			Expect(actualURL.Path).To(Equal(config.ProxyURL.Path))
+		})
+		It("should be used when Proxy URL is set", func() {
+			config := cldy.ApptioConfig{
+				UseProxyForGettingUploadURLOnly: false,
+				ProxyURL:                        proxyURL,
+			}
+
+			proxyFunc := cldy.BuildProxyFunc(config)
+			var request *http.Request
+			request, err := http.NewRequest("POST", requestURL, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			var actualURL *url.URL
+			actualURL, err = proxyFunc(request)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(actualURL.Host).To(Equal(config.ProxyURL.Host))
+			Expect(actualURL.Path).To(Equal(config.ProxyURL.Path))
 		})
 	})
-	Context("Non-Clusters Upload Endpoint", func() {
-		It("should not force use proxy when proxyClient is set but endpoint is not clusters upload endpoint", func() {
-			normalClientResponseBody := "Normal client used!"
-			proxyClientResponseBody := "Proxy client used!"
+	Context("Frontdoor login", func() {
+		proxyExample := "https://proxy.example.com"
+		proxyURL, err := url.Parse(proxyExample)
+		Expect(err).ToNot(HaveOccurred())
 
-			// Create request with anything _but_ clusters upload endpoint
-			req, err := http.NewRequest(http.MethodGet, "test/endpoint", strings.NewReader(""))
-			Expect(err).ToNot(HaveOccurred())
+		requestURL := "https://frontdoor.apptio.com/service/apikeylogin"
 
-			// Set client with mock round tripper to simulate http call
-			client := cldy.ApptioClient{
-				Client: &http.Client{
-					Transport: MockRoundTripper(func(req *http.Request) (*http.Response, error) {
-						return &http.Response{
-							StatusCode: http.StatusOK,
-							Body:       io.NopCloser(bytes.NewBufferString(normalClientResponseBody)),
-						}, nil
-					}),
-				},
-				ProxyClient: &http.Client{
-					Transport: MockRoundTripper(func(req *http.Request) (*http.Response, error) {
-						return &http.Response{
-							StatusCode: http.StatusOK,
-							Body:       io.NopCloser(bytes.NewBufferString(proxyClientResponseBody)),
-						}, nil
-					}),
-				},
+		It("should not be used when Proxy URL is not set", func() {
+			config := cldy.ApptioConfig{
+				ProxyURL: &url.URL{},
 			}
 
-			resp, err := client.Do(req, "test")
+			proxyFunc := cldy.BuildProxyFunc(config)
+			var request *http.Request
+			request, err := http.NewRequest("POST", requestURL, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Validate response has normal client response body set by round tripper
-			// It should _not_ be using the proxy even though the proxy client is set
-			body, err := io.ReadAll(resp.Body)
+			var actualURL *url.URL
+			actualURL, err = proxyFunc(request)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(string(body)).To(Equal(normalClientResponseBody))
+
+			Expect(actualURL.Host).To(Equal(config.ProxyURL.Host))
+			Expect(actualURL.Path).To(Equal(config.ProxyURL.Path))
+		})
+		It("should be used when Proxy URL is set", func() {
+			config := cldy.ApptioConfig{
+				ProxyURL: proxyURL,
+			}
+
+			proxyFunc := cldy.BuildProxyFunc(config)
+			var request *http.Request
+			request, err := http.NewRequest("POST", requestURL, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			var actualURL *url.URL
+			actualURL, err = proxyFunc(request)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(actualURL.Host).To(Equal(config.ProxyURL.Host))
+			Expect(actualURL.Path).To(Equal(config.ProxyURL.Path))
+		})
+		It("should be used when Proxy URL is set and region is EU", func() {
+			config := cldy.ApptioConfig{
+				ProxyURL: proxyURL,
+			}
+			requestURLEU := "https://frontdoor-eu.apptio.com/service/apikeylogin"
+
+			proxyFunc := cldy.BuildProxyFunc(config)
+			var request *http.Request
+			request, err := http.NewRequest("POST", requestURLEU, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			var actualURL *url.URL
+			actualURL, err = proxyFunc(request)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(actualURL.Host).To(Equal(config.ProxyURL.Host))
+			Expect(actualURL.Path).To(Equal(config.ProxyURL.Path))
+		})
+	})
+	Context("All other endpoints", func() {
+		proxyExample := "https://proxy.example.com"
+		proxyURL, err := url.Parse(proxyExample)
+		Expect(err).ToNot(HaveOccurred())
+
+		requestURL := "https://this-could-be-any-url.com/test"
+
+		It("should not be used when Proxy URL is not set", func() {
+			config := cldy.ApptioConfig{
+				ProxyURL: &url.URL{},
+			}
+
+			proxyFunc := cldy.BuildProxyFunc(config)
+			var request *http.Request
+			request, err := http.NewRequest("POST", requestURL, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			var actualURL *url.URL
+			actualURL, err = proxyFunc(request)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(actualURL.Host).To(Equal(config.ProxyURL.Host))
+			Expect(actualURL.Path).To(Equal(config.ProxyURL.Path))
+		})
+		It("should be used when Proxy URL is set", func() {
+			config := cldy.ApptioConfig{
+				ProxyURL: proxyURL,
+			}
+
+			proxyFunc := cldy.BuildProxyFunc(config)
+			var request *http.Request
+			request, err := http.NewRequest("POST", requestURL, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			var actualURL *url.URL
+			actualURL, err = proxyFunc(request)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(actualURL.Host).To(Equal(config.ProxyURL.Host))
+			Expect(actualURL.Path).To(Equal(config.ProxyURL.Path))
+		})
+		It("should be nil when Proxy URL is set but UseProxyForGettingUploadURLOnly is true", func() {
+			config := cldy.ApptioConfig{
+				UseProxyForGettingUploadURLOnly: true,
+				ProxyURL:                        proxyURL,
+			}
+
+			proxyFunc := cldy.BuildProxyFunc(config)
+			var request *http.Request
+			request, err := http.NewRequest("POST", requestURL, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			var actualURL *url.URL
+			actualURL, err = proxyFunc(request)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(actualURL).To(BeNil())
 		})
 	})
 })
-
-type MockRoundTripper func(req *http.Request) (*http.Response, error)
-
-func (m MockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	return m(req)
-}
