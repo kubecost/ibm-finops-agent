@@ -51,6 +51,7 @@ const presignedURLDescription = "acquiring presigned URL from Cloudability with 
 const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
 
 const clustersUploadEndpoint = "/v3/internal/containers/clusters/upload"
+const apikeyloginEndpoint = "/service/apikeylogin"
 
 // StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob
 type StorageService interface {
@@ -211,7 +212,7 @@ func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
 	return func(request *http.Request) (*url.URL, error) {
 		if config.UseProxyForGettingUploadURLOnly {
 			// agent configured to only use proxy for GetUploadURL and frontdoor login requests
-			if request.URL.Path == clustersUploadEndpoint || strings.Contains(request.URL.Path, "/service/apikeylogin") {
+			if request.URL.Path == clustersUploadEndpoint || strings.Contains(request.URL.Path, apikeyloginEndpoint) {
 				return config.ProxyURL, nil
 			}
 			return nil, nil
@@ -244,7 +245,7 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 // login gathers the opentoken required to make requests to Cloudability by hitting Frontdoor's apikeylogin endpoint
 // using the KeyAccess and KeySecret credentials provided by the customer config
 func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
-	url := fmt.Sprintf("%s/service/apikeylogin", s.FrontdoorURL)
+	url := fmt.Sprintf("%s%s", s.FrontdoorURL, apikeyloginEndpoint)
 	body, err := s.SecretManager.GetSecret()
 	// remove secret from memory
 	defer func() {
