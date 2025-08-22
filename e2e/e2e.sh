@@ -29,8 +29,6 @@ cleanup() {
 }
 
 setup_kind() {
-  export PATH=$PATH:$(go env GOPATH)/bin
-
   cleanup
   if ! (kind create cluster --name=e2e-${KUBERNETES_VERSION} --image=kindest/node:${KUBERNETES_VERSION}) ; then
     echo "Could not create kind cluster"
@@ -58,7 +56,8 @@ setup_kind() {
   done
 }
 
-deploy(){
+setup_env(){
+  export PATH=$PATH:$(go env GOPATH)/bin
   mkdir -p -m 0777 ${WORKINGDIR}
 
   if [ ! -d $WORKINGDIR ]; then
@@ -67,16 +66,19 @@ deploy(){
   fi
 
   kubectl create namespace ibm-finops-agent
-  
-  # Localstack bucket setup
+}
+
+setup_localstack(){
+   # Localstack bucket setup
   helm install localstack localstack/localstack -n ibm-finops-agent
   sleep 15
+
   LOCALSTACK_POD=$(kubectl get pods -n ibm-finops-agent -l "app.kubernetes.io/name=localstack" -o jsonpath="{.items[0].metadata.name}")
   i=0
   until [ $i -ge 5 ]
   do 
     if [[ $(kubectl get pods -n ibm-finops-agent -l "app.kubernetes.io/name=localstack" -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
-      echo "Localstack pod is ready!" && break
+      echo "Localstack pod is ready!" && localstackdeployed=0 && break
     fi
     echo "Waiting for localstack pod to be ready..."
     i=$[$i+1]
@@ -85,7 +87,9 @@ deploy(){
 
   # Create kubecost-store bucket
   kubectl exec -n ibm-finops-agent $LOCALSTACK_POD -- awslocal s3 mb s3://kubecost-store
+}
 
+deploy(){
   # Install unified-agent
   helm install unified-agent ibm-finops/finops-agent -n ibm-finops-agent -f e2e/values.yaml \
   --set image.registry="${IMAGE_REG}" \
@@ -109,7 +113,6 @@ wait_for_metrics() {
       echo "Agent pod is ready!" && break
     fi
     echo "Waiting for agent pod to be ready..."
-    kubectl get pods -n ibm-finops-agent --show-labels
     i=$[$i+1]
     sleep 10
   done
@@ -163,6 +166,8 @@ run_tests() {
 
 trap cleanup EXIT
 setup_kind
+setup_env
+setup_localstack
 deploy
 wait_for_metrics
 get_sample_data
