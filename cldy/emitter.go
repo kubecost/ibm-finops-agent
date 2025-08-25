@@ -72,6 +72,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
 	viper.SetDefault("EMISSION_INTERVAL", "3m")
+	viper.SetDefault("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY", false)
 
 	var outboundProxyUrl *url.URL
 	proxyURL := viper.GetString("OUTBOUND_PROXY")
@@ -100,22 +101,23 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	return EmitterConfig{
 		UploaderConfig: UploaderConfig{
 			ApptioConfig: ApptioConfig{
-				ClusterName:                  viper.GetString("CLUSTER_NAME"),
-				SecretManager:                NewKeyValueSecretManager(keyAccess, keySecret),
-				EnvID:                        envID,
-				Timeout:                      time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
-				Retries:                      viper.GetInt("UPLOAD_RETRY_COUNT"),
-				ProxyURL:                     outboundProxyUrl,
-				ProxyAuth:                    viper.GetString("OUTBOUND_PROXY_AUTH"),
-				ProxyInsecure:                viper.GetBool("OUTBOUND_PROXY_INSECURE"),
-				Region:                       viper.GetString("UPLOAD_REGION"),
-				CustomS3UploadBucket:         customS3UploadBucket,
-				CustomS3UploadRegion:         customS3UploadRegion,
-				CustomAzureBlobContainerName: customAzureBlobContainerName,
-				CustomAzureBlobUrl:           viper.GetString("CUSTOM_AZURE_BLOB_URL"),
-				CustomAzureTenantID:          viper.GetString("CUSTOM_AZURE_BLOB_TENANT_ID"),
-				CustomAzureClientID:          viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
-				CustomAzureClientSecret:      NewValueSecretManager(azureBlobClientSecret),
+				ClusterName:                     viper.GetString("CLUSTER_NAME"),
+				SecretManager:                   NewKeyValueSecretManager(keyAccess, keySecret),
+				EnvID:                           envID,
+				Timeout:                         time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
+				Retries:                         viper.GetInt("UPLOAD_RETRY_COUNT"),
+				ProxyURL:                        outboundProxyUrl,
+				ProxyAuth:                       viper.GetString("OUTBOUND_PROXY_AUTH"),
+				ProxyInsecure:                   viper.GetBool("OUTBOUND_PROXY_INSECURE"),
+				Region:                          viper.GetString("UPLOAD_REGION"),
+				CustomS3UploadBucket:            customS3UploadBucket,
+				CustomS3UploadRegion:            customS3UploadRegion,
+				CustomAzureBlobContainerName:    customAzureBlobContainerName,
+				CustomAzureBlobUrl:              viper.GetString("CUSTOM_AZURE_BLOB_URL"),
+				CustomAzureTenantID:             viper.GetString("CUSTOM_AZURE_BLOB_TENANT_ID"),
+				CustomAzureClientID:             viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
+				CustomAzureClientSecret:         NewValueSecretManager(azureBlobClientSecret),
+				UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
 			},
 			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
 			ScratchDir:      viper.GetString("SCRATCH_DIR"),

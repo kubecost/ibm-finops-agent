@@ -50,6 +50,9 @@ const frontDoorLoginDescription = "performing login request to FrontDoor using K
 const presignedURLDescription = "acquiring presigned URL from Cloudability with acquired Open-token"
 const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
 
+const clustersUploadEndpoint = "/v3/internal/containers/clusters/upload"
+const apikeyloginEndpoint = "/service/apikeylogin"
+
 // StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob
 type StorageService interface {
 	Upload(payload UploadPayload) error
@@ -90,7 +93,7 @@ type CloudabilityClustersUploadInfo struct {
 	RequestID string `json:"requestId"`
 }
 
-func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
+func NewApptioService(config ApptioConfig) (StorageService, error) {
 	body, err := config.SecretManager.GetSecret()
 	if err != nil {
 		return nil, err
@@ -149,6 +152,10 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		TLSHandshakeTimeout: config.Timeout,
 	}
 
+	if config.ProxyURL == nil && config.UseProxyForGettingUploadURLOnly {
+		log.Warnf("UseProxyForGettingUploadURLOnly is set, but ProxyUrl is not. Skipping proxy setup.")
+	}
+
 	// configure outbound proxy
 	if config.ProxyURL != nil {
 		ConnectHeader := http.Header{}
@@ -159,7 +166,7 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		}
 
 		netTransport = &http.Transport{
-			Proxy:               http.ProxyURL(config.ProxyURL),
+			Proxy:               BuildProxyFunc(config),
 			ProxyConnectHeader:  ConnectHeader,
 			TLSHandshakeTimeout: config.Timeout,
 			TLSClientConfig: &tls.Config{
@@ -180,24 +187,44 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 }
 
 type ApptioConfig struct {
-	ClusterName                  string
-	SecretManager                SecretManager
-	EnvID                        string
-	OpenToken                    string
-	CustomerType                 string
-	Timeout                      time.Duration
-	Retries                      int
-	ProxyURL                     *url.URL
-	ProxyAuth                    string
-	ProxyInsecure                bool
-	Region                       string
-	CustomS3UploadBucket         string
-	CustomS3UploadRegion         string
-	CustomAzureBlobContainerName string
-	CustomAzureBlobUrl           string
-	CustomAzureTenantID          string
-	CustomAzureClientID          string
-	CustomAzureClientSecret      SecretManager
+	ClusterName                     string
+	SecretManager                   SecretManager
+	EnvID                           string
+	OpenToken                       string
+	CustomerType                    string
+	Timeout                         time.Duration
+	Retries                         int
+	ProxyURL                        *url.URL
+	ProxyAuth                       string
+	ProxyInsecure                   bool
+	Region                          string
+	CustomS3UploadBucket            string
+	CustomS3UploadRegion            string
+	CustomAzureBlobContainerName    string
+	CustomAzureBlobUrl              string
+	CustomAzureTenantID             string
+	CustomAzureClientID             string
+	CustomAzureClientSecret         SecretManager
+	UseProxyForGettingUploadURLOnly bool
+}
+
+func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
+	if config.ProxyURL == nil {
+		log.Warnf("cannot build proxy without a ProxyURL set. Skipping.")
+		return nil
+	}
+	return func(request *http.Request) (*url.URL, error) {
+		if config.UseProxyForGettingUploadURLOnly {
+			// agent configured to only use proxy for GetUploadURL and frontdoor login requests
+			if request.URL.Path == clustersUploadEndpoint || strings.Contains(request.URL.Path, apikeyloginEndpoint) {
+				return config.ProxyURL, nil
+			}
+			return nil, nil
+		}
+
+		// proxy enabled for all requests
+		return config.ProxyURL, nil
+	}
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -222,7 +249,7 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 // login gathers the opentoken required to make requests to Cloudability by hitting Frontdoor's apikeylogin endpoint
 // using the KeyAccess and KeySecret credentials provided by the customer config
 func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
-	url := fmt.Sprintf("%s/service/apikeylogin", s.FrontdoorURL)
+	url := fmt.Sprintf("%s%s", s.FrontdoorURL, apikeyloginEndpoint)
 	body, err := s.SecretManager.GetSecret()
 	// remove secret from memory
 	defer func() {
@@ -327,7 +354,7 @@ func (s *ApptioServiceImpl) testUpload() error {
 // getUploadURL request to Cloudability to gather the presigned s3 URL that allows the agent to
 // upload to Apptio's S3 bucket
 func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL string, rErr error) {
-	url := fmt.Sprintf("%s/v3/internal/containers/clusters/upload", s.CloudabilityURL)
+	url := fmt.Sprintf("%s%s", s.CloudabilityURL, clustersUploadEndpoint)
 	body, err := json.Marshal(map[string]interface{}{
 		"clusterUID":   payload.ClusterUID,
 		"fileName":     payload.FileName,
