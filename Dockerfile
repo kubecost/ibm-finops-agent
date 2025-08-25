@@ -30,35 +30,10 @@ WORKDIR /app
 ARG version=dev
 ARG commit=HEAD
 
-# Opencost-Core
-COPY ./opencost/core/go.mod ./opencost/core/go.mod
-COPY ./opencost/core/go.sum ./opencost/core/go.sum
+# Copy Opencost Pricing Configs 
+COPY ./ibm-finops-agent/opencost/configs ./opencost/configs
 
-# Opencost-Prom Module
-COPY ./opencost/modules/prometheus-source/go.mod ./opencost/modules/prometheus-source/go.mod
-COPY ./opencost/modules/prometheus-source/go.sum ./opencost/modules/prometheus-source/go.sum
-
-# Opencost-Collector Module
-COPY ./opencost/modules/collector-source/go.mod ./opencost/modules/collector-source/go.mod
-COPY ./opencost/modules/collector-source/go.sum ./opencost/modules/collector-source/go.sum
-
-# Opencost 
-COPY ./opencost/go.mod ./opencost/go.mod
-COPY ./opencost/go.sum ./opencost/go.sum
-
-# Then copy the source code
-COPY ./opencost/core ./opencost/core
-COPY ./opencost/modules/prometheus-source ./opencost/modules/prometheus-source
-COPY ./opencost/modules/collector-source ./opencost/modules/collector-source
-COPY ./opencost ./opencost
-
-# Download deps 
-RUN cd ./opencost/core && go mod download
-RUN cd ./opencost/modules/prometheus-source && go mod download
-RUN cd ./opencost/modules/collector-source && go mod download
-RUN cd ./opencost && go mod download
-
-
+# Copy Finops Agent Source 
 COPY ./ibm-finops-agent/go.mod ./ibm-finops-agent/go.mod
 COPY ./ibm-finops-agent/go.sum ./ibm-finops-agent/go.sum
 COPY ./ibm-finops-agent ./ibm-finops-agent
