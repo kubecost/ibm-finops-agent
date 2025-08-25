@@ -209,6 +209,10 @@ type ApptioConfig struct {
 }
 
 func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
+	if config.ProxyURL == nil {
+		log.Warnf("cannot build proxy without a ProxyURL set. Skipping.")
+		return nil
+	}
 	return func(request *http.Request) (*url.URL, error) {
 		if config.UseProxyForGettingUploadURLOnly {
 			// agent configured to only use proxy for GetUploadURL and frontdoor login requests
