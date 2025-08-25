@@ -54,6 +54,7 @@ func NewExportIntervalConfigFromEnv() *ExportIntervalConfig {
 // EmitterConfig is a struct that holds the configuration for the kubecost emitter.
 type EmitterConfig struct {
 	ClusterID                      string
+	AppName                        string
 	ConfigPath                     string
 	CloudProviderAPIKey            string
 	InstallNamespace               string
@@ -69,6 +70,7 @@ type EmitterConfig struct {
 func NewEmitterConfigFromEnv() *EmitterConfig {
 	return &EmitterConfig{
 		ClusterID:                      coreenv.GetClusterID(),
+		AppName:                        coreenv.GetAppName(),
 		ConfigPath:                     coreenv.GetConfigPath(),
 		CloudProviderAPIKey:            env.GetCloudProviderAPIKey(),
 		InstallNamespace:               coreenv.GetInstallNamespace(""),
