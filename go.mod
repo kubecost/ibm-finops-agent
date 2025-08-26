@@ -1,12 +1,5 @@
 module github.com/ibm/finops-agent
 
-replace (
-	github.com/opencost/opencost => ../opencost
-	github.com/opencost/opencost/core => ../opencost/core
-	github.com/opencost/opencost/modules/collector-source => ../opencost/modules/collector-source
-	github.com/opencost/opencost/modules/prometheus-source => ../opencost/modules/prometheus-source
-)
-
 go 1.24.4
 
 require (
@@ -20,10 +13,10 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
-	github.com/opencost/opencost v1.113.0
-	github.com/opencost/opencost/core v0.0.1-unpublished
-	github.com/opencost/opencost/modules/collector-source v0.0.1-unpublished
-	github.com/opencost/opencost/modules/prometheus-source v0.0.1-unpublished
+	github.com/opencost/opencost v1.117.2
+	github.com/opencost/opencost/core v1.117.2
+	github.com/opencost/opencost/modules/collector-source v1.117.2
+	github.com/opencost/opencost/modules/prometheus-source v1.117.2
 	github.com/prometheus/client_golang v1.22.0
 	github.com/rs/cors v1.8.2
 	github.com/spf13/cast v1.3.1
