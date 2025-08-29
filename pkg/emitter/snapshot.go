@@ -9,6 +9,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/clusters"
+	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/opencost"
 	"github.com/opencost/opencost/core/pkg/source"
 )
@@ -158,6 +159,15 @@ func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfi
 	}, nil
 }
 
+// if the error returned from node stats summary is a multi-error, unwrap and return the inner errors,
+// otherwise, just wrap the error in a slice
+func unwrapNodeError(err error) []error {
+	if multiErr, ok := err.(interface{ Unwrap() []error }); ok {
+		return multiErr.Unwrap()
+	}
+	return []error{err}
+}
+
 // snapshots a specific resource based on the provided flag.
 func snapshotResource[T any](flag bool, resourceGetter func() []T) []T {
 	if !flag {
@@ -169,7 +179,15 @@ func snapshotResource[T any](flag bool, resourceGetter func() []T) []T {
 func snapshotNodeStats(client nodes.StatSummaryClient) (*NodeStatsSummary, error) {
 	data, err := client.GetNodeData()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate node stats snapshot: %w", err)
+		// log each node's error as a warning, as we still may have gotten a partial response
+		for _, e := range unwrapNodeError(err) {
+			log.Warnf("%s", e)
+		}
+
+		// only return an error if the data result was empty AND err != nil
+		if len(data) == 0 {
+			return nil, fmt.Errorf("failed to generate node stats snapshot: %w", err)
+		}
 	}
 
 	return &NodeStatsSummary{
