@@ -3,14 +3,18 @@ package nodes
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	v1 "k8s.io/api/core/v1"
+
 	"k8s.io/client-go/rest"
 )
 
@@ -48,11 +52,12 @@ var _ = Describe("Raw node data", func() {
 			Expect(data[0].Node.NodeName).Should(Equal("proxynode"))
 		})
 
-		It("returns nothing on failed http requests", func() {
+		It("returns nothing and error list on failed http requests", func() {
 			summaryClient := setupTestNodeStatSummaryClient(tempBearerFile, true, true)
 
 			data, err := summaryClient.GetNodeData()
-			Expect(err).ToNot(HaveOccurred())
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(BeUnwrappableErrorWith(SatisfyAll(ConsistOf(MatchError("error retrieving node data")), HaveLen(4))))
 			Expect(len(data)).To(BeNumerically("==", 0))
 		})
 	})
@@ -165,4 +170,43 @@ func loadNodes() ([]*v1.Node, error) {
 
 func safeCloseTest(closer func() error) {
 	Expect(closer()).To(Not(HaveOccurred()))
+}
+
+// Matches unwrappable errors
+type unwrappableErrorMatcher struct {
+	innerMatcher types.GomegaMatcher
+}
+
+func (m *unwrappableErrorMatcher) Match(actual interface{}) (success bool, err error) {
+	multiErr, ok := actual.(interface{ Unwrap() []error })
+	if !ok {
+		return false, fmt.Errorf("Expected error to implement Unwrap() []error, but did not. Actual type: %+v", reflect.TypeOf(actual))
+	}
+
+	errs := multiErr.Unwrap()
+	if m.innerMatcher != nil {
+		return m.innerMatcher.Match(errs)
+	}
+	return true, nil
+}
+
+// FailureMessage provides a detailed error message when the match fails
+func (m *unwrappableErrorMatcher) FailureMessage(actual interface{}) string {
+	return fmt.Sprintf("Expected error to implement Unwrap() []error, but did not. Actual type: %+v", reflect.TypeOf(actual))
+}
+
+func (m *unwrappableErrorMatcher) NegatedFailureMessage(actual any) (message string) {
+	return fmt.Sprintf("Expected error to not implement Unwrap() []error, but did. Actual type: %+v", reflect.TypeOf(actual))
+}
+
+func BeUnwrappableError() types.GomegaMatcher {
+	return &unwrappableErrorMatcher{
+		innerMatcher: nil,
+	}
+}
+
+func BeUnwrappableErrorWith(matcher types.GomegaMatcher) types.GomegaMatcher {
+	return &unwrappableErrorMatcher{
+		innerMatcher: matcher,
+	}
 }
