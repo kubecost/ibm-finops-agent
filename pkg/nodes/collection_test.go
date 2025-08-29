@@ -3,6 +3,7 @@ package nodes
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -57,7 +58,11 @@ var _ = Describe("Raw node data", func() {
 
 			data, err := summaryClient.GetNodeData()
 			Expect(err).To(HaveOccurred())
-			Expect(err).To(BeUnwrappableErrorWith(SatisfyAll(ConsistOf(MatchError("error retrieving node data")), HaveLen(4))))
+			Expect(err).To(
+				BeUnwrappableErrorWith(SatisfyAll(
+					HaveLen(4),
+					HaveEach(MatchError(ContainSubstring("error retrieving node data")))),
+				))
 			Expect(len(data)).To(BeNumerically("==", 0))
 		})
 	})
@@ -174,29 +179,38 @@ func safeCloseTest(closer func() error) {
 
 // Matches unwrappable errors
 type unwrappableErrorMatcher struct {
-	innerMatcher types.GomegaMatcher
+	innerMatcher      types.GomegaMatcher
+	failMessage       string
+	negateFailMessage string
 }
 
-func (m *unwrappableErrorMatcher) Match(actual interface{}) (success bool, err error) {
+func (m *unwrappableErrorMatcher) Match(actual any) (success bool, err error) {
 	multiErr, ok := actual.(interface{ Unwrap() []error })
 	if !ok {
-		return false, fmt.Errorf("Expected error to implement Unwrap() []error, but did not. Actual type: %+v", reflect.TypeOf(actual))
+		m.failMessage = fmt.Sprintf("Expected error to implement Unwrap() []error, but did not. Actual type: %+v", reflect.TypeOf(actual))
+		m.negateFailMessage = fmt.Sprintf("Expected error to not implement Unwrap() []error, but it did. Actual type: %+v", reflect.TypeOf(actual))
+		return false, errors.New(m.failMessage)
 	}
 
 	errs := multiErr.Unwrap()
 	if m.innerMatcher != nil {
-		return m.innerMatcher.Match(errs)
+		matchSuccess, e := m.innerMatcher.Match(errs)
+		if !matchSuccess {
+			m.failMessage = m.innerMatcher.FailureMessage(errs)
+			m.negateFailMessage = m.innerMatcher.NegatedFailureMessage(errs)
+		}
+		return matchSuccess, e
 	}
 	return true, nil
 }
 
 // FailureMessage provides a detailed error message when the match fails
-func (m *unwrappableErrorMatcher) FailureMessage(actual interface{}) string {
-	return fmt.Sprintf("Expected error to implement Unwrap() []error, but did not. Actual type: %+v", reflect.TypeOf(actual))
+func (m *unwrappableErrorMatcher) FailureMessage(actual any) string {
+	return m.failMessage
 }
 
 func (m *unwrappableErrorMatcher) NegatedFailureMessage(actual any) (message string) {
-	return fmt.Sprintf("Expected error to not implement Unwrap() []error, but did. Actual type: %+v", reflect.TypeOf(actual))
+	return m.negateFailMessage
 }
 
 func BeUnwrappableError() types.GomegaMatcher {
