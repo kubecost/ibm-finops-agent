@@ -59,10 +59,10 @@ var _ = Describe("Raw node data", func() {
 			data, err := summaryClient.GetNodeData()
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(
-				BeUnwrappableErrorWith(SatisfyAll(
+				BeUnwrappableErrorWith(
 					HaveLen(4),
 					HaveEach(MatchError(ContainSubstring("error retrieving node data")))),
-				))
+			)
 			Expect(len(data)).To(BeNumerically("==", 0))
 		})
 	})
@@ -179,38 +179,58 @@ func safeCloseTest(closer func() error) {
 
 // Matches unwrappable errors
 type unwrappableErrorMatcher struct {
-	innerMatcher      types.GomegaMatcher
-	failMessage       string
-	negateFailMessage string
+	innerMatcher types.GomegaMatcher
+	failedUnwrap bool
+}
+
+func toUnwrapFailMessage(actual any) string {
+	return fmt.Sprintf("Expected error to implement Unwrap() []error, but did not. Actual type: %+v", reflect.TypeOf(actual))
+}
+
+func toNegateUnwrapMessage(actual any) string {
+	return fmt.Sprintf("Expected error to not implement Unwrap() []error, but it did. Actual type: %+v", reflect.TypeOf(actual))
 }
 
 func (m *unwrappableErrorMatcher) Match(actual any) (success bool, err error) {
 	multiErr, ok := actual.(interface{ Unwrap() []error })
 	if !ok {
-		m.failMessage = fmt.Sprintf("Expected error to implement Unwrap() []error, but did not. Actual type: %+v", reflect.TypeOf(actual))
-		m.negateFailMessage = fmt.Sprintf("Expected error to not implement Unwrap() []error, but it did. Actual type: %+v", reflect.TypeOf(actual))
-		return false, errors.New(m.failMessage)
+		m.failedUnwrap = true
+		return false, errors.New(toUnwrapFailMessage(actual))
 	}
 
 	errs := multiErr.Unwrap()
 	if m.innerMatcher != nil {
-		matchSuccess, e := m.innerMatcher.Match(errs)
-		if !matchSuccess {
-			m.failMessage = m.innerMatcher.FailureMessage(errs)
-			m.negateFailMessage = m.innerMatcher.NegatedFailureMessage(errs)
-		}
-		return matchSuccess, e
+		return m.innerMatcher.Match(errs)
 	}
+
 	return true, nil
 }
 
 // FailureMessage provides a detailed error message when the match fails
 func (m *unwrappableErrorMatcher) FailureMessage(actual any) string {
-	return m.failMessage
+	if m.failedUnwrap {
+		return toUnwrapFailMessage(actual)
+	}
+	// check here just to be on the safe side, but this only happens if Match() isn't run at all
+	if m.innerMatcher != nil {
+		errs := actual.(interface{ Unwrap() []error }).Unwrap()
+		return m.innerMatcher.FailureMessage(errs)
+	}
+	// should never happen
+	return "UnwrappableError Match Failed"
 }
 
 func (m *unwrappableErrorMatcher) NegatedFailureMessage(actual any) (message string) {
-	return m.negateFailMessage
+	if m.failedUnwrap {
+		return toNegateUnwrapMessage(actual)
+	}
+	// check here just to be on the safe side, but this only happens if Match() isn't run at all
+	if m.innerMatcher != nil {
+		errs := actual.(interface{ Unwrap() []error }).Unwrap()
+		return m.innerMatcher.NegatedFailureMessage(errs)
+	}
+	// should never happen
+	return "UnwrappableError Match Failed"
 }
 
 func BeUnwrappableError() types.GomegaMatcher {
@@ -219,8 +239,8 @@ func BeUnwrappableError() types.GomegaMatcher {
 	}
 }
 
-func BeUnwrappableErrorWith(matcher types.GomegaMatcher) types.GomegaMatcher {
+func BeUnwrappableErrorWith(matchers ...types.GomegaMatcher) types.GomegaMatcher {
 	return &unwrappableErrorMatcher{
-		innerMatcher: matcher,
+		innerMatcher: And(matchers...),
 	}
 }
