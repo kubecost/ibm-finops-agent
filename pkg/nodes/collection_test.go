@@ -221,7 +221,7 @@ func (m *unwrappableErrorMatcher) FailureMessage(actual any) string {
 }
 
 func (m *unwrappableErrorMatcher) NegatedFailureMessage(actual any) (message string) {
-	if m.failedUnwrap {
+	if !m.failedUnwrap {
 		return toNegateUnwrapMessage(actual)
 	}
 	// check here just to be on the safe side, but this only happens if Match() isn't run at all
