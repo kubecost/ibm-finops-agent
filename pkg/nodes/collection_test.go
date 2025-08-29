@@ -3,14 +3,19 @@ package nodes
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	v1 "k8s.io/api/core/v1"
+
 	"k8s.io/client-go/rest"
 )
 
@@ -48,11 +53,16 @@ var _ = Describe("Raw node data", func() {
 			Expect(data[0].Node.NodeName).Should(Equal("proxynode"))
 		})
 
-		It("returns nothing on failed http requests", func() {
+		It("returns nothing and error list on failed http requests", func() {
 			summaryClient := setupTestNodeStatSummaryClient(tempBearerFile, true, true)
 
 			data, err := summaryClient.GetNodeData()
-			Expect(err).ToNot(HaveOccurred())
+			Expect(err).To(HaveOccurred())
+			Expect(err).To(
+				BeUnwrappableErrorWith(
+					HaveLen(4),
+					HaveEach(MatchError(ContainSubstring("error retrieving node data")))),
+			)
 			Expect(len(data)).To(BeNumerically("==", 0))
 		})
 	})
@@ -165,4 +175,72 @@ func loadNodes() ([]*v1.Node, error) {
 
 func safeCloseTest(closer func() error) {
 	Expect(closer()).To(Not(HaveOccurred()))
+}
+
+// Matches unwrappable errors
+type unwrappableErrorMatcher struct {
+	innerMatcher types.GomegaMatcher
+	failedUnwrap bool
+}
+
+func toUnwrapFailMessage(actual any) string {
+	return fmt.Sprintf("Expected error to implement Unwrap() []error, but did not. Actual type: %+v", reflect.TypeOf(actual))
+}
+
+func toNegateUnwrapMessage(actual any) string {
+	return fmt.Sprintf("Expected error to not implement Unwrap() []error, but it did. Actual type: %+v", reflect.TypeOf(actual))
+}
+
+func (m *unwrappableErrorMatcher) Match(actual any) (success bool, err error) {
+	multiErr, ok := actual.(interface{ Unwrap() []error })
+	if !ok {
+		m.failedUnwrap = true
+		return false, errors.New(toUnwrapFailMessage(actual))
+	}
+
+	errs := multiErr.Unwrap()
+	if m.innerMatcher != nil {
+		return m.innerMatcher.Match(errs)
+	}
+
+	return true, nil
+}
+
+// FailureMessage provides a detailed error message when the match fails
+func (m *unwrappableErrorMatcher) FailureMessage(actual any) string {
+	if m.failedUnwrap {
+		return toUnwrapFailMessage(actual)
+	}
+	// check here just to be on the safe side, but this only happens if Match() isn't run at all
+	if m.innerMatcher != nil {
+		errs := actual.(interface{ Unwrap() []error }).Unwrap()
+		return m.innerMatcher.FailureMessage(errs)
+	}
+	// should never happen
+	return "UnwrappableError Match Failed"
+}
+
+func (m *unwrappableErrorMatcher) NegatedFailureMessage(actual any) (message string) {
+	if !m.failedUnwrap {
+		return toNegateUnwrapMessage(actual)
+	}
+	// check here just to be on the safe side, but this only happens if Match() isn't run at all
+	if m.innerMatcher != nil {
+		errs := actual.(interface{ Unwrap() []error }).Unwrap()
+		return m.innerMatcher.NegatedFailureMessage(errs)
+	}
+	// should never happen
+	return "UnwrappableError Match Failed"
+}
+
+func BeUnwrappableError() types.GomegaMatcher {
+	return &unwrappableErrorMatcher{
+		innerMatcher: nil,
+	}
+}
+
+func BeUnwrappableErrorWith(matchers ...types.GomegaMatcher) types.GomegaMatcher {
+	return &unwrappableErrorMatcher{
+		innerMatcher: And(matchers...),
+	}
 }

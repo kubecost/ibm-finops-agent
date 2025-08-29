@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -65,6 +66,9 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	var wg sync.WaitGroup
 	var m sync.Mutex
 
+	var errLock sync.Mutex
+	var errs []error
+
 	// creates a max number of concurrent goroutines that are allowed
 	limiter := make(chan struct{}, nssc.config.ConcurrentPollers)
 
@@ -96,11 +100,15 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 
 			resp, err := retrieveNodeData(nssc.endpoint, connectionMethods, bearerToken)
 			if err != nil {
-				log.Warnf("error retrieving node data: %s", err)
+				errLock.Lock()
+				errs = append(errs, fmt.Errorf("error retrieving node data: %w", err))
+				errLock.Unlock()
 			} else {
 				data, err := nodeResponseToStatSummary(resp)
 				if err != nil {
-					log.Warnf("error converting node data: %s", err)
+					errLock.Lock()
+					errs = append(errs, fmt.Errorf("error converting node data: %w", err))
+					errLock.Unlock()
 				} else {
 					m.Lock()
 					statsList = append(statsList, data)
@@ -111,7 +119,14 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	}
 
 	wg.Wait()
-	return statsList, nil
+
+	// no need to lock, as the concurrent collect blocks until all complete
+	var err error = nil
+	if len(errs) > 0 {
+		err = errors.Join(errs...)
+	}
+
+	return statsList, err
 }
 
 // Note: These functions are client-independent and can be reused within another function
