@@ -23,10 +23,8 @@ if [[ "$WITH_APIKEY" == 'n' ]]; then
     elif [[ "$FRONTDOOR_HTTP_STATUS" == "403" ]]; then 
         echo "❌ Login attempt returned 403 Forbidden status. Please ensure your network is configured so that the agent can reach www.frontdoor.apptio.com" \
         "and AWS to properly upload cluster data. This can often be caused by network proxies or outbound traffic rules which limit potential connections."
-        echo "For more information on setting up the agent go to: <TODO: AGENT DOC LINK>"
     elif [[ "$FRONTDOOR_HTTP_STATUS" == "404" ]]; then 
         echo "❌ Login attempt 404 Not Found status. Please ensure resources in your network are able to connect to external applications on the internet."
-        echo "For more information on setting up the agent go to: <TODO: AGENT DOC LINK>"
     else
         if [[ "$FRONTDOOR_HTTP_STATUS" != "000" ]]; then 
             echo "❌ Login attempt returned $FRONTDOOR_HTTP_STATUS HTTP status."
@@ -34,8 +32,8 @@ if [[ "$WITH_APIKEY" == 'n' ]]; then
         if [[ "$FRONTDOOR_RESPONSE" != "000" ]]; then 
             echo "❌ Login attempt returned response: $FRONTDOOR_RESPONSE."
         fi
-        echo "X Unexpected response by server. Potential causes could include an improperly configured outbound connection, an issue with certificate" \
-        "management, or a temporary resource outage. Please verify there are no issues connecting to www.frontdoor.apptio.com or AWS."
+        echo "❌ Unexpected response by server. Potential causes could include an improperly configured outbound connection, an issue with certificate" \
+        "management, or a temporary resource outage. Please verify there are no issues connecting to frontdoor.apptio.com or AWS."
     fi
 elif [[ "$WITH_APIKEY" == 'y' ]]; then
     read -p "Enter your keyAccess: " KEY_ACCESS
@@ -51,7 +49,8 @@ elif [[ "$WITH_APIKEY" == 'y' ]]; then
         }' https://frontdoor.apptio.com/service/apikeylogin | grep "apptio-opentoken" | awk -F '[=;]' '{print $2}')
 
     if [ -z "$OPENTOKEN" ]; then 
-        echo "❌ Could not fetch opentoken from frontdoor.com with credentials."
+        echo "❌ Could not fetch opentoken from frontdoor.com with keyAccess and keySecret. Please make sure your credentials are correct" \
+        "and not expired. If that's not the issue, verify there are no issues connecting to frontdoor.apptio.com through your network configuration."
         exit 1
     fi
     echo "✅ Successfully fetched opentoken from frontdoor."
@@ -83,9 +82,11 @@ elif [[ "$WITH_APIKEY" == 'y' ]]; then
         }' https://api.cloudability.com/v3/internal/containers/clusters/upload)
 
     if [ "$PRESIGN_HTTP_STATUS" == "200" ]; then
-        echo "✅ Login attempt returned expected reponse. Agent login and generation of presigned s3 URL should be working healthily."
+        echo "✅ Login attempt returned expected reponse. Agent login and generation of presigned S3 URL should be working healthily." \
+        "If your problems continue please ensure that your configuration allows PUT requests to S3 buckets."
     else 
-        echo "❌ Generation of presigned s3 URL did not return expected code." # TODO: More of an explanation
+        echo "❌ Generation of presigned s3 URL did not return expected code. This could be due to a network traffic exception provided " \
+        "for frontdoor.com but not for AWS. Please check your configuration "
     fi
     exit 0
 else
