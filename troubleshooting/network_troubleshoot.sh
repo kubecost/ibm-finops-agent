@@ -34,24 +34,60 @@ if [[ "$WITH_APIKEY" == 'n' ]]; then
         if [[ "$FRONTDOOR_RESPONSE" != "000" ]]; then 
             echo "❌ Login attempt returned response: $FRONTDOOR_RESPONSE."
         fi
-        echo "❌ Unexpected response by server. Potential causes could include an improperly configured outbound connection, an issue with certificate" \
+        echo "X Unexpected response by server. Potential causes could include an improperly configured outbound connection, an issue with certificate" \
         "management, or a temporary resource outage. Please verify there are no issues connecting to www.frontdoor.apptio.com or AWS."
     fi
-elif [[ "$WITH_APIKEY" == 'y' ]]; then 
-    read -p "Enter your keyAccess: " keyAccess
+elif [[ "$WITH_APIKEY" == 'y' ]]; then
+    read -p "Enter your keyAccess: " KEY_ACCESS
     echo
-    read -p "Enter your keySecret: " keySecret
+    read -p "Enter your keySecret: " KEY_SECRET
     echo
 
-    FRONTDOOR_RESPONSE=$(curl -s -i -X POST \
+    OPENTOKEN=$(curl -s -i -X POST \
         -H "Content-Type: application/json" \
         -d '{
-            "keyAccess": "'"$keyAccess"'",
-            "keySecret": "'"$keySecret"'"
-        }' \
-        https://frontdoor.apptio.com/service/apikeylogin)
+            "keyAccess": "'"$KEY_ACCESS"'",
+            "keySecret": "'"$KEY_SECRET"'"
+        }' https://frontdoor.apptio.com/service/apikeylogin | grep "apptio-opentoken" | awk -F '[=;]' '{print $2}')
 
-    # TODO Read response and use that for generating a presigned s3 url
+    if [ -z "$OPENTOKEN" ]; then 
+        echo "❌ Could not fetch opentoken from frontdoor.com with credentials."
+        exit 1
+    fi
+    echo "✅ Successfully fetched opentoken from frontdoor."
+    read -p "Enter your cluster UUID: " CLUSTER_UUID
+    echo
+
+    if [ -z "$CLUSTER_UUID" ]; then 
+        echo "❌ Cluster UUID not provided. Please enter a valid value."
+        exit 1
+    fi
+
+    read -p "Enter your environment ID: " ENVIRONMENT_ID
+    echo
+
+    if [ -z "$ENVIRONMENT_ID" ]; then 
+        echo "❌ Environment ID not provided. Please enter a valid value."
+        exit 1
+    fi
+
+    PRESIGN_HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+        -H "Content-Type: application/json" \
+        -H "Apptio-Environmentid: $ENVIRONMENT_ID" \
+        -H "Apptio-Opentoken: $OPENTOKEN" \
+        -d '{
+            "clusterUID": "'"$CLUSTER_UUID"'",
+            "fileName": "'"$CLUSTER_UUID"'_2025-01-01-01-01-01.tgz",
+            "agentVersion": "1.0.0",
+            "uploadHash": "testingHash"
+        }' https://api.cloudability.com/v3/internal/containers/clusters/upload)
+
+    if [ "$PRESIGN_HTTP_STATUS" == "200" ]; then
+        echo "✅ Login attempt returned expected reponse. Agent login and generation of presigned s3 URL should be working healthily."
+    else 
+        echo "❌ Generation of presigned s3 URL did not return expected code." # TODO: More of an explanation
+    fi
+    exit 0
 else
     echo "Incorrect value provided. Please enter 'y' or 'n'."
     exit 1
