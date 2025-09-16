@@ -89,3 +89,14 @@ jobs:
           ref: main
           workflow: Copy Cloudy Images to Harbor and ICR
           inputs: '{ "docker_image": "${{ needs.build_and_publish.outputs.AGENT_IMAGE_TAG }}" }'
+
+  update-helm-chart:
+    needs: [build_and_publish, trigger-registry-uploads]
+    if: success()
+    uses: kubecost/kubecost/.github/workflows/update-helm-images.yaml@main
+    with:
+      component: ibm-finops-agent
+      image_tag: gcr.io/${{ vars.GCR_PROJECT_ID }}/agent:${{ github.ref_name }}
+      version: ${{ github.ref_name }}
+      registry: gcr.io
+      repository: ${{ vars.GCR_PROJECT_ID }}/agent
