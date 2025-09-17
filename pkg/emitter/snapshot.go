@@ -1,6 +1,7 @@
 package emitter
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -31,7 +32,9 @@ var metricsSummaryCacheDuration time.Duration = 5 * time.Minute
 type ConcurrentSnapshotProvider struct {
 	config             *SnapshotConfig
 	metricsSummary     *MetricsSummary
+	lastSnapshot       time.Time
 	lastMetricsSummary time.Time
+	now                Now
 }
 
 // NewConcurrentSnapshotProvider creates a new instance of `ConcurrentSnapshotProvider`.
@@ -40,7 +43,13 @@ func NewConcurrentSnapshotProvider(config *SnapshotConfig) SnapshotProvider {
 		config = DefaultSnapshotConfig()
 	}
 
+	now := config.Now
+	if now == nil {
+		now = defaultNow
+	}
+
 	return &ConcurrentSnapshotProvider{
+		now:    now,
 		config: config,
 	}
 }
@@ -48,6 +57,12 @@ func NewConcurrentSnapshotProvider(config *SnapshotConfig) SnapshotProvider {
 // SnapshotOf generates a `ClusterSnapshot` from the provided `core.DataSource` and returns it.
 func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterSnapshot, error) {
 	var group multierror.Group
+	now := csp.now()
+
+	// we _always_ want to set the last snapshot time upon completion, success or failure
+	defer func() {
+		csp.lastSnapshot = now
+	}()
 
 	// Cluster Info Snapshot
 	var clusterInfo *clusters.ClusterInfo
@@ -77,7 +92,7 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 	var metricsSnapshot *MetricsSummary
 	group.Go(func() error {
 		var err error
-		metricsSnapshot, err = csp.cachedMetricsSummary(ds.Metrics(), csp.config)
+		metricsSnapshot, err = csp.cachedMetricsSummary(ds.Metrics(), now, csp.config)
 		return err
 	})
 
@@ -96,12 +111,10 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 
 // temporary caching of metrics summary every 5 minutes to avoid overloading the prometheus data source until
 // prometheus can be replaced.
-func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.MetricsQuerier, config *SnapshotConfig) (*MetricsSummary, error) {
+func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.MetricsQuerier, now time.Time, config *SnapshotConfig) (*MetricsSummary, error) {
 	if !config.UseMetricsCache {
-		return snapshotMetricsSummary(querier, config)
+		return snapshotMetricsSummary(querier, now, csp.lastSnapshot, config)
 	}
-
-	now := time.Now().UTC()
 
 	// FIXME: (bolt) use a metrics summary cache duration of 5 minutes while we're using a prometheus data source.
 	// FIXME: (bolt) this should be fine to run on a much faster frequency with a non-promethues metrics querier.
@@ -109,7 +122,7 @@ func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.Metri
 		return csp.metricsSummary, nil
 	}
 
-	metricsSummary, err := snapshotMetricsSummary(querier, config)
+	metricsSummary, err := snapshotMetricsSummary(querier, now, csp.lastSnapshot, config)
 	if err != nil {
 		return nil, err
 	}
@@ -195,34 +208,109 @@ func snapshotNodeStats(client nodes.StatSummaryClient) (*NodeStatsSummary, error
 	}, nil
 }
 
-func snapshotMetricsSummary(querier source.MetricsQuerier, config *SnapshotConfig) (*MetricsSummary, error) {
-	var minutelySnapshot *MetricsSnapshot
+func snapshotMetricsSummary(querier source.MetricsQuerier, now time.Time, lastSnapshot time.Time, config *SnapshotConfig) (*MetricsSummary, error) {
+	var snapshotErrors []error
+
+	// 10m metrics snapshot
+	var minutelySnapshots []*MetricsSnapshot
 	if config.MinutelyMetricsEnabled {
-		start, end := windowFor(10 * time.Minute)
-		snapshot, err := snapshotMetrics(querier, start, end)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate minutely metrics snapshot: %w", err)
+		snapshots, errs := snapshotWindowedMetrics(querier, 10*time.Minute, now, lastSnapshot)
+		if len(errs) > 0 {
+			snapshotErrors = append(snapshotErrors, errs...)
 		}
-		minutelySnapshot = snapshot
+
+		minutelySnapshots = snapshots
 	}
 
-	start, end := windowFor(time.Hour)
-	hourlySnapshot, err := snapshotMetrics(querier, start, end)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate hourly metrics snapshot: %w", err)
+	// 1h metrics snapshot
+	hourlySnapshots, errs := snapshotWindowedMetrics(querier, time.Hour, now, lastSnapshot)
+	if len(errs) > 0 {
+		snapshotErrors = append(snapshotErrors, errs...)
 	}
 
-	start, end = windowFor(24 * time.Hour)
-	dailySnapshot, err := snapshotMetrics(querier, start, end)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate daily metrics snapshot: %w", err)
+	// 24h metrics snapshot
+	dailySnapshots, errs := snapshotWindowedMetrics(querier, 24*time.Hour, now, lastSnapshot)
+	if len(errs) > 0 {
+		snapshotErrors = append(snapshotErrors, errs...)
+	}
+
+	// collect errors and return all errors joined
+	var err error
+	if len(snapshotErrors) > 0 {
+		return nil, errors.Join(snapshotErrors...)
 	}
 
 	return &MetricsSummary{
-		Minutely: minutelySnapshot,
-		Hourly:   hourlySnapshot,
-		Daily:    dailySnapshot,
-	}, nil
+		Minutely: minutelySnapshots,
+		Hourly:   hourlySnapshots,
+		Daily:    dailySnapshots,
+	}, err
+}
+
+// snapshots the metrics based on the current snapshot time, and possibly the previous snapshot window if we've rolled into a new time frame.
+// for example, if we are snapshotting 10m metrics (9:00-9:10, 9:10-9:20, etc...), and the last snapshot we take is at 9:09:14. The _current_
+// time would be 9:10:14 (meaning that the previous snapshot would be missing 56s of data). To account for the moments where the time crosses
+// into the next window, we return 2 snapshots: one for the previous _full_ window (9:00:00 - 9:10:00) and one for the current window
+// (9:10:00 - 9:10:14).
+func snapshotWindowedMetrics(
+	querier source.MetricsQuerier,
+	resolution time.Duration,
+	now time.Time,
+	lastSnapshot time.Time,
+) ([]*MetricsSnapshot, []error) {
+	var snapshots []*MetricsSnapshot
+	var errors []error
+
+	// based on the previous snapshot time and the current time, calculate the snapshot windows we should
+	// query to ensure we do not omit any data over the elapsed time period
+	windows := snapshotWindowsFor(now, lastSnapshot, resolution)
+	for _, window := range windows {
+		snapshot, err := snapshotMetrics(querier, *window.Start(), *window.End())
+		if err != nil {
+			errors = append(errors, fmt.Errorf("failed to generate metrics snapshot for resolution: %d minutes: %w", int(resolution.Minutes()), err))
+			continue
+		}
+
+		snapshots = append(snapshots, snapshot)
+	}
+
+	return snapshots, errors
+}
+
+// exportWindows uses the last export time to determine the current time windows to
+// export. This will, at most, return 2 windows: the previous resolution window and
+// the current resolution window.
+func snapshotWindowsFor(now time.Time, lastSnapshot time.Time, resolution time.Duration) []opencost.Window {
+	start := now.Truncate(resolution)
+	end := start.Add(resolution)
+
+	if lastSnapshot.IsZero() {
+		return []opencost.Window{
+			opencost.NewClosedWindow(start, end),
+		}
+	}
+
+	lastStart := lastSnapshot.Truncate(resolution)
+	if lastStart.Equal(start) {
+		return []opencost.Window{
+			opencost.NewClosedWindow(start, end),
+		}
+	}
+	lastEnd := lastStart.Add(resolution)
+
+	// we've identified that the last snapshot window is not the same as the current,
+	// so we should export the previous resolution window as well as the current one
+	return []opencost.Window{
+		opencost.NewClosedWindow(lastStart, lastEnd),
+		opencost.NewClosedWindow(start, end),
+	}
+}
+
+func windowFor(boundary time.Duration) (time.Time, time.Time) {
+	now := time.Now().UTC()
+	start := now.Truncate(boundary)
+	end := start.Add(boundary)
+	return start, end
 }
 
 func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSnapshot, error) {
@@ -459,11 +547,4 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		ReplicaSetsWithoutOwners:     replicaSetsWithoutOwners,
 		ReplicaSetsWithRollout:       replicaSetsWithRollout,
 	}, nil
-}
-
-func windowFor(boundary time.Duration) (time.Time, time.Time) {
-	now := time.Now().UTC()
-	start := now.Truncate(boundary)
-	end := start.Add(boundary)
-	return start, end
 }

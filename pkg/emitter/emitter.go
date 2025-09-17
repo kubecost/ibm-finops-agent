@@ -41,9 +41,9 @@ type NodeStatsSummary struct {
 
 // MetricsSummary contains the metrics results from opencost data source queries.
 type MetricsSummary struct {
-	Minutely *MetricsSnapshot
-	Hourly   *MetricsSnapshot
-	Daily    *MetricsSnapshot
+	Minutely []*MetricsSnapshot
+	Hourly   []*MetricsSnapshot
+	Daily    []*MetricsSnapshot
 }
 
 // MetricsSnapshot contains the metrics results from opencost data source queries.

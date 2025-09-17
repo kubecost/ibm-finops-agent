@@ -14,6 +14,11 @@ func TestMetricsQuerierSnapshotSelect(t *testing.T) {
 
 	ds := mocks.NewMockDataSource()
 	config := emitter.NewSnapshotConfigFromEnv()
+
+	// deterministic time to avoid boundary cases
+	now, _ := time.Parse(time.RFC3339, "2025-01-01T15:06:22Z")
+	config.Now = func() time.Time { return now }
+
 	snapshotter := emitter.NewConcurrentSnapshotProvider(config)
 
 	snapshot, err := snapshotter.SnapshotOf(ds)
@@ -22,8 +27,6 @@ func TestMetricsQuerierSnapshotSelect(t *testing.T) {
 	}
 
 	metricsQuerier := NewMetricsQuerierAdapter(snapshot.Metrics)
-
-	now := time.Now().UTC()
 
 	s10m := now.Truncate(10 * time.Minute)
 	e10m := s10m.Add(10 * time.Minute)
@@ -67,15 +70,15 @@ func TestUpdateNewerSnapshots(t *testing.T) {
 
 	metricsQuerier := NewMetricsQuerierAdapter(snapshot.Metrics)
 
-	n10m := *snapshot.Metrics.Minutely.Window.Start()
+	n10m := *snapshot.Metrics.Minutely[0].Window.Start()
 	s10m := n10m.Truncate(10 * time.Minute)
 	e10m := s10m.Add(10 * time.Minute)
 
-	n1h := *snapshot.Metrics.Hourly.Window.Start()
+	n1h := *snapshot.Metrics.Hourly[0].Window.Start()
 	s1h := n1h.Truncate(time.Hour)
 	e1h := s1h.Add(time.Hour)
 
-	n1d := *snapshot.Metrics.Daily.Window.Start()
+	n1d := *snapshot.Metrics.Daily[0].Window.Start()
 	s1d := n1d.Truncate(24 * time.Hour)
 	e1d := s1d.Add(24 * time.Hour)
 
@@ -85,17 +88,17 @@ func TestUpdateNewerSnapshots(t *testing.T) {
 	nexts10m := e10m
 	nexte10m := nexts10m.Add(10 * time.Minute)
 
-	newMetrics.Minutely.Window = opencost.NewClosedWindow(nexts10m, nexte10m)
+	newMetrics.Minutely[0].Window = opencost.NewClosedWindow(nexts10m, nexte10m)
 
 	nexts1h := e1h
 	nexte1h := nexts1h.Add(time.Hour)
 
-	newMetrics.Hourly.Window = opencost.NewClosedWindow(nexts1h, nexte1h)
+	newMetrics.Hourly[0].Window = opencost.NewClosedWindow(nexts1h, nexte1h)
 
 	nexts1d := e1d
 	nexte1d := nexts1d.Add(24 * time.Hour)
 
-	newMetrics.Daily.Window = opencost.NewClosedWindow(nexts1d, nexte1d)
+	newMetrics.Daily[0].Window = opencost.NewClosedWindow(nexts1d, nexte1d)
 
 	metricsQuerier.Update(newMetrics)
 
@@ -130,5 +133,4 @@ func TestUpdateNewerSnapshots(t *testing.T) {
 	if snap1d == nil {
 		t.Fatalf("expected snapshot for 24h interval, got nil")
 	}
-
 }

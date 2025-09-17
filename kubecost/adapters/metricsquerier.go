@@ -7,6 +7,7 @@ import (
 
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/opencost/opencost/core/pkg/opencost"
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
@@ -16,82 +17,79 @@ import (
 // This type is not thread-safe, so ensure it is accessed under the parent type's lock.
 type MetricsResolution struct {
 	resolution time.Duration
-	current    *emitter.MetricsSnapshot
-	last       *emitter.MetricsSnapshot
+	snapshots  map[int64]*emitter.MetricsSnapshot
 }
 
 // NewMetricsResolution creates a new MetricsResolution instance used to track the resolutions for
 // a specific time window
-func NewMetricsResolution(resolution time.Duration, snapshot *emitter.MetricsSnapshot) *MetricsResolution {
+func NewMetricsResolution(resolution time.Duration, initSnapshots []*emitter.MetricsSnapshot) *MetricsResolution {
+	snapshots := make(map[int64]*emitter.MetricsSnapshot)
+
+	for _, snapshot := range initSnapshots {
+		if snapshot == nil {
+			continue
+		}
+
+		snapshots[snapshot.Window.Start().Unix()] = snapshot
+	}
+
 	return &MetricsResolution{
 		resolution: resolution,
-		current:    snapshot,
-		last:       nil,
+		snapshots:  snapshots,
 	}
 }
 
 // Update will update the current snapshot, as well as the next snapshot if applicable.
-func (mr *MetricsResolution) Update(snapshot *emitter.MetricsSnapshot) {
+func (mr *MetricsResolution) Update(snapshots []*emitter.MetricsSnapshot) {
 	// This is a valid state for a disabled resolution
+	if len(snapshots) == 0 {
+		return
+	}
+
+	for _, snapshot := range snapshots {
+		mr.updateSnapshot(snapshot)
+	}
+
+	// drop oldest after len >= 3
+	for len(mr.snapshots) >= 3 {
+		oldest := time.Now().Unix()
+		for t := range mr.snapshots {
+			if t < oldest {
+				oldest = t
+			}
+		}
+		delete(mr.snapshots, oldest)
+	}
+}
+
+func (mr *MetricsResolution) updateSnapshot(snapshot *emitter.MetricsSnapshot) {
 	if snapshot == nil {
 		return
 	}
 
 	snapshotWindow := snapshot.Window
-
-	if snapshotWindow.Duration() != mr.resolution {
-		log.Warnf("Invalid metrics snapshot resolution. Expected %s, got %s", mr.resolution, snapshotWindow.Duration())
-		return
-	}
-
-	// not initialized yet
-	if mr.current == nil {
-		mr.current = snapshot
-		return
-	}
-
-	// ensure that the windows are equal, then update the current snapshot
-	currentWindow := mr.current.Window
-	if currentWindow.Equal(snapshotWindow) {
-		mr.current = snapshot
-		return
-	}
-
-	// ensure that windows are chained
-	if snapshotWindow.Start().Equal(*currentWindow.End()) {
-		mr.last = mr.current
-		mr.current = snapshot
-		return
-	}
-
-	log.Warnf("Metrics snapshot windows do not chain. Current: %s, New: %s", currentWindow, snapshotWindow)
+	mr.snapshots[snapshotWindow.Start().Unix()] = snapshot
 }
 
 // SnapshotFor returns the snapshot that matches the provided start and end time
 func (mr *MetricsResolution) SnapshotFor(start, end time.Time) *emitter.MetricsSnapshot {
-	if mr.current == nil {
-		return nil
-	}
-
 	// ensure bounds are valid
 	s := start.Truncate(mr.resolution)
 	e := s.Add(mr.resolution)
+	w := opencost.NewClosedWindow(s, e)
 
-	currentWindow := mr.current.Window
-	if currentWindow.Start().Equal(s) && currentWindow.End().Equal(e) {
-		return mr.current
-	}
-
-	if mr.last == nil {
+	snapshot, ok := mr.snapshots[s.Unix()]
+	if !ok {
 		return nil
 	}
 
-	lastWindow := mr.last.Window
-	if lastWindow.Start().Equal(s) && lastWindow.End().Equal(e) {
-		return mr.last
+	// this is mostly an assertion -- we still want to return the snapshot, but definitely issue a
+	// warning, as this shouldn't ever happen
+	if !snapshot.Window.Equal(w) {
+		log.Warnf("Snapshot Window not equal to Query Window: %s != %s", snapshot.Window, w)
 	}
 
-	return nil
+	return snapshot
 }
 
 // MetricsQuerierAdapter is an adapter for the OpenCost metrics querier interface. It allows
