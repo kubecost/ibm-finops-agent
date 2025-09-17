@@ -11,6 +11,9 @@ import (
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
+// MaxBackfillSnapshots is the total number of snapshots to retain historically for the metrics querier
+const MaxBackfillSnapshots = 3
+
 // MetricsResolution is a type that holds the current time window's metric snapshot
 // and the last time window's metric snapshot.
 //
@@ -39,7 +42,7 @@ func NewMetricsResolution(resolution time.Duration, initSnapshots []*emitter.Met
 	}
 }
 
-// Update will update the current snapshot, as well as the next snapshot if applicable.
+// Update will update the current snapshots
 func (mr *MetricsResolution) Update(snapshots []*emitter.MetricsSnapshot) {
 	// This is a valid state for a disabled resolution
 	if len(snapshots) == 0 {
@@ -50,8 +53,8 @@ func (mr *MetricsResolution) Update(snapshots []*emitter.MetricsSnapshot) {
 		mr.updateSnapshot(snapshot)
 	}
 
-	// drop oldest after len >= 3
-	for len(mr.snapshots) >= 3 {
+	// drop oldest after reaching MaxBackfillSnapshots
+	for len(mr.snapshots) >= MaxBackfillSnapshots {
 		oldest := time.Now().Unix()
 		for t := range mr.snapshots {
 			if t < oldest {
