@@ -12,7 +12,7 @@ import (
 )
 
 // MaxBackfillSnapshots is the total number of snapshots to retain historically for the metrics querier
-const MaxBackfillSnapshots = 3
+const MaxBackfillSnapshots = 2
 
 // MetricsResolution is a type that holds the current time window's metric snapshot
 // and the last time window's metric snapshot.
@@ -54,7 +54,7 @@ func (mr *MetricsResolution) Update(snapshots []*emitter.MetricsSnapshot) {
 	}
 
 	// drop oldest after reaching MaxBackfillSnapshots
-	for len(mr.snapshots) >= MaxBackfillSnapshots {
+	for len(mr.snapshots) > MaxBackfillSnapshots {
 		oldest := time.Now().Unix()
 		for t := range mr.snapshots {
 			if t < oldest {

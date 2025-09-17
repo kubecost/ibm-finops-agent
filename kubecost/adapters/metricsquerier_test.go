@@ -134,3 +134,59 @@ func TestUpdateNewerSnapshots(t *testing.T) {
 		t.Fatalf("expected snapshot for 24h interval, got nil")
 	}
 }
+
+func TestMinuteMetricsTick(t *testing.T) {
+	t.Setenv("MINUTE_METRICS_ENABLED", "true")
+
+	ds := mocks.NewMockDataSource()
+	config := emitter.NewSnapshotConfigFromEnv()
+
+	// deterministic time to avoid boundary cases
+	c, _ := time.Parse(time.RFC3339, "2025-01-01T15:06:22Z")
+	current := &c
+
+	config.Now = func() time.Time { return *current }
+
+	snapshotter := emitter.NewConcurrentSnapshotProvider(config)
+
+	snapshot, err := snapshotter.SnapshotOf(ds)
+	if err != nil {
+		t.Fatalf("failed to create snapshot: %v", err)
+	}
+
+	metricsQuerier := NewMetricsQuerierAdapter(snapshot.Metrics)
+
+	// tick an hour
+	for i := 0; i < 60; i++ {
+		// this will advance the "now" in the snapshotter context
+		*current = current.Add(time.Minute)
+
+		snapshot, err := snapshotter.SnapshotOf(ds)
+		if err != nil {
+			t.Fatalf("failed to create snapshot: %v", err)
+		}
+
+		metricsQuerier.Update(snapshot.Metrics)
+
+		/*
+			for k := range metricsQuerier.tenMinuteResolution.snapshots {
+				t.Logf("%s", time.Unix(k, 0).Format(time.RFC3339))
+			}
+			t.Logf("-------------")
+		*/
+	}
+
+	totalMinuteSnapshots := len(metricsQuerier.tenMinuteResolution.snapshots)
+	totalHourlySnapshots := len(metricsQuerier.hourlyResolution.snapshots)
+	totalDailySnapshots := len(metricsQuerier.dailyResolution.snapshots)
+
+	if totalMinuteSnapshots != MaxBackfillSnapshots {
+		t.Fatalf("Total 10m snapshots is: %d, expected: %d", totalMinuteSnapshots, MaxBackfillSnapshots)
+	}
+	if totalHourlySnapshots != MaxBackfillSnapshots {
+		t.Fatalf("Total 1h snapshots is: %d, expected: %d", totalHourlySnapshots, MaxBackfillSnapshots)
+	}
+	if totalDailySnapshots != 1 {
+		t.Fatalf("Total 24h snapshots is: %d, expected: 1", totalDailySnapshots)
+	}
+}
