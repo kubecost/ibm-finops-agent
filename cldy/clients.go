@@ -28,17 +28,8 @@ import (
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
-const usFrontdoorURL = "https://frontdoor.apptio.com"
-const usFrontdoorStgURL = "https://frontdoor-stage.apptio.com"
-const euFrontdoorURL = "https://frontdoor-eu.apptio.com"
-const auFrontdoorURL = "https://frontdoor-au.apptio.com"
-const meFrontdoorURL = "https://frontdoor-me.apptio.com"
-
-const usCloudabilityURL = "https://api.cloudability.com"
-const usCloudabilityStgURL = "https://api-s.cloudability.com"
-const euCloudabilityURL = "https://api-eu.cloudability.com"
-const auCloudabilityURL = "https://api-au.cloudability.com"
-const meCloudabilityURL = "https://api-me.cloudability.com"
+const frontdoorBaseURL = "https://frontdoor%s.apptio.com"
+const cloudabilityBaseURL = "https://api%s.cloudability.com"
 
 const contentTypeHeader = "Content-Type"
 const contentMD5 = "Content-MD5"
@@ -451,30 +442,48 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
 }
 
-// Converts region to urls in (FrontdoorURL, CloudabilityURL) format.
-// All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
+// Note: All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
+// Regions are all hardcoded because there is no direct formula from availability zone -> region suffix, 
+// as well as this switch block acts as validation on the region field if changed by the user.
 func getURLsFromRegion(region string) (string, string) {
 	switch region {
-	case "us", "us-west-2": // us-west-2 is for old agent migrations
-		return usFrontdoorURL, usCloudabilityURL
-	case "staging": // staging account
-		return usFrontdoorStgURL, usCloudabilityStgURL
-	case "eu", "eu-central-1": // eu-central-1 is for old agent migrations
-		return euFrontdoorURL, euCloudabilityURL
+	case "staging": // staging account. Note the difference for -stage and -s
+		return formatFrontdoorAndCloudabilityURLs("-stage", "-s")
+	case "us", "us-west-2":
+		return formatFrontdoorAndCloudabilityURLs("", "")
+	case "eu", "eu-central-1":
+		return formatFrontdoorAndCloudabilityURLs("-eu", "-eu")
 	case "au", "ap-southeast-2":
-		return auFrontdoorURL, auCloudabilityURL
-	case "me", "me-central-1": // me-central-1 is for old agent migrations
-		return meFrontdoorURL, meCloudabilityURL
+		return formatFrontdoorAndCloudabilityURLs("-au", "-au")
+	case "me", "me-central-1":
+		return formatFrontdoorAndCloudabilityURLs("-me", "-me")
+	case "sg", "ap-southeast-1":
+		return formatFrontdoorAndCloudabilityURLs("-sg", "-sg")
+	case "jp", "ap-northeast-1":
+		return formatFrontdoorAndCloudabilityURLs("-jp", "-jp")
+	case "in", "ap-south-1":
+		return formatFrontdoorAndCloudabilityURLs("-in", "-in")
 	case "hybrid-eu":
-		return euFrontdoorURL, usCloudabilityURL
+		return formatFrontdoorAndCloudabilityURLs("-eu", "")
 	case "hybrid-au":
-		return auFrontdoorURL, usCloudabilityURL
+		return formatFrontdoorAndCloudabilityURLs("-au", "")
 	case "hybrid-me":
-		return meFrontdoorURL, usCloudabilityURL
+		return formatFrontdoorAndCloudabilityURLs("-me", "")
+	case "hybrid-sg":
+		return formatFrontdoorAndCloudabilityURLs("-sg", "")
+	case "hybrid-jp":
+		return formatFrontdoorAndCloudabilityURLs("-jp", "")
+	case "hybrid-in":
+		return formatFrontdoorAndCloudabilityURLs("-in", "")
 	default:
-		log.Warnf("Invalid cloudability region: %s. Defaulting to 'us' region.", region)
-		return usFrontdoorURL, usCloudabilityURL
+		log.Warnf("Invalid cloudability region: %s. Defaulting to 'us-west-2' region.", region)
+		return formatFrontdoorAndCloudabilityURLs("", "")
 	}
+}
+
+// Formats the region suffixes into the respective frontdoor and cloudability url
+func formatFrontdoorAndCloudabilityURLs(frontdoorRegionSuffix string, cloudabilityRegionSuffix string) (string, string) {
+	return fmt.Sprintf(frontdoorBaseURL, frontdoorRegionSuffix), fmt.Sprintf(cloudabilityBaseURL, cloudabilityRegionSuffix)
 }
 
 type CustomS3Client struct {
