@@ -306,13 +306,6 @@ func snapshotWindowsFor(now time.Time, lastSnapshot time.Time, resolution time.D
 	}
 }
 
-func windowFor(boundary time.Duration) (time.Time, time.Time) {
-	now := time.Now().UTC()
-	start := now.Truncate(boundary)
-	end := start.Add(boundary)
-	return start, end
-}
-
 func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSnapshot, error) {
 	grp := source.NewQueryGroup()
 
