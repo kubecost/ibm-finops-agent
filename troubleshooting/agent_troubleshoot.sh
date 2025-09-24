@@ -66,6 +66,6 @@ fi
 
 
 echo "⚠️ Note that the agent uploads normally every 10 minutes, so do verify the logs of your pod after it has been alive for that period of time" \
-"to ensure that it is healthily uploading."
+"to ensure that it is healthily uploading. If it fails around that time, the issue is most likely related to an issue with the upload configuration."
 
 exit 0
