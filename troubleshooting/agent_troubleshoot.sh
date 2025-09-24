@@ -62,3 +62,10 @@ else
     echo "⚠️ Events found in $NAMESPACE namespace:"
     echo $EVENTS
 fi
+
+
+
+echo "⚠️ Note that the agent uploads normally every 10 minutes, so do verify the logs of your pod after it has been alive for that period of time" \
+"to ensure that it is healthily uploading."
+
+exit 0
