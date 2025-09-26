@@ -32,7 +32,7 @@ if [[ "$WITH_APIKEY" == 'n' ]]; then
             echo "✅ Login attempt returned expected reponse. Agent login through frontdoor should be functioning healthily. If problems continue," \
             "please ensure that API keys are up to date and accurate through your frontdoor account."
         else
-            echo "❌ Login attempt did not return expected response: $FRONTDOOR_RESPONSE."
+            echo "❌ Login attempt did not return expected response ($FRONTDOOR_HTTP_STATUS): $FRONTDOOR_RESPONSE."
         fi
     # Unexpected responses by HTTP Status
     elif [[ "$FRONTDOOR_HTTP_STATUS" == "403" ]]; then 
@@ -44,7 +44,7 @@ if [[ "$WITH_APIKEY" == 'n' ]]; then
         if [[ "$FRONTDOOR_HTTP_STATUS" != "000" ]]; then 
             echo "❌ Login attempt returned $FRONTDOOR_HTTP_STATUS HTTP status."
         fi
-        if [[ "$FRONTDOOR_RESPONSE" != "000" ]]; then 
+        if [[ "$FRONTDOOR_RESPONSE" != "" ]]; then 
             echo "❌ Login attempt returned response: $FRONTDOOR_RESPONSE."
         fi
         echo "❌ Unexpected response by server. Potential causes could include an improperly configured outbound connection, an issue with certificate" \
@@ -63,9 +63,16 @@ elif [[ "$WITH_APIKEY" == 'y' ]]; then
             "keySecret": "'"$KEY_SECRET"'"
         }' https://frontdoor${REGION_SUFFIX}.apptio.com/service/apikeylogin | grep "apptio-opentoken" | awk -F '[=;]' '{print $2}')
 
+    OPENTOKEN_HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" POST \
+        -H "Content-Type: application/json" \
+        -d '{
+            "keyAccess": "'"$KEY_ACCESS"'",
+            "keySecret": "'"$KEY_SECRET"'"
+        }' https://frontdoor${REGION_SUFFIX}.apptio.com/service/apikeylogin)
+
     if [ -z "$OPENTOKEN" ]; then 
-        echo "❌ Could not fetch opentoken from frontdoor${REGION_SUFFIX}.com with keyAccess and keySecret. Please make sure your credentials are correct" \
-        "and not expired. If that's not the issue, verify there are no issues connecting to frontdoor${REGION_SUFFIX}.apptio.com through your network configuration."
+        echo "❌ Could not fetch opentoken from frontdoor${REGION_SUFFIX}.com with keyAccess and keySecret. Returned status code: $OPENTOKEN_HTTP_STATUS." \
+        "Please make sure your credentials are correct and not expired. If that's not the issue, verify there are no issues connecting to frontdoor${REGION_SUFFIX}.apptio.com through your network configuration."
         exit 1
     fi
     echo "✅ Successfully fetched opentoken from frontdoor."
@@ -100,7 +107,7 @@ elif [[ "$WITH_APIKEY" == 'y' ]]; then
         echo "✅ Login attempt returned expected reponse. Agent login and generation of presigned S3 URL should be working healthily." \
         "If your problems continue please ensure that your configuration allows PUT requests to S3 buckets."
     else 
-        echo "❌ Generation of presigned s3 URL did not return expected code. This could be due to a network traffic exception provided" \
+        echo "❌ Generation of presigned s3 URL returned status code $PRESIGN_HTTP_STATUS. This could be due to a network traffic exception provided" \
         "for frontdoor${REGION_SUFFIX}.apptio.com but not for AWS. Please check your configuration "
     fi
     exit 0
