@@ -85,23 +85,14 @@ type CloudabilityClustersUploadInfo struct {
 }
 
 func NewApptioService(config ApptioConfig) (StorageService, error) {
-	body, err := config.SecretManager.GetSecret()
-	if err != nil {
-		return nil, err
-	}
-	// remove secret from memory
-	defer func() {
-		for i := range body {
-			body[i] = 0
-		}
-	}()
+	// Check existence of key access/secret without reading them
+	keyAccessFP := os.Getenv("KEY_ACCESS_FILEPATH")
+	keySecretFP := os.Getenv("KEY_SECRET_FILEPATH")
 
 	// Cloudability upload configuration not set, silently skip
-	if len(body) == 0 && config.EnvID == "" {
+	if keyAccessFP == "" && keySecretFP == "" && config.EnvID == "" {
 		return nil, nil
-	}
-
-	if len(body) == 0 || config.EnvID == "" {
+	} else if keyAccessFP == "" || keySecretFP == "" || config.EnvID == "" {
 		return nil, fmt.Errorf("key access, key secret, and env id must all be set to upload to cloudability")
 	}
 
@@ -117,7 +108,7 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 	}
 
 	log.Infof("Testing Cloudability upload connection.")
-	err = apptioService.testUpload()
+	err := apptioService.testUpload()
 	if err != nil {
 		return nil, fmt.Errorf("cloudability test connection failed: %s", err)
 	}
@@ -475,6 +466,8 @@ func getURLsFromRegion(region string) (string, string) {
 		return formatFrontdoorAndCloudabilityURLs("-jp", "")
 	case "hybrid-in":
 		return formatFrontdoorAndCloudabilityURLs("-in", "")
+	case "usgov", "us-gov-west-1":
+		return formatFrontdoorAndCloudabilityURLs("-usgov", ".usgov") 
 	default:
 		log.Warnf("Invalid cloudability region: %s. Defaulting to 'us-west-2' region.", region)
 		return formatFrontdoorAndCloudabilityURLs("", "")

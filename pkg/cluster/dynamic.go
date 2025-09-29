@@ -58,7 +58,7 @@ var (
 		reflect.TypeOf(batchv1.Job{}):                  {Group: "batch", Version: "v1", Resource: "jobs"},
 		reflect.TypeOf(policyv1.PodDisruptionBudget{}): {Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"},
 	}
-	// fields to trim on specific resources if parseMetricsData is enabled
+	// fields to trim on specific resources if parseMetricData is enabled
 	gvkToSanitizePaths = map[schema.GroupVersionKind][]string{
 		{Group: "apps", Version: "v1", Kind: "Deployment"}: {
 			"spec.progressDeadlineSeconds",
@@ -109,7 +109,7 @@ var (
 			"spec.internalTrafficPolicy",
 		},
 	}
-	// common fields to trim on all resources if parseMetricsData is enabled
+	// common fields to trim on all resources if parseMetricData is enabled
 	commonSanitizePaths = []string{
 		"spec.revisionHistoryLimit",
 		"spec.minReadySeconds",
@@ -198,9 +198,9 @@ func (dcc *DynamicClusterCache) addShortLivedPod(pod *corev1.Pod) {
 	dcc.slpMux.Unlock()
 }
 
-// GetTransformFunc returns the correct transform to apply based on parseMetricsData flag
+// GetTransformFunc returns the correct transform to apply based on parseMetricData flag
 // when enabled, sensitive information from k8s resources will be stripped
-func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interface{}, error) {
+func GetTransformFunc(parseMetricData bool) func(resource interface{}) (interface{}, error) {
 	return func(resource interface{}) (interface{}, error) {
 		var casted *unstructured.Unstructured
 		var ok bool
@@ -208,23 +208,23 @@ func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interfa
 			log.Warnf("Not trimming or sanitizing non-unstructured resource: %s", reflect.TypeOf(resource))
 			return resource, nil
 		}
-		_ = cleanResource(casted, parseMetricsData)
+		_ = cleanResource(casted, parseMetricData)
 		return resource, nil
 	}
 }
 
-func cleanResource(resource *unstructured.Unstructured, parseMetricsData bool) *unstructured.Unstructured {
+func cleanResource(resource *unstructured.Unstructured, parseMetricData bool) *unstructured.Unstructured {
 	gvk := resource.GetObjectKind().GroupVersionKind()
 	// for resources with containers separate container cleaning needs to be done
 	if gvk.Group == "apps" || gvk.Kind == "Pod" || gvk.Kind == "Job" {
-		cleanContainers(resource, gvk, parseMetricsData)
+		cleanContainers(resource, gvk, parseMetricData)
 	}
 	// remove fields (if any) that are specific to the resource
 	cleanResourceFieldsFromPath(resource, gvkToTrimPaths[gvk])
 	// remove common fields for all resources
 	cleanResourceFieldsFromPath(resource, commonTrimPaths)
 	// perform further sanitization of resource if enabled
-	if parseMetricsData {
+	if parseMetricData {
 		// remove fields (if any) that are specific to the resource
 		cleanResourceFieldsFromPath(resource, gvkToSanitizePaths[gvk])
 		// remove common fields for all resources
@@ -244,7 +244,7 @@ func cleanResourceFieldsFromPath(resource *unstructured.Unstructured, paths []st
 	}
 }
 
-func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersionKind, parseMetricsData bool) {
+func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersionKind, parseMetricData bool) {
 	var pathsToContainers []string
 	if gvk.Kind == "Pod" {
 		pathsToContainers = []string{"spec.containers", "spec.initContainers"}
@@ -269,7 +269,7 @@ func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersio
 			continue
 		}
 		for i := 0; i < len(containers); i++ {
-			if parseMetricsData {
+			if parseMetricData {
 				for _, pathToContainer := range gvkToSanitizePaths[containerGVK] {
 					unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
 				}
