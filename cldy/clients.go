@@ -85,15 +85,8 @@ type CloudabilityClustersUploadInfo struct {
 }
 
 func NewApptioService(config ApptioConfig) (StorageService, error) {
-	// Check existence of key access/secret without reading them
-	keyAccessFP := os.Getenv("KEY_ACCESS_FILEPATH")
-	keySecretFP := os.Getenv("KEY_SECRET_FILEPATH")
-
-	// Cloudability upload configuration not set, silently skip
-	if keyAccessFP == "" && keySecretFP == "" && config.EnvID == "" {
-		return nil, nil
-	} else if keyAccessFP == "" || keySecretFP == "" || config.EnvID == "" {
-		return nil, fmt.Errorf("key access, key secret, and env id must all be set to upload to cloudability")
+	if config.EnvID == "" {
+		return nil, fmt.Errorf("CLOUDABILITY_ENV_ID must be set to upload to cloudability")
 	}
 
 	frontdoorURL, cloudabilityURL := getURLsFromRegion(config.Region)
@@ -434,7 +427,7 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 }
 
 // Note: All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
-// Regions are all hardcoded because there is no direct formula from availability zone -> region suffix, 
+// Regions are all hardcoded because there is no direct formula from availability zone -> region suffix,
 // as well as this switch block acts as validation on the region field if changed by the user.
 func getURLsFromRegion(region string) (string, string) {
 	switch region {
@@ -484,11 +477,6 @@ type CustomS3Client struct {
 }
 
 func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageService, error) {
-	// Config is not set, silently skip custom s3 setup
-	if customS3Bucket == "" && customS3Region == "" {
-		return nil, nil
-	}
-
 	if customS3Bucket == "" || customS3Region == "" {
 		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_S3_UPLOAD_BUCKET and CLOUDABILITY_CUSTOM_S3_UPLOAD_REGION " +
 			"must be set for custom S3 configuration")
@@ -570,10 +558,6 @@ type CustomBlobClient struct {
 
 func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTenantID string, azureClientID string,
 	azureClientSecret SecretManager) (StorageService, error) {
-	// Primary env variables are not set; silently skip custom blob setup
-	if blobContainerName == "" && customBlobUrl == "" {
-		return nil, nil
-	}
 	if blobContainerName == "" || customBlobUrl == "" {
 		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CONTAINER_NAME and CLOUDABILITY_CUSTOM_AZURE_BLOB_URL " +
 			"must be set for all custom azure blob configurations")

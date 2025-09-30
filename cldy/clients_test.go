@@ -21,7 +21,7 @@ var _ = Describe("Client Proxy", func() {
 
 		It("should not be used when Proxy URL is not set", func() {
 			config := cldy.ApptioConfig{
-				ProxyURL:                        &url.URL{},
+				ProxyURL: &url.URL{},
 			}
 
 			proxyFunc := cldy.BuildProxyFunc(config)
@@ -38,7 +38,7 @@ var _ = Describe("Client Proxy", func() {
 		})
 		It("should be used when Proxy URL is set", func() {
 			config := cldy.ApptioConfig{
-				ProxyURL:                        proxyURL,
+				ProxyURL: proxyURL,
 			}
 
 			proxyFunc := cldy.BuildProxyFunc(config)
