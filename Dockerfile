@@ -1,4 +1,4 @@
-FROM redhat/ubi10:latest AS build-env
+FROM redhat/ubi9:latest AS build-env
 ARG TARGETPLATFORM
 
 RUN yum install -y unzip \
@@ -48,7 +48,7 @@ RUN cd ./ibm-finops-agent/cmd/finops-agent && set -e ;\
     -o /go/bin/app
 
 
-FROM redhat/ubi10-micro:latest
+FROM redhat/ubi9-micro:latest
 
 ARG commit
 ARG version
