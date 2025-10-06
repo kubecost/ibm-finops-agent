@@ -79,6 +79,7 @@ ADD ./opencost/configs/aws.json /models/aws.json
 ADD ./opencost/configs/gcp.json /models/gcp.json
 ADD ./opencost/configs/awsreservationofferings.json /static/awsreservationofferings.json
 ADD ./opencost/configs/alibaba.json /models/alibaba.json
+COPY ./LICENSE /licenses/LICENSE
 
 COPY --from=build-env /go/bin/app /go/bin/app
 USER 1001
