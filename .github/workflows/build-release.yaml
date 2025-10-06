@@ -88,4 +88,4 @@ jobs:
           token: ${{ secrets.PR_CREATE_GH_PAT }}
           ref: main
           workflow: Copy Cloudy Images to Harbor and ICR
-          inputs: '{ "docker_image": "${{ needs.build_and_publish.outputs.AGENT_IMAGE_TAG }}" }'
+          inputs: '{ "docker_image": "${{ needs.build_and_publish.outputs.AGENT_IMAGE_TAG }}", "is_release": "true", "set_latest": "true" }'
