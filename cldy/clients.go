@@ -96,11 +96,6 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 		}
 	}()
 
-	// Cloudability upload configuration not set, silently skip
-	if len(body) == 0 && config.EnvID == "" {
-		return nil, nil
-	}
-
 	if len(body) == 0 || config.EnvID == "" {
 		return nil, fmt.Errorf("key access, key secret, and env id must all be set to upload to cloudability")
 	}
@@ -493,11 +488,6 @@ type CustomS3Client struct {
 }
 
 func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageService, error) {
-	// Config is not set, silently skip custom s3 setup
-	if customS3Bucket == "" && customS3Region == "" {
-		return nil, nil
-	}
-
 	if customS3Bucket == "" || customS3Region == "" {
 		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_S3_UPLOAD_BUCKET and CLOUDABILITY_CUSTOM_S3_UPLOAD_REGION " +
 			"must be set for custom S3 configuration")
@@ -579,10 +569,6 @@ type CustomBlobClient struct {
 
 func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTenantID string, azureClientID string,
 	azureClientSecret SecretManager) (StorageService, error) {
-	// Primary env variables are not set; silently skip custom blob setup
-	if blobContainerName == "" && customBlobUrl == "" {
-		return nil, nil
-	}
 	if blobContainerName == "" || customBlobUrl == "" {
 		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CONTAINER_NAME and CLOUDABILITY_CUSTOM_AZURE_BLOB_URL " +
 			"must be set for all custom azure blob configurations")
