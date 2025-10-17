@@ -1,10 +1,7 @@
 FROM redhat/ubi9:latest AS build-env
 ARG TARGETPLATFORM
 
-RUN yum install -y unzip \
-    wget \
-    ca-certificates \
-    yum-utils
+RUN yum install -y unzip wget
 
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
     wget https://go.dev/dl/go1.25.2.linux-amd64.tar.gz && \
@@ -48,7 +45,7 @@ RUN cd ./ibm-finops-agent/cmd/finops-agent && set -e ;\
     -o /go/bin/app
 
 
-FROM redhat/ubi9-micro:latest
+FROM redhat/ubi9-minimal:latest
 
 ARG commit
 ARG version
@@ -66,8 +63,6 @@ LABEL name="ibm-finops-agent" \
     version="${version}" \
     release="${version}"
 
-# Copy ca-certificates and ClickHouse files from the download-env stage
-COPY --from=build-env /etc/pki/ca-trust /etc/pki/ca-trust
 ENV CONTAINERIZED="true"
 
 # Add timezone data and set timezone to GMT
