@@ -59,7 +59,7 @@ setup_kind() {
 }
 
 HELM_INSTALL="helm install unified-agent e2e-test/finops-agent \
---set agent.kubecost.enabled=false \
+--set agent.cloudability.enabled=true \
 --set agent.cloudability.uploadRegion="staging" \
 --set agent.cloudability.secret.create=true \
 --set agent.cloudability.secret.cloudabilityAccessKey="XXX" \

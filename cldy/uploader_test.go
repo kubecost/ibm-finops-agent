@@ -359,7 +359,7 @@ var _ = Describe("Uploader", func() {
 			service := cldy.CustomBlobClient{
 				UploadClient: uploadClient,
 			}
-			actualUploader.StorageServices[0] = &service
+			actualUploader.StorageServices = append(actualUploader.StorageServices, &service)
 
 			// Succeed on a good filename
 			payload := cldy.UploadPayload{

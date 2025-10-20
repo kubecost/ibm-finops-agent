@@ -51,36 +51,43 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	}
 
 	var storageServices []StorageService
-	apptioService, err := NewApptioService(config.ApptioConfig)
-	if err != nil {
-		log.Errorf("Failed to create cloudability uploader: %v", err)
-	}
-	if apptioService != nil {
-		storageServices = append(storageServices, apptioService)
-	}
 
-	s3Client, err := NewCustomS3Client(config.CustomS3UploadBucket, config.CustomS3UploadRegion)
-	if err != nil {
-		log.Errorf("Failed to create custom s3 uploader: %v", err)
-	}
-	if s3Client != nil {
-		log.Infof("Successfully created custom s3 uploader")
-		storageServices = append(storageServices, s3Client)
-	}
+	// Cloudability emitter
+	if config.EnvID != "" {
+		apptioService, err := NewApptioService(config.ApptioConfig)
+		if err != nil {
+			log.Errorf("Failed to create cloudability uploader: %v", err)
+		}
+		if apptioService != nil {
+			storageServices = append(storageServices, apptioService)
+		}
 
-	blobClient, err := NewCustomBlobClient(config.CustomAzureBlobContainerName, config.CustomAzureBlobUrl, config.CustomAzureTenantID,
+		// S3 emitter
+	} else if config.CustomS3UploadBucket != "" && config.CustomS3UploadRegion != "" {
+		s3Client, err := NewCustomS3Client(config.CustomS3UploadBucket, config.CustomS3UploadRegion)
+		if err != nil {
+			log.Errorf("Failed to create custom s3 uploader: %v", err)
+		}
+		if s3Client != nil {
+			log.Infof("Successfully created custom s3 uploader")
+			storageServices = append(storageServices, s3Client)
+		}
+
+		// Azure emitter
+	} else if config.CustomAzureBlobContainerName != "" && config.CustomAzureBlobUrl != "" {
+		blobClient, err := NewCustomBlobClient(config.CustomAzureBlobContainerName, config.CustomAzureBlobUrl, config.CustomAzureTenantID,
 		config.CustomAzureClientID, config.CustomAzureClientSecret)
-	if err != nil {
-		log.Errorf("Failed to create custom azure blob uploader: %v", err)
-	}
-	if blobClient != nil {
-		log.Infof("Successfully created custom azure blob uploader")
-		storageServices = append(storageServices, blobClient)
-	}
-
-	// Check if no upload paths were configured
-	if len(storageServices) == 0 {
-		log.Errorf("No complete upload configurations were detected")
+		if err != nil {
+			log.Errorf("Failed to create custom azure blob uploader: %v", err)
+		}
+		if blobClient != nil {
+			log.Infof("Successfully created custom azure blob uploader")
+			storageServices = append(storageServices, blobClient)
+		}
+		// No env vars for any of the required configurations were set.
+	} else {
+		log.Errorf("No complete upload configurations were detected. Please ensure that you have set the required " +
+			"environment variables for your upload type.")
 	}
 
 	uploader := CldyUploader{
