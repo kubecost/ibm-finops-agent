@@ -349,7 +349,7 @@ func checkAndConvertNodes(nodes []*v1.Node) []proto.Message {
 			continue
 		}
 		if node.Spec.ProviderID == "" {
-			log.Warnf("node ProviderID not set for node: %s", node.Name)
+			log.Warnf("Node ProviderID is not set for node: %s which may be because the node is running in a self managed environment, and this may cause inconsistent gathering of metrics data.", node.Name)
 		}
 		data = append(data, node)
 	}
