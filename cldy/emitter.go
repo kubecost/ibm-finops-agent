@@ -345,9 +345,6 @@ func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]proto.Mess
 func checkAndConvertNodes(nodes []*v1.Node) []proto.Message {
 	var data []proto.Message
 	for _, node := range nodes {
-		if shouldSkipResource(node) {
-			continue
-		}
 		if node.Spec.ProviderID == "" {
 			log.Warnf("Node ProviderID is not set for node: %s which may be because the node is running in a self managed environment, and this may cause inconsistent gathering of metrics data.", node.Name)
 		}
