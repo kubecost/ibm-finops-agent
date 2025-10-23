@@ -429,6 +429,11 @@ func (m *MockMetricsQuerier) QueryRAMRequests(start, end time.Time) *source.Futu
 	return newEmptyResult(source.DecodeRAMRequestsResult)
 }
 
+func (m *MockMetricsQuerier) QueryRAMLimits(start, end time.Time) *source.Future[source.RAMLimitsResult] {
+	m.recordCall("QueryRAMLimits")
+	return newEmptyResult(source.DecodeRAMLimitsResult)
+}
+
 func (m *MockMetricsQuerier) QueryRAMUsageAvg(start, end time.Time) *source.Future[source.RAMUsageAvgResult] {
 	m.recordCall("QueryRAMUsageAvg")
 	return newEmptyResult(source.DecodeRAMUsageAvgResult)
@@ -452,6 +457,11 @@ func (m *MockMetricsQuerier) QueryCPUCoresAllocated(start, end time.Time) *sourc
 func (m *MockMetricsQuerier) QueryCPURequests(start, end time.Time) *source.Future[source.CPURequestsResult] {
 	m.recordCall("QueryCPURequests")
 	return newEmptyResult(source.DecodeCPURequestsResult)
+}
+
+func (m *MockMetricsQuerier) QueryCPULimits(start, end time.Time) *source.Future[source.CPULimitsResult] {
+	m.recordCall("QueryCPULimits")
+	return newEmptyResult(source.DecodeCPULimitsResult)
 }
 
 func (m *MockMetricsQuerier) QueryCPUUsageAvg(start, end time.Time) *source.Future[source.CPUUsageAvgResult] {
