@@ -383,14 +383,22 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	podsWithReplicaSetOwnerFuture := source.WithGroup(grp, mq.QueryPodsWithReplicaSetOwner(start, end))
 	replicaSetsWithoutOwnersFuture := source.WithGroup(grp, mq.QueryReplicaSetsWithoutOwners(start, end))
 	replicaSetsWithRolloutFuture := source.WithGroup(grp, mq.QueryReplicaSetsWithRollout(start, end))
-	resourceQuotaSpecCpuRequestsFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecCPURequests(start, end))
-	resourceQuotaSpecRamRequestsFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecRAMRequests(start, end))
-	resourceQuotaSpecCpuLimitsFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecCPULimits(start, end))
-	resourceQuotaSpecRamLimitsFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecRAMLimits(start, end))
-	resourceQuotaStatusUsedCpuRequestsFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedCPURequests(start, end))
-	resourceQuotaStatusUsedRamRequestsFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedRAMRequests(start, end))
-	resourceQuotaStatusUsedCpuLimitsFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedCPULimits(start, end))
-	resourceQuotaStatusUsedRamLimitsFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedRAMLimits(start, end))
+	resourceQuotaSpecCpuRequestAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecCPURequestAverage(start, end))
+	resourceQuotaSpecCpuRequestMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecCPURequestMax(start, end))
+	resourceQuotaSpecRamRequestAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecRAMRequestAverage(start, end))
+	resourceQuotaSpecRamRequestMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecRAMRequestMax(start, end))
+	resourceQuotaSpecCpuLimitAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecCPULimitAverage(start, end))
+	resourceQuotaSpecCpuLimitMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecCPULimitMax(start, end))
+	resourceQuotaSpecRamLimitAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecRAMLimitAverage(start, end))
+	resourceQuotaSpecRamLimitMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecRAMLimitMax(start, end))
+	resourceQuotaStatusUsedCpuRequestAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedCPURequestAverage(start, end))
+	resourceQuotaStatusUsedCpuRequestMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedCPURequestMax(start, end))
+	resourceQuotaStatusUsedRamRequestAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedRAMRequestAverage(start, end))
+	resourceQuotaStatusUsedRamRequestMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedRAMRequestMax(start, end))
+	resourceQuotaStatusUsedCpuLimitAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedCPULimitAverage(start, end))
+	resourceQuotaStatusUsedCpuLimitMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedCPULimitMax(start, end))
+	resourceQuotaStatusUsedRamLimitAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedRAMLimitAverage(start, end))
+	resourceQuotaStatusUsedRamLimitMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedRAMLimitMax(start, end))
 
 	pvActiveMinutes, _ := pvActiveMinutesFuture.Await()
 	pvUsedAverage, _ := pvUsedAverageFuture.Await()
@@ -466,102 +474,118 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	podsWithReplicaSetOwner, _ := podsWithReplicaSetOwnerFuture.Await()
 	replicaSetsWithoutOwners, _ := replicaSetsWithoutOwnersFuture.Await()
 	replicaSetsWithRollout, _ := replicaSetsWithRolloutFuture.Await()
-	resourceQuotaSpecCpuRequests, _ := resourceQuotaSpecCpuRequestsFuture.Await()
-	resourceQuotaSpecRamRequests, _ := resourceQuotaSpecRamRequestsFuture.Await()
-	resourceQuotaSpecCpuLimits, _ := resourceQuotaSpecCpuLimitsFuture.Await()
-	resourceQuotaSpecRamLimits, _ := resourceQuotaSpecRamLimitsFuture.Await()
-	resourceQuotaStatusUsedCpuRequests, _ := resourceQuotaStatusUsedCpuRequestsFuture.Await()
-	resourceQuotaStatusUsedRamRequests, _ := resourceQuotaStatusUsedRamRequestsFuture.Await()
-	resourceQuotaStatusUsedCpuLimits, _ := resourceQuotaStatusUsedCpuLimitsFuture.Await()
-	resourceQuotaStatusUsedRamLimits, _ := resourceQuotaStatusUsedRamLimitsFuture.Await()
+	resourceQuotaSpecCpuRequestAvg, _ := resourceQuotaSpecCpuRequestAvgFuture.Await()
+	resourceQuotaSpecCpuRequestMax, _ := resourceQuotaSpecCpuRequestMaxFuture.Await()
+	resourceQuotaSpecRamRequestAvg, _ := resourceQuotaSpecRamRequestAvgFuture.Await()
+	resourceQuotaSpecRamRequestMax, _ := resourceQuotaSpecRamRequestMaxFuture.Await()
+	resourceQuotaSpecCpuLimitAvg, _ := resourceQuotaSpecCpuLimitAvgFuture.Await()
+	resourceQuotaSpecCpuLimitMax, _ := resourceQuotaSpecCpuLimitMaxFuture.Await()
+	resourceQuotaSpecRamLimitAvg, _ := resourceQuotaSpecRamLimitAvgFuture.Await()
+	resourceQuotaSpecRamLimitMax, _ := resourceQuotaSpecRamLimitMaxFuture.Await()
+	resourceQuotaStatusUsedCpuRequestAvg, _ := resourceQuotaStatusUsedCpuRequestAvgFuture.Await()
+	resourceQuotaStatusUsedCpuRequestMax, _ := resourceQuotaStatusUsedCpuRequestMaxFuture.Await()
+	resourceQuotaStatusUsedRamRequestAvg, _ := resourceQuotaStatusUsedRamRequestAvgFuture.Await()
+	resourceQuotaStatusUsedRamRequestMax, _ := resourceQuotaStatusUsedRamRequestMaxFuture.Await()
+	resourceQuotaStatusUsedCpuLimitAvg, _ := resourceQuotaStatusUsedCpuLimitAvgFuture.Await()
+	resourceQuotaStatusUsedCpuLimitMax, _ := resourceQuotaStatusUsedCpuLimitMaxFuture.Await()
+	resourceQuotaStatusUsedRamLimitAvg, _ := resourceQuotaStatusUsedRamLimitAvgFuture.Await()
+	resourceQuotaStatusUsedRamLimitMax, _ := resourceQuotaStatusUsedRamLimitMaxFuture.Await()
 
 	if grp.HasErrors() {
 		return nil, grp.Error()
 	}
 
 	return &MetricsSnapshot{
-		Window:                             opencost.NewClosedWindow(start, end),
-		PVActiveMinutes:                    pvActiveMinutes,
-		PVUsedAverage:                      pvUsedAverage,
-		PVUsedMax:                          pvUsedMax,
-		LocalStorageActiveMinutes:          localStorageActiveMinutes,
-		LocalStorageCost:                   localStorageCost,
-		LocalStorageUsedCost:               localStorageUsedCost,
-		LocalStorageUsedAvg:                localStorageUsedAvg,
-		LocalStorageUsedMax:                localStorageUsedMax,
-		LocalStorageBytes:                  localStorageBytes,
-		NodeActiveMinutes:                  nodeActiveMinutes,
-		NodeCPUCoresCapacity:               nodeCPUCoresCapacity,
-		NodeCPUCoresAllocatable:            nodeCPUCoresAllocatable,
-		NodeRAMBytesCapacity:               nodeRAMBytesCapacity,
-		NodeRAMBytesAllocatable:            nodeRAMBytesAllocatable,
-		NodeGPUCount:                       nodeGPUCount,
-		NodeCPUModeTotal:                   nodeCPUModeTotal,
-		NodeIsSpot:                         nodeIsSpot,
-		NodeRAMSystemPercent:               nodeRAMSystemPercent,
-		NodeRAMUserPercent:                 nodeRAMUserPercent,
-		LBActiveMinutes:                    lbActiveMinutes,
-		LBPricePerHr:                       lbPricePerHr,
-		ClusterManagementDuration:          clusterManagementDuration,
-		ClusterManagementPricePerHr:        clusterManagementPricePerHr,
-		Pods:                               pods,
-		PodsUID:                            podsUID,
-		RAMBytesAllocated:                  ramBytesAllocated,
-		RAMRequests:                        ramRequests,
-		RAMUsageAvg:                        ramUsageAvg,
-		RAMUsageMax:                        ramUsageMax,
-		NodeRAMPricePerGiBHr:               nodeRAMPricePerGiBHr,
-		CPUCoresAllocated:                  cpuCoresAllocated,
-		CPURequests:                        cpuRequests,
-		CPUUsageAvg:                        cpuUsageAvg,
-		CPUUsageMax:                        cpuUsageMax,
-		NodeCPUPricePerHr:                  nodeCPUPricePerHr,
-		GPUsAllocated:                      gpusAllocated,
-		GPUsRequested:                      gpusRequested,
-		GPUsUsageAvg:                       gpusUsageAvg,
-		GPUsUsageMax:                       gpusUsageMax,
-		NodeGPUPricePerHr:                  nodeGPUPricePerHr,
-		GPUInfo:                            gpuInfo,
-		IsGPUShared:                        isGPUShared,
-		PodPVCAllocation:                   podPVCAllocation,
-		PVCBytesRequested:                  pvcBytesRequested,
-		PVCInfo:                            pvcInfo,
-		PVBytes:                            pvBytes,
-		PVPricePerGiBHour:                  pvPricePerGiBHour,
-		PVInfo:                             pvInfo,
-		NetZoneGiB:                         netZoneGiB,
-		NetZonePricePerGiB:                 netZonePricePerGiB,
-		NetRegionGiB:                       netRegionGiB,
-		NetRegionPricePerGiB:               netRegionPricePerGiB,
-		NetInternetGiB:                     netInternetGiB,
-		NetInternetPricePerGiB:             netInternetPricePerGiB,
-		NetInternetServiceGiB:              netInternetServiceGiB,
-		NetTransferBytes:                   netTransferBytes,
-		NetZoneIngressGiB:                  netZoneIngressGiB,
-		NetRegionIngressGiB:                netRegionIngressGiB,
-		NetInternetIngressGiB:              netInternetIngressGiB,
-		NetInternetServiceIngressGiB:       netInternetServiceIngressGiB,
-		NetReceiveBytes:                    netReceiveBytes,
-		NamespaceAnnotations:               namespaceAnnotations,
-		PodAnnotations:                     podAnnotations,
-		NodeLabels:                         nodeLabels,
-		NamespaceLabels:                    namespaceLabels,
-		PodLabels:                          podLabels,
-		ServiceLabels:                      serviceLabels,
-		DeploymentLabels:                   deploymentLabels,
-		StatefulSetLabels:                  statefulSetLabels,
-		DaemonSetLabels:                    daemonSetLabels,
-		JobLabels:                          jobLabels,
-		PodsWithReplicaSetOwner:            podsWithReplicaSetOwner,
-		ReplicaSetsWithoutOwners:           replicaSetsWithoutOwners,
-		ReplicaSetsWithRollout:             replicaSetsWithRollout,
-		ResourceQuotaSpecCPURequests:       resourceQuotaSpecCpuRequests,
-		ResourceQuotaSpecRAMRequests:       resourceQuotaSpecRamRequests,
-		ResourceQuotaSpecCPULimits:         resourceQuotaSpecCpuLimits,
-		ResourceQuotaSpecRAMLimits:         resourceQuotaSpecRamLimits,
-		ResourceQuotaStatusUsedCPURequests: resourceQuotaStatusUsedCpuRequests,
-		ResourceQuotaStatusUsedRAMRequests: resourceQuotaStatusUsedRamRequests,
-		ResourceQuotaStatusUsedCPULimits:   resourceQuotaStatusUsedCpuLimits,
-		ResourceQuotaStatusUsedRAMLimits:   resourceQuotaStatusUsedRamLimits,
+		Window:                               opencost.NewClosedWindow(start, end),
+		PVActiveMinutes:                      pvActiveMinutes,
+		PVUsedAverage:                        pvUsedAverage,
+		PVUsedMax:                            pvUsedMax,
+		LocalStorageActiveMinutes:            localStorageActiveMinutes,
+		LocalStorageCost:                     localStorageCost,
+		LocalStorageUsedCost:                 localStorageUsedCost,
+		LocalStorageUsedAvg:                  localStorageUsedAvg,
+		LocalStorageUsedMax:                  localStorageUsedMax,
+		LocalStorageBytes:                    localStorageBytes,
+		NodeActiveMinutes:                    nodeActiveMinutes,
+		NodeCPUCoresCapacity:                 nodeCPUCoresCapacity,
+		NodeCPUCoresAllocatable:              nodeCPUCoresAllocatable,
+		NodeRAMBytesCapacity:                 nodeRAMBytesCapacity,
+		NodeRAMBytesAllocatable:              nodeRAMBytesAllocatable,
+		NodeGPUCount:                         nodeGPUCount,
+		NodeCPUModeTotal:                     nodeCPUModeTotal,
+		NodeIsSpot:                           nodeIsSpot,
+		NodeRAMSystemPercent:                 nodeRAMSystemPercent,
+		NodeRAMUserPercent:                   nodeRAMUserPercent,
+		LBActiveMinutes:                      lbActiveMinutes,
+		LBPricePerHr:                         lbPricePerHr,
+		ClusterManagementDuration:            clusterManagementDuration,
+		ClusterManagementPricePerHr:          clusterManagementPricePerHr,
+		Pods:                                 pods,
+		PodsUID:                              podsUID,
+		RAMBytesAllocated:                    ramBytesAllocated,
+		RAMRequests:                          ramRequests,
+		RAMUsageAvg:                          ramUsageAvg,
+		RAMUsageMax:                          ramUsageMax,
+		NodeRAMPricePerGiBHr:                 nodeRAMPricePerGiBHr,
+		CPUCoresAllocated:                    cpuCoresAllocated,
+		CPURequests:                          cpuRequests,
+		CPUUsageAvg:                          cpuUsageAvg,
+		CPUUsageMax:                          cpuUsageMax,
+		NodeCPUPricePerHr:                    nodeCPUPricePerHr,
+		GPUsAllocated:                        gpusAllocated,
+		GPUsRequested:                        gpusRequested,
+		GPUsUsageAvg:                         gpusUsageAvg,
+		GPUsUsageMax:                         gpusUsageMax,
+		NodeGPUPricePerHr:                    nodeGPUPricePerHr,
+		GPUInfo:                              gpuInfo,
+		IsGPUShared:                          isGPUShared,
+		PodPVCAllocation:                     podPVCAllocation,
+		PVCBytesRequested:                    pvcBytesRequested,
+		PVCInfo:                              pvcInfo,
+		PVBytes:                              pvBytes,
+		PVPricePerGiBHour:                    pvPricePerGiBHour,
+		PVInfo:                               pvInfo,
+		NetZoneGiB:                           netZoneGiB,
+		NetZonePricePerGiB:                   netZonePricePerGiB,
+		NetRegionGiB:                         netRegionGiB,
+		NetRegionPricePerGiB:                 netRegionPricePerGiB,
+		NetInternetGiB:                       netInternetGiB,
+		NetInternetPricePerGiB:               netInternetPricePerGiB,
+		NetInternetServiceGiB:                netInternetServiceGiB,
+		NetTransferBytes:                     netTransferBytes,
+		NetZoneIngressGiB:                    netZoneIngressGiB,
+		NetRegionIngressGiB:                  netRegionIngressGiB,
+		NetInternetIngressGiB:                netInternetIngressGiB,
+		NetInternetServiceIngressGiB:         netInternetServiceIngressGiB,
+		NetReceiveBytes:                      netReceiveBytes,
+		NamespaceAnnotations:                 namespaceAnnotations,
+		PodAnnotations:                       podAnnotations,
+		NodeLabels:                           nodeLabels,
+		NamespaceLabels:                      namespaceLabels,
+		PodLabels:                            podLabels,
+		ServiceLabels:                        serviceLabels,
+		DeploymentLabels:                     deploymentLabels,
+		StatefulSetLabels:                    statefulSetLabels,
+		DaemonSetLabels:                      daemonSetLabels,
+		JobLabels:                            jobLabels,
+		PodsWithReplicaSetOwner:              podsWithReplicaSetOwner,
+		ReplicaSetsWithoutOwners:             replicaSetsWithoutOwners,
+		ReplicaSetsWithRollout:               replicaSetsWithRollout,
+		ResourceQuotaSpecCPURequestAvg:       resourceQuotaSpecCpuRequestAvg,
+		ResourceQuotaSpecCPURequestMax:       resourceQuotaSpecCpuRequestMax,
+		ResourceQuotaSpecRAMRequestAvg:       resourceQuotaSpecRamRequestAvg,
+		ResourceQuotaSpecRAMRequestMax:       resourceQuotaSpecRamRequestMax,
+		ResourceQuotaSpecCPULimitAvg:         resourceQuotaSpecCpuLimitAvg,
+		ResourceQuotaSpecCPULimitMax:         resourceQuotaSpecCpuLimitMax,
+		ResourceQuotaSpecRAMLimitAvg:         resourceQuotaSpecRamLimitAvg,
+		ResourceQuotaSpecRAMLimitMax:         resourceQuotaSpecRamLimitMax,
+		ResourceQuotaStatusUsedCPURequestAvg: resourceQuotaStatusUsedCpuRequestAvg,
+		ResourceQuotaStatusUsedCPURequestMax: resourceQuotaStatusUsedCpuRequestMax,
+		ResourceQuotaStatusUsedRAMRequestAvg: resourceQuotaStatusUsedRamRequestAvg,
+		ResourceQuotaStatusUsedRAMRequestMax: resourceQuotaStatusUsedRamRequestMax,
+		ResourceQuotaStatusUsedCPULimitAvg:   resourceQuotaStatusUsedCpuLimitAvg,
+		ResourceQuotaStatusUsedCPULimitMax:   resourceQuotaStatusUsedCpuLimitMax,
+		ResourceQuotaStatusUsedRAMLimitAvg:   resourceQuotaStatusUsedRamLimitAvg,
+		ResourceQuotaStatusUsedRAMLimitMax:   resourceQuotaStatusUsedRamLimitMax,
 	}, nil
 }
