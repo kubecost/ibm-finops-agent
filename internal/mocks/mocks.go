@@ -664,6 +664,46 @@ func (m *MockMetricsQuerier) QueryReplicaSetsWithRollout(start, end time.Time) *
 	return newEmptyResult(source.DecodeReplicaSetsWithRolloutResult)
 }
 
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecCPURequests(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestResult] {
+	m.recordCall("QueryResourceQuotaSpecCPURequests")
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPURequestResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecRAMRequests(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestResult] {
+	m.recordCall("QueryResourceQuotaSpecRAMRequests")
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMRequestResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecCPULimits(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitResult] {
+	m.recordCall("QueryResourceQuotaSpecCPULimits")
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPULimitResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecRAMLimits(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitResult] {
+	m.recordCall("QueryResourceQuotaSpecRAMLimits")
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMLimitResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedCPURequests(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedCPURequests")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPURequestResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedRAMRequests(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedRAMRequests")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMRequestResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedCPULimits(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedCPULimits")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPULimitResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimits(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedRAMLimits")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMLimitResult)
+}
+
 func (m *MockMetricsQuerier) QueryDataCoverage(_ int) (time.Time, time.Time, error) {
 	m.recordCall("QueryDataCoverage")
 	return time.Time{}, time.Time{}, nil

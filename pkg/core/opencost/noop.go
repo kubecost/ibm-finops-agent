@@ -385,6 +385,38 @@ func (m *NoOpMetricsQuerier) QueryReplicaSetsWithRollout(start, end time.Time) *
 	return newEmptyResult(source.DecodeReplicaSetsWithRolloutResult)
 }
 
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPURequests(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPURequestResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMRequests(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMRequestResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPULimits(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPULimitResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMLimits(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMLimitResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPURequests(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPURequestResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMRequests(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMRequestResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPULimits(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPULimitResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimits(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMLimitResult)
+}
+
 func (m *NoOpMetricsQuerier) QueryDataCoverage(_ int) (time.Time, time.Time, error) {
 	return time.Time{}, time.Time{}, nil
 }
