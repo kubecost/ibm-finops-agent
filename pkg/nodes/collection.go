@@ -87,11 +87,6 @@ func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 				wg.Done()
 			}()
 
-			if currentNode.Spec.ProviderID == "" {
-				log.Warnf("node ProviderID not set, skipping collection for %s", currentNode.Name)
-				return
-			}
-
 			nd := nodeFetchData{
 				nodeName:       currentNode.Name,
 				ClusterHostURL: nssc.clusterHostUrl,

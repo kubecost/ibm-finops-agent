@@ -42,5 +42,6 @@ func (cipa *ClusterInfoProviderAdapter) GetClusterInfo() map[string]string {
 		clusters.ClusterInfoProjectKey:     cipa.info.Project,
 		clusters.ClusterInfoRegionKey:      cipa.info.Region,
 		clusters.ClusterInfoProvisionerKey: cipa.info.Provisioner,
+		clusters.ClusterInfoVersionKey:     cipa.info.Version,
 	}
 }
