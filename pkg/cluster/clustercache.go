@@ -66,6 +66,9 @@ type ClusterCache interface {
 	// GetAllReplicationControllers returns all cached replication controllers
 	GetAllReplicationControllers() []*v1.ReplicationController
 
+	// GetAllResourceQuotas returns all cached resource quotas
+	GetAllResourceQuotas() []*v1.ResourceQuota
+
 	// ListUnstructuredByGroupVersionResource returns array of unstructured objects by group version resource
 	ListUnstructuredByGroupVersionResource(gvr schema.GroupVersionResource) []*unstructured.Unstructured
 }

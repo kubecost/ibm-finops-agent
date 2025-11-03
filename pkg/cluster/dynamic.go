@@ -57,6 +57,7 @@ var (
 		reflect.TypeOf(stv1.StorageClass{}):            {Group: "storage.k8s.io", Version: "v1", Resource: "storageclasses"},
 		reflect.TypeOf(batchv1.Job{}):                  {Group: "batch", Version: "v1", Resource: "jobs"},
 		reflect.TypeOf(policyv1.PodDisruptionBudget{}): {Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"},
+		reflect.TypeOf(corev1.ResourceQuota{}):         {Version: "v1", Resource: "resourcequotas"},
 	}
 	// fields to trim on specific resources if parseMetricsData is enabled
 	gvkToSanitizePaths = map[schema.GroupVersionKind][]string{
@@ -326,17 +327,15 @@ func (dcc *DynamicClusterCache) ListUnstructuredByGroupVersionResource(gvr schem
 }
 
 func (dcc *DynamicClusterCache) GetAllNamespaces() []*corev1.Namespace {
-
-	return ConvertUnstructuredArrayToTypedArray[corev1.Namespace](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.Namespace{})]))
+	return AllOf[corev1.Namespace](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllNodes() []*corev1.Node {
-
-	return ConvertUnstructuredArrayToTypedArray[corev1.Node](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.Node{})]))
+	return AllOf[corev1.Node](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllPods() []*corev1.Pod {
-	return ConvertUnstructuredArrayToTypedArray[corev1.Pod](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.Pod{})]))
+	return AllOf[corev1.Pod](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllShortLivedPods() []*corev1.Pod {
@@ -348,56 +347,63 @@ func (dcc *DynamicClusterCache) GetAllShortLivedPods() []*corev1.Pod {
 }
 
 func (dcc *DynamicClusterCache) GetAllServices() []*corev1.Service {
-
-	return ConvertUnstructuredArrayToTypedArray[corev1.Service](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.Service{})]))
+	return AllOf[corev1.Service](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllPersistentVolumes() []*corev1.PersistentVolume {
-
-	return ConvertUnstructuredArrayToTypedArray[corev1.PersistentVolume](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.PersistentVolume{})]))
+	return AllOf[corev1.PersistentVolume](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllPersistentVolumeClaims() []*corev1.PersistentVolumeClaim {
-
-	return ConvertUnstructuredArrayToTypedArray[corev1.PersistentVolumeClaim](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.PersistentVolumeClaim{})]))
+	return AllOf[corev1.PersistentVolumeClaim](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllDeployments() []*appsv1.Deployment {
-
-	return ConvertUnstructuredArrayToTypedArray[appsv1.Deployment](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(appsv1.Deployment{})]))
+	return AllOf[appsv1.Deployment](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllDaemonSets() []*appsv1.DaemonSet {
-
-	return ConvertUnstructuredArrayToTypedArray[appsv1.DaemonSet](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(appsv1.DaemonSet{})]))
+	return AllOf[appsv1.DaemonSet](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllStatefulSets() []*appsv1.StatefulSet {
-
-	return ConvertUnstructuredArrayToTypedArray[appsv1.StatefulSet](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(appsv1.StatefulSet{})]))
+	return AllOf[appsv1.StatefulSet](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllReplicaSets() []*appsv1.ReplicaSet {
-
-	return ConvertUnstructuredArrayToTypedArray[appsv1.ReplicaSet](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(appsv1.ReplicaSet{})]))
+	return AllOf[appsv1.ReplicaSet](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllStorageClasses() []*stv1.StorageClass {
-
-	return ConvertUnstructuredArrayToTypedArray[stv1.StorageClass](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(stv1.StorageClass{})]))
+	return AllOf[stv1.StorageClass](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllJobs() []*batchv1.Job {
-
-	return ConvertUnstructuredArrayToTypedArray[batchv1.Job](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(batchv1.Job{})]))
+	return AllOf[batchv1.Job](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllPodDisruptionBudgets() []*policyv1.PodDisruptionBudget {
-
-	return ConvertUnstructuredArrayToTypedArray[policyv1.PodDisruptionBudget](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(policyv1.PodDisruptionBudget{})]))
+	return AllOf[policyv1.PodDisruptionBudget](dcc)
 }
 
 func (dcc *DynamicClusterCache) GetAllReplicationControllers() []*corev1.ReplicationController {
+	return AllOf[corev1.ReplicationController](dcc)
+}
 
-	return ConvertUnstructuredArrayToTypedArray[corev1.ReplicationController](dcc.ListUnstructuredByGroupVersionResource(cacheResourceMap[reflect.TypeOf(corev1.ReplicationController{})]))
+func (dcc *DynamicClusterCache) GetAllResourceQuotas() []*corev1.ResourceQuota {
+	return AllOf[corev1.ResourceQuota](dcc)
+}
+
+// AllOf returns all resources of type T from the dynamic cluster cache
+func AllOf[T any](dcc *DynamicClusterCache) []*T {
+	t := reflect.TypeFor[T]()
+	resource, ok := cacheResourceMap[t]
+	if !ok {
+		log.Errorf("No resource mapping found for type %s", t)
+		return nil
+	}
+
+	return ConvertUnstructuredArrayToTypedArray[T](
+		dcc.ListUnstructuredByGroupVersionResource(resource),
+	)
 }

@@ -13,7 +13,7 @@ func TestNewKubernetesSnapshotConfig(t *testing.T) {
 		config.DaemonSets || config.Deployments || config.StatefulSets ||
 		config.ReplicaSets || config.PersistentVolumes || config.PersistentVolumeClaims ||
 		config.StorageClasses || config.Jobs || config.PodDisruptionBudgets ||
-		config.ReplicationControllers {
+		config.ReplicationControllers || config.ResourceQuotas {
 		t.Error("NewKubernetesSnapshotConfig should initialize all fields to false")
 	}
 }
@@ -32,7 +32,7 @@ func TestNewKubernetesSnapshotConfigFromEnabled(t *testing.T) {
 				DaemonSets: false, Deployments: false, StatefulSets: false,
 				ReplicaSets: false, PersistentVolumes: false, PersistentVolumeClaims: false,
 				StorageClasses: false, Jobs: false, PodDisruptionBudgets: false,
-				ReplicationControllers: false,
+				ReplicationControllers: false, ResourceQuotas: false,
 			},
 		},
 		{
@@ -43,7 +43,7 @@ func TestNewKubernetesSnapshotConfigFromEnabled(t *testing.T) {
 				DaemonSets: false, Deployments: false, StatefulSets: false,
 				ReplicaSets: false, PersistentVolumes: false, PersistentVolumeClaims: false,
 				StorageClasses: false, Jobs: false, PodDisruptionBudgets: false,
-				ReplicationControllers: false,
+				ReplicationControllers: false, ResourceQuotas: false,
 			},
 		},
 		{
@@ -54,7 +54,7 @@ func TestNewKubernetesSnapshotConfigFromEnabled(t *testing.T) {
 				DaemonSets: false, Deployments: false, StatefulSets: false,
 				ReplicaSets: false, PersistentVolumes: false, PersistentVolumeClaims: false,
 				StorageClasses: false, Jobs: false, PodDisruptionBudgets: false,
-				ReplicationControllers: false,
+				ReplicationControllers: false, ResourceQuotas: false,
 			},
 		},
 		{
@@ -65,7 +65,7 @@ func TestNewKubernetesSnapshotConfigFromEnabled(t *testing.T) {
 				DaemonSets: true, Deployments: true, StatefulSets: true,
 				ReplicaSets: true, PersistentVolumes: true, PersistentVolumeClaims: true,
 				StorageClasses: true, Jobs: true, PodDisruptionBudgets: true,
-				ReplicationControllers: true,
+				ReplicationControllers: true, ResourceQuotas: true,
 			},
 		},
 		{
@@ -76,7 +76,7 @@ func TestNewKubernetesSnapshotConfigFromEnabled(t *testing.T) {
 				DaemonSets: false, Deployments: false, StatefulSets: false,
 				ReplicaSets: false, PersistentVolumes: false, PersistentVolumeClaims: false,
 				StorageClasses: false, Jobs: false, PodDisruptionBudgets: false,
-				ReplicationControllers: false,
+				ReplicationControllers: false, ResourceQuotas: false,
 			},
 		},
 		{
@@ -87,7 +87,7 @@ func TestNewKubernetesSnapshotConfigFromEnabled(t *testing.T) {
 				DaemonSets: false, Deployments: false, StatefulSets: false,
 				ReplicaSets: false, PersistentVolumes: false, PersistentVolumeClaims: false,
 				StorageClasses: false, Jobs: false, PodDisruptionBudgets: false,
-				ReplicationControllers: false,
+				ReplicationControllers: false, ResourceQuotas: false,
 			},
 		},
 	}
@@ -117,7 +117,7 @@ func TestNewKubernetesSnapshotConfigFromDisabled(t *testing.T) {
 				DaemonSets: true, Deployments: true, StatefulSets: true,
 				ReplicaSets: true, PersistentVolumes: true, PersistentVolumeClaims: true,
 				StorageClasses: true, Jobs: true, PodDisruptionBudgets: true,
-				ReplicationControllers: true,
+				ReplicationControllers: true, ResourceQuotas: true,
 			},
 		},
 		{
@@ -128,7 +128,7 @@ func TestNewKubernetesSnapshotConfigFromDisabled(t *testing.T) {
 				DaemonSets: true, Deployments: true, StatefulSets: true,
 				ReplicaSets: true, PersistentVolumes: true, PersistentVolumeClaims: true,
 				StorageClasses: true, Jobs: true, PodDisruptionBudgets: true,
-				ReplicationControllers: true,
+				ReplicationControllers: true, ResourceQuotas: true,
 			},
 		},
 		{
@@ -139,7 +139,7 @@ func TestNewKubernetesSnapshotConfigFromDisabled(t *testing.T) {
 				DaemonSets: true, Deployments: true, StatefulSets: true,
 				ReplicaSets: true, PersistentVolumes: true, PersistentVolumeClaims: true,
 				StorageClasses: true, Jobs: true, PodDisruptionBudgets: true,
-				ReplicationControllers: true,
+				ReplicationControllers: true, ResourceQuotas: true,
 			},
 		},
 		{
@@ -150,7 +150,7 @@ func TestNewKubernetesSnapshotConfigFromDisabled(t *testing.T) {
 				DaemonSets: false, Deployments: false, StatefulSets: false,
 				ReplicaSets: false, PersistentVolumes: false, PersistentVolumeClaims: false,
 				StorageClasses: false, Jobs: false, PodDisruptionBudgets: false,
-				ReplicationControllers: false,
+				ReplicationControllers: false, ResourceQuotas: false,
 			},
 		},
 		{
@@ -161,7 +161,7 @@ func TestNewKubernetesSnapshotConfigFromDisabled(t *testing.T) {
 				DaemonSets: true, Deployments: true, StatefulSets: true,
 				ReplicaSets: true, PersistentVolumes: true, PersistentVolumeClaims: true,
 				StorageClasses: true, Jobs: true, PodDisruptionBudgets: true,
-				ReplicationControllers: true,
+				ReplicationControllers: true, ResourceQuotas: true,
 			},
 		},
 	}
@@ -185,7 +185,7 @@ func TestKubernetesSnapshotConfig_EnableAll(t *testing.T) {
 		config.DaemonSets || config.Deployments || config.StatefulSets ||
 		config.ReplicaSets || config.PersistentVolumes || config.PersistentVolumeClaims ||
 		config.StorageClasses || config.Jobs || config.PodDisruptionBudgets ||
-		config.ReplicationControllers {
+		config.ReplicationControllers || config.ResourceQuotas {
 		t.Error("Expected all fields to be false initially")
 	}
 
@@ -202,7 +202,7 @@ func TestKubernetesSnapshotConfig_EnableAll(t *testing.T) {
 		!config.DaemonSets || !config.Deployments || !config.StatefulSets ||
 		!config.ReplicaSets || !config.PersistentVolumes || !config.PersistentVolumeClaims ||
 		!config.StorageClasses || !config.Jobs || !config.PodDisruptionBudgets ||
-		!config.ReplicationControllers {
+		!config.ReplicationControllers || !config.ResourceQuotas {
 		t.Error("EnableAll should set all fields to true")
 	}
 }
@@ -215,7 +215,7 @@ func TestKubernetesSnapshotConfig_DisableAll(t *testing.T) {
 		!config.DaemonSets || !config.Deployments || !config.StatefulSets ||
 		!config.ReplicaSets || !config.PersistentVolumes || !config.PersistentVolumeClaims ||
 		!config.StorageClasses || !config.Jobs || !config.PodDisruptionBudgets ||
-		!config.ReplicationControllers {
+		!config.ReplicationControllers || !config.ResourceQuotas {
 		t.Error("Expected all fields to be true initially")
 	}
 
@@ -232,7 +232,7 @@ func TestKubernetesSnapshotConfig_DisableAll(t *testing.T) {
 		config.DaemonSets || config.Deployments || config.StatefulSets ||
 		config.ReplicaSets || config.PersistentVolumes || config.PersistentVolumeClaims ||
 		config.StorageClasses || config.Jobs || config.PodDisruptionBudgets ||
-		config.ReplicationControllers {
+		config.ReplicationControllers || config.ResourceQuotas {
 		t.Error("DisableAll should set all fields to false")
 	}
 }
@@ -259,6 +259,7 @@ func TestKubernetesSnapshotConfig_Set(t *testing.T) {
 		{"jobs", true, func(c *KubernetesSnapshotConfig) bool { return c.Jobs }},
 		{"poddisruptionbudgets", true, func(c *KubernetesSnapshotConfig) bool { return c.PodDisruptionBudgets }},
 		{"replicationcontrollers", true, func(c *KubernetesSnapshotConfig) bool { return c.ReplicationControllers }},
+		{"resourcequotas", true, func(c *KubernetesSnapshotConfig) bool { return c.ResourceQuotas }},
 	}
 
 	for _, tt := range tests {
@@ -344,6 +345,7 @@ func TestKubernetesSnapshotConfig_Append(t *testing.T) {
 				Jobs:                   tt.config1.Jobs,
 				PodDisruptionBudgets:   tt.config1.PodDisruptionBudgets,
 				ReplicationControllers: tt.config1.ReplicationControllers,
+				ResourceQuotas:         tt.config1.ResourceQuotas,
 			}
 
 			result.Append(tt.config2)
@@ -372,6 +374,7 @@ func TestKubernetesSnapshotConfig_AppendNilConfig(t *testing.T) {
 		Jobs:                   config.Jobs,
 		PodDisruptionBudgets:   config.PodDisruptionBudgets,
 		ReplicationControllers: config.ReplicationControllers,
+		ResourceQuotas:         config.ResourceQuotas,
 	}
 
 	config.Append(nil)
@@ -469,7 +472,8 @@ func TestDefaultSnapshotConfig(t *testing.T) {
 		!config.KubernetesSnapshot.StatefulSets || !config.KubernetesSnapshot.ReplicaSets ||
 		!config.KubernetesSnapshot.PersistentVolumes || !config.KubernetesSnapshot.PersistentVolumeClaims ||
 		!config.KubernetesSnapshot.StorageClasses || !config.KubernetesSnapshot.Jobs ||
-		!config.KubernetesSnapshot.PodDisruptionBudgets || !config.KubernetesSnapshot.ReplicationControllers {
+		!config.KubernetesSnapshot.PodDisruptionBudgets || !config.KubernetesSnapshot.ReplicationControllers ||
+		!config.KubernetesSnapshot.ResourceQuotas {
 		t.Error("DefaultSnapshotConfig should have all kubernetes resources enabled")
 	}
 }

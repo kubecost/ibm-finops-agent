@@ -162,3 +162,13 @@ func (kcc *OpenCostClusterCacheAdapter) GetAllReplicationControllers() []*cluste
 	}
 	return rcs
 }
+
+func (kcc *OpenCostClusterCacheAdapter) GetAllResourceQuotas() []*clustercache.ResourceQuota {
+	cc := kcc.clusterCache
+
+	var rqs []*clustercache.ResourceQuota
+	for _, rq := range cc.GetAllResourceQuotas() {
+		rqs = append(rqs, clustercache.TransformResourceQuota(rq))
+	}
+	return rqs
+}
