@@ -131,6 +131,11 @@ jobs:
             version=${{ steps.meta.outputs.version }}
             commit=${{ github.sha }}
 
+      - name: Install Helm
+        uses: azure/setup-helm@v1
+        with:
+          version: 3.18.4
+
       - name: E2E testing
         working-directory: ./ibm-finops-agent
         run: |

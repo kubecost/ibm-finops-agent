@@ -1,17 +1,14 @@
 FROM redhat/ubi9:latest AS build-env
 ARG TARGETPLATFORM
 
-RUN yum install -y unzip \
-    wget \
-    ca-certificates \
-    yum-utils
+RUN yum install -y unzip wget
 
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-    wget https://go.dev/dl/go1.24.4.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.24.4.linux-amd64.tar.gz; \
+    wget https://go.dev/dl/go1.25.3.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.25.3.linux-amd64.tar.gz; \
     elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-    wget https://go.dev/dl/go1.24.4.linux-arm64.tar.gz && \
-    tar -C /usr/local -xzf go1.24.4.linux-arm64.tar.gz; \
+    wget https://go.dev/dl/go1.25.3.linux-arm64.tar.gz && \
+    tar -C /usr/local -xzf go1.25.3.linux-arm64.tar.gz; \
     else \
     echo "unsupported target platform: $TARGETPLATFORM" && \
     exit 1; \
@@ -30,35 +27,10 @@ WORKDIR /app
 ARG version=dev
 ARG commit=HEAD
 
-# Opencost-Core
-COPY ./opencost/core/go.mod ./opencost/core/go.mod
-COPY ./opencost/core/go.sum ./opencost/core/go.sum
+# Copy Opencost Pricing Configs 
+COPY ./ibm-finops-agent/opencost/configs ./opencost/configs
 
-# Opencost-Prom Module
-COPY ./opencost/modules/prometheus-source/go.mod ./opencost/modules/prometheus-source/go.mod
-COPY ./opencost/modules/prometheus-source/go.sum ./opencost/modules/prometheus-source/go.sum
-
-# Opencost-Collector Module
-COPY ./opencost/modules/collector-source/go.mod ./opencost/modules/collector-source/go.mod
-COPY ./opencost/modules/collector-source/go.sum ./opencost/modules/collector-source/go.sum
-
-# Opencost 
-COPY ./opencost/go.mod ./opencost/go.mod
-COPY ./opencost/go.sum ./opencost/go.sum
-
-# Then copy the source code
-COPY ./opencost/core ./opencost/core
-COPY ./opencost/modules/prometheus-source ./opencost/modules/prometheus-source
-COPY ./opencost/modules/collector-source ./opencost/modules/collector-source
-COPY ./opencost ./opencost
-
-# Download deps 
-RUN cd ./opencost/core && go mod download
-RUN cd ./opencost/modules/prometheus-source && go mod download
-RUN cd ./opencost/modules/collector-source && go mod download
-RUN cd ./opencost && go mod download
-
-
+# Copy Finops Agent Source 
 COPY ./ibm-finops-agent/go.mod ./ibm-finops-agent/go.mod
 COPY ./ibm-finops-agent/go.sum ./ibm-finops-agent/go.sum
 COPY ./ibm-finops-agent ./ibm-finops-agent
@@ -73,7 +45,7 @@ RUN cd ./ibm-finops-agent/cmd/finops-agent && set -e ;\
     -o /go/bin/app
 
 
-FROM redhat/ubi9-micro:latest
+FROM redhat/ubi9-minimal:latest
 
 ARG commit
 ARG version
@@ -91,8 +63,6 @@ LABEL name="ibm-finops-agent" \
     version="${version}" \
     release="${version}"
 
-# Copy ca-certificates and ClickHouse files from the download-env stage
-COPY --from=build-env /etc/pki/ca-trust /etc/pki/ca-trust
 ENV CONTAINERIZED="true"
 
 # Add timezone data and set timezone to GMT
@@ -104,6 +74,7 @@ ADD ./opencost/configs/aws.json /models/aws.json
 ADD ./opencost/configs/gcp.json /models/gcp.json
 ADD ./opencost/configs/awsreservationofferings.json /static/awsreservationofferings.json
 ADD ./opencost/configs/alibaba.json /models/alibaba.json
+COPY ./ibm-finops-agent/LICENSE /licenses/LICENSE
 
 COPY --from=build-env /go/bin/app /go/bin/app
 USER 1001

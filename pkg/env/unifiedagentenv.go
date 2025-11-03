@@ -11,7 +11,7 @@ import (
 const (
 	// Emitter Configuration
 	KubecostEmitterEnabledEnvVar = "KUBECOST_EMITTER_ENABLED"
-	CloudyEmitterEnabledEnvVar   = "CLOUDY_EMITTER_ENABLED"
+	CloudyEmitterEnabledEnvVar   = "CLOUDABILITY_EMITTER_ENABLED"
 	TurboEmitterEnabledEnvVar    = "TURBO_EMITTER_ENABLED"
 
 	// Exporter Emission Interval
@@ -54,6 +54,11 @@ func IsKubecostEmitterEnabled() bool {
 }
 
 func IsCloudyEmitterEnabled() bool {
+	// support a legacy env var
+	if !env.GetBool("CLOUDY_EMITTER_ENABLED", true) {
+		return false
+	}
+
 	return env.GetBool(CloudyEmitterEnabledEnvVar, true)
 }
 

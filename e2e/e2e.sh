@@ -5,15 +5,20 @@ set -e
 : ${IMAGE:?Need to set metrics-agent IMAGE variable to test}
 : ${KUBERNETES_VERSION:?Need to set KUBERNETES_VERSION to test}
 
-# Maybe this should be CI = true instead of OS = darwin
-OS=$(uname)
-if [ "$OS" = "Darwin" ]; then
+# Assumes that you're running podman and macOS locally.
+# This could be handled by some params if we want to handle alternative dev envs.
+if [ "${CI}" != "true" ]; then
   export WORKINGDIR=/private${TEMP_DIR}/testdata/e2e/e2e-${KUBERNETES_VERSION}
-  export KUBECTL="kubectl"
+  DOCKER=podman
 else
   export WORKINGDIR=${TEMP_DIR}/testdata/e2e/e2e-${KUBERNETES_VERSION}
-  export KUBECTL="docker exec -i e2e-${KUBERNETES_VERSION}-control-plane kubectl --server=https://127.0.0.1:6443"
+  DOCKER=docker
 fi
+
+IMAGE_TAG="${IMAGE##*:}"
+IMAGE_NO_TAG="${IMAGE%:*}"
+IMAGE_REG="${IMAGE_NO_TAG%%/*}"
+IMAGE_REPO="${IMAGE_NO_TAG#*/}"
 
 cleanup() {
   kind delete cluster --name=e2e-${KUBERNETES_VERSION} &> /dev/null || true
@@ -36,7 +41,7 @@ setup_kind() {
   kubectl version
 
   if [ "${CI}" != "true" ]; then
-    docker save -o e2e_image_archive.tar localhost/e2e/ibm-finops-agent:e2e
+    ${DOCKER} save -o e2e_image_archive.tar localhost/e2e/ibm-finops-agent:e2e
   fi
 
   i=0
@@ -53,6 +58,20 @@ setup_kind() {
   done
 }
 
+HELM_INSTALL="helm install unified-agent e2e-test/finops-agent \
+--set agent.cloudability.enabled=true \
+--set agent.cloudability.uploadRegion="staging" \
+--set agent.cloudability.secret.create=true \
+--set agent.cloudability.secret.cloudabilityAccessKey="XXX" \
+--set agent.cloudability.secret.cloudabilitySecretKey="XXX" \
+--set agent.cloudability.secret.cloudabilityEnvId="XXX" \
+--set agent.cloudability.emissionInterval="10s" \
+--set image.registry="${IMAGE_REG}" \
+--set image.repository="${IMAGE_REPO}" \
+--set image.tag="${IMAGE_TAG}" \
+--set clusterId="e2e" \
+--create-namespace -n ibm-finops-agent"
+
 deploy(){
   mkdir -p -m 0777 ${WORKINGDIR}
 
@@ -61,69 +80,64 @@ deploy(){
     exit 1
   fi
 
-  if [ "${CI}" = "true" ]; then
-    docker cp ~/.kube/config e2e-${KUBERNETES_VERSION}-control-plane:/root/.kube/config
-    ${KUBECTL} apply -f -  < e2e/e2e_deployment.yaml
-    ${KUBECTL} -n ibm-finops-agent patch deployment unified-agent --patch \
-    "{\"spec\": {\"template\": {\"spec\": {\"containers\": [{\"name\": \"unified-agent\", \"image\": \"${IMAGE}\" }]}}}}"
-  else
-    ${KUBECTL} apply -f e2e/e2e_deployment.yaml
-  fi
-
+  ${HELM_INSTALL}
   sleep 10
-  ${KUBECTL} create ns stress
-  ${KUBECTL} -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
+  kubectl create ns stress
+  kubectl -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
 }
 
 wait_for_metrics() {
   i=0
   until [ $i -ge 10 ]
   do 
-    if [[ $(${KUBECTL} get pods -n ibm-finops-agent -l app=unified-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
+    if [[ $(kubectl get pods -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
       echo "Agent pod is ready!" && break
     fi
-    echo "waiting for agent pod to be ready"
+    echo "Waiting for agent pod to be ready..."
     i=$[$i+1]
     sleep 5
   done
 }
 
 get_sample_data(){
-  POD=$(${KUBECTL} get pod -n ibm-finops-agent -l app=unified-agent -o jsonpath="{.items[0].metadata.name}")
+  POD=$(kubectl get pod -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent -o jsonpath="{.items[0].metadata.name}")
   i=0
   until [ $i -ge 5 ]
   do
-    if [[ -n $(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/) ]]; then
+    if [[ -n $(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/) ]]; then
       echo "Scratch directory exists!"
       break
     fi
     
-    echo "Waiting for scratch directory to initialize"
+    echo "Waiting for scratch directory to initialize..."
     sleep 30
     i=$[$i+1]
   done
 
-  FLDR=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
-  SMPL=$(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
+  # Retrieve sample name
+  FLDR=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
+  SMPL=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
 
   i=0
   until [ $i -ge 5 ]
   do
-    if [[ $(${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/$FLDR | wc -l) -gt 1 ]]; then
+    if [[ $(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/$FLDR | wc -l) -gt 1 ]]; then
       echo "Sample is populated!"
       break
     fi
     
-    echo "Waiting for sample to populate"
+    echo "Waiting for sample to populate..."
     sleep 30
     i=$[$i+1]
   done
 
   echo "Copying agent sample to ${WORKINGDIR}"
-  ${KUBECTL} exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
-  ${KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
-  ${KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/namespaces.jsonl > ${WORKINGDIR}/namespaces.jsonl
-  ${KUBECTL} exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/pods.jsonl > ${WORKINGDIR}/pods.jsonl
+  # Copy all file names into file_list.txt
+  kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
+  # Copy notable files to working dir
+  kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
+  kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/namespaces.jsonl > ${WORKINGDIR}/namespaces.jsonl
+  kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/pods.jsonl > ${WORKINGDIR}/pods.jsonl
 }
 
 run_tests() {

@@ -1,6 +1,8 @@
 package emitter
 
 import (
+	"time"
+
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
 
@@ -170,6 +172,15 @@ func (ksc *KubernetesSnapshotConfig) Append(config *KubernetesSnapshotConfig) {
 	ksc.ResourceQuotas = ksc.ResourceQuotas || config.ResourceQuotas
 }
 
+// Now is used with the `SnapshotConfig` as an implementation for determine the current time.
+type Now = func() time.Time
+
+// defaultNow is the default `Now` implementation used to provide `time.Now().UTC()` from the
+// go standard library. This should really only be overridden for testing purposes.
+func defaultNow() time.Time {
+	return time.Now().UTC()
+}
+
 // SnapshotConfig holds the configuration for general snapshotting options.
 type SnapshotConfig struct {
 	// UseMetricsCache indicates whether or not to use a cache for metrics query results.
@@ -182,6 +193,9 @@ type SnapshotConfig struct {
 
 	// KubernetesSnapshotConfig holds the configuration for Kubernetes resources to snapshot.
 	KubernetesSnapshot *KubernetesSnapshotConfig
+
+	// Now is the func used to determine the current time.
+	Now Now
 }
 
 // WithKubernetesSnapshotConfig appends the provided KubernetesSnapshotConfig to the current SnapshotConfig.
@@ -201,6 +215,7 @@ func NewSnapshotConfigFromEnv() *SnapshotConfig {
 	return &SnapshotConfig{
 		UseMetricsCache:        !env.IsPromless(),
 		MinutelyMetricsEnabled: env.IsMinuteMetricsEnabled(),
+		Now:                    defaultNow,
 	}
 }
 
@@ -210,5 +225,6 @@ func DefaultSnapshotConfig() *SnapshotConfig {
 		UseMetricsCache:        false,
 		MinutelyMetricsEnabled: false,
 		KubernetesSnapshot:     NewKubernetesSnapshotConfig().EnableAll(),
+		Now:                    defaultNow,
 	}
 }
