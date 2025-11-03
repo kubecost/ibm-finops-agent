@@ -336,11 +336,13 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	podsUIDFuture := source.WithGroup(grp, mq.QueryPodsUID(start, end))
 	ramBytesAllocatedFuture := source.WithGroup(grp, mq.QueryRAMBytesAllocated(start, end))
 	ramRequestsFuture := source.WithGroup(grp, mq.QueryRAMRequests(start, end))
+	ramLimitsFuture := source.WithGroup(grp, mq.QueryRAMLimits(start, end))
 	ramUsageAvgFuture := source.WithGroup(grp, mq.QueryRAMUsageAvg(start, end))
 	ramUsageMaxFuture := source.WithGroup(grp, mq.QueryRAMUsageMax(start, end))
 	nodeRAMPricePerGiBHrFuture := source.WithGroup(grp, mq.QueryNodeRAMPricePerGiBHr(start, end))
 	cpuCoresAllocatedFuture := source.WithGroup(grp, mq.QueryCPUCoresAllocated(start, end))
 	cpuRequestsFuture := source.WithGroup(grp, mq.QueryCPURequests(start, end))
+	cpuLimitsFuture := source.WithGroup(grp, mq.QueryCPULimits(start, end))
 	cpuUsageAvgFuture := source.WithGroup(grp, mq.QueryCPUUsageAvg(start, end))
 	cpuUsageMaxFuture := source.WithGroup(grp, mq.QueryCPUUsageMax(start, end))
 	nodeCPUPricePerHrFuture := source.WithGroup(grp, mq.QueryNodeCPUPricePerHr(start, end))
@@ -411,11 +413,13 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	podsUID, _ := podsUIDFuture.Await()
 	ramBytesAllocated, _ := ramBytesAllocatedFuture.Await()
 	ramRequests, _ := ramRequestsFuture.Await()
+	ramLimits, _ := ramLimitsFuture.Await()
 	ramUsageAvg, _ := ramUsageAvgFuture.Await()
 	ramUsageMax, _ := ramUsageMaxFuture.Await()
 	nodeRAMPricePerGiBHr, _ := nodeRAMPricePerGiBHrFuture.Await()
 	cpuCoresAllocated, _ := cpuCoresAllocatedFuture.Await()
 	cpuRequests, _ := cpuRequestsFuture.Await()
+	cpuLimits, _ := cpuLimitsFuture.Await()
 	cpuUsageAvg, _ := cpuUsageAvgFuture.Await()
 	cpuUsageMax, _ := cpuUsageMaxFuture.Await()
 	nodeCPUPricePerHr, _ := nodeCPUPricePerHrFuture.Await()
@@ -492,11 +496,13 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		PodsUID:                      podsUID,
 		RAMBytesAllocated:            ramBytesAllocated,
 		RAMRequests:                  ramRequests,
+		RAMLimits:                    ramLimits,
 		RAMUsageAvg:                  ramUsageAvg,
 		RAMUsageMax:                  ramUsageMax,
 		NodeRAMPricePerGiBHr:         nodeRAMPricePerGiBHr,
 		CPUCoresAllocated:            cpuCoresAllocated,
 		CPURequests:                  cpuRequests,
+		CPULimits:                    cpuLimits,
 		CPUUsageAvg:                  cpuUsageAvg,
 		CPUUsageMax:                  cpuUsageMax,
 		NodeCPUPricePerHr:            nodeCPUPricePerHr,
