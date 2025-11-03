@@ -77,11 +77,13 @@ type MetricsSnapshot struct {
 	PodsUID                      []*source.PodsResult
 	RAMBytesAllocated            []*source.RAMBytesAllocatedResult
 	RAMRequests                  []*source.RAMRequestsResult
+	RAMLimits                    []*source.RAMLimitsResult
 	RAMUsageAvg                  []*source.RAMUsageAvgResult
 	RAMUsageMax                  []*source.RAMUsageMaxResult
 	NodeRAMPricePerGiBHr         []*source.NodeRAMPricePerGiBHrResult
 	CPUCoresAllocated            []*source.CPUCoresAllocatedResult
 	CPURequests                  []*source.CPURequestsResult
+	CPULimits                    []*source.CPULimitsResult
 	CPUUsageAvg                  []*source.CPUUsageAvgResult
 	CPUUsageMax                  []*source.CPUUsageMaxResult
 	NodeCPUPricePerHr            []*source.NodeCPUPricePerHrResult
