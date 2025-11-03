@@ -218,3 +218,16 @@ func (cca *ClusterCacheAdapter) GetAllReplicationControllers() []*clustercache.R
 	}
 	return rcs
 }
+
+func (cca *ClusterCacheAdapter) GetAllResourceQuotas() []*clustercache.ResourceQuota {
+	cca.lock.RLock()
+	defer cca.lock.RUnlock()
+
+	cc := cca.snapshot
+
+	var rqs []*clustercache.ResourceQuota
+	for _, rq := range cc.ResourceQuotas {
+		rqs = append(rqs, clustercache.TransformResourceQuota(rq))
+	}
+	return rqs
+}

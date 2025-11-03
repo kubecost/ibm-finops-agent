@@ -485,6 +485,18 @@ func (mqa *MetricsQuerierAdapter) QueryRAMRequests(start, end time.Time) *source
 	return source.NewFutureFrom(snapshot.RAMRequests)
 }
 
+func (mqa *MetricsQuerierAdapter) QueryRAMLimits(start, end time.Time) *source.Future[source.RAMLimitsResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeRAMLimitsResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.RAMLimits)
+}
+
 func (mqa *MetricsQuerierAdapter) QueryRAMUsageAvg(start, end time.Time) *source.Future[source.RAMUsageAvgResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()
@@ -543,6 +555,18 @@ func (mqa *MetricsQuerierAdapter) QueryCPURequests(start, end time.Time) *source
 	}
 
 	return source.NewFutureFrom(snapshot.CPURequests)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryCPULimits(start, end time.Time) *source.Future[source.CPULimitsResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeCPULimitsResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.CPULimits)
 }
 
 func (mqa *MetricsQuerierAdapter) QueryCPUUsageAvg(start, end time.Time) *source.Future[source.CPUUsageAvgResult] {

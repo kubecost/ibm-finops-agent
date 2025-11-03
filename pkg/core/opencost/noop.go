@@ -197,6 +197,10 @@ func (m *NoOpMetricsQuerier) QueryRAMRequests(start, end time.Time) *source.Futu
 	return newEmptyResult(source.DecodeRAMRequestsResult)
 }
 
+func (m *NoOpMetricsQuerier) QueryRAMLimits(start, end time.Time) *source.Future[source.RAMLimitsResult] {
+	return newEmptyResult(source.DecodeRAMLimitsResult)
+}
+
 func (m *NoOpMetricsQuerier) QueryRAMUsageAvg(start, end time.Time) *source.Future[source.RAMUsageAvgResult] {
 	return newEmptyResult(source.DecodeRAMUsageAvgResult)
 }
@@ -215,6 +219,10 @@ func (m *NoOpMetricsQuerier) QueryCPUCoresAllocated(start, end time.Time) *sourc
 
 func (m *NoOpMetricsQuerier) QueryCPURequests(start, end time.Time) *source.Future[source.CPURequestsResult] {
 	return newEmptyResult(source.DecodeCPURequestsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryCPULimits(start, end time.Time) *source.Future[source.CPULimitsResult] {
+	return newEmptyResult(source.DecodeCPULimitsResult)
 }
 
 func (m *NoOpMetricsQuerier) QueryCPUUsageAvg(start, end time.Time) *source.Future[source.CPUUsageAvgResult] {

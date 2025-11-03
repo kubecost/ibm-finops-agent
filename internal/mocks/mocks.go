@@ -149,6 +149,7 @@ type MockClusterCache struct {
 	Jobs                   []*batchv1.Job
 	PodDisruptionBudgets   []*policyv1.PodDisruptionBudget
 	ReplicationControllers []*v1.ReplicationController
+	ResourceQuotas         []*v1.ResourceQuota
 	UnstructuredObjects    map[schema.GroupVersionResource][]*unstructured.Unstructured
 }
 
@@ -263,6 +264,12 @@ func (m *MockClusterCache) GetAllPodDisruptionBudgets() []*policyv1.PodDisruptio
 func (m *MockClusterCache) GetAllReplicationControllers() []*v1.ReplicationController {
 	m.recordCall("GetAllReplicationControllers")
 	return m.ReplicationControllers
+}
+
+// GetAllResourceQuotas implements ClusterCache interface
+func (m *MockClusterCache) GetAllResourceQuotas() []*v1.ResourceQuota {
+	m.recordCall("GetAllResourceQuotas")
+	return m.ResourceQuotas
 }
 
 // ListUnstructuredByGroupVersionResource implements ClusterCache interface
@@ -429,6 +436,11 @@ func (m *MockMetricsQuerier) QueryRAMRequests(start, end time.Time) *source.Futu
 	return newEmptyResult(source.DecodeRAMRequestsResult)
 }
 
+func (m *MockMetricsQuerier) QueryRAMLimits(start, end time.Time) *source.Future[source.RAMLimitsResult] {
+	m.recordCall("QueryRAMLimits")
+	return newEmptyResult(source.DecodeRAMLimitsResult)
+}
+
 func (m *MockMetricsQuerier) QueryRAMUsageAvg(start, end time.Time) *source.Future[source.RAMUsageAvgResult] {
 	m.recordCall("QueryRAMUsageAvg")
 	return newEmptyResult(source.DecodeRAMUsageAvgResult)
@@ -452,6 +464,11 @@ func (m *MockMetricsQuerier) QueryCPUCoresAllocated(start, end time.Time) *sourc
 func (m *MockMetricsQuerier) QueryCPURequests(start, end time.Time) *source.Future[source.CPURequestsResult] {
 	m.recordCall("QueryCPURequests")
 	return newEmptyResult(source.DecodeCPURequestsResult)
+}
+
+func (m *MockMetricsQuerier) QueryCPULimits(start, end time.Time) *source.Future[source.CPULimitsResult] {
+	m.recordCall("QueryCPULimits")
+	return newEmptyResult(source.DecodeCPULimitsResult)
 }
 
 func (m *MockMetricsQuerier) QueryCPUUsageAvg(start, end time.Time) *source.Future[source.CPUUsageAvgResult] {
