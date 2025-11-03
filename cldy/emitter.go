@@ -327,7 +327,7 @@ func (ce *Emitter) ClearOldScratchSamples() error {
 func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]proto.Message {
 	return map[string][]proto.Message{
 		//TODO: add cronjobs
-		"nodes":                  convertObj(snapshot.Nodes),
+		"nodes":                  checkAndConvertNodes(snapshot.Nodes),
 		"pods":                   convertObj(append(snapshot.Pods, snapshot.ShortLivedPods...)),
 		"deployments":            convertObj(snapshot.Deployments),
 		"replicasets":            convertObj(snapshot.ReplicaSets),
@@ -342,12 +342,24 @@ func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]proto.Mess
 	}
 }
 
+func checkAndConvertNodes(nodes []*v1.Node) []proto.Message {
+	var data []proto.Message
+	for _, node := range nodes {
+		if node.Spec.ProviderID == "" {
+			log.Warnf("Node ProviderID is not set for node: %s which may be because the node is running in a self managed environment, and this may cause inconsistent gathering of metrics data.", node.Name)
+		}
+		data = append(data, node)
+	}
+	return data
+}
+
 func convertObj[T proto.Message](objs []T) []proto.Message {
 	var data []proto.Message
 	for _, obj := range objs {
 		if shouldSkipResource(obj) {
 			continue
 		}
+
 		data = append(data, obj)
 	}
 	return data
