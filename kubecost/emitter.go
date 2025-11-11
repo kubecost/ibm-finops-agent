@@ -116,6 +116,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	pipelineControllers.AllocationExportController.Start(ke.config.ExportIntervals.AllocationInterval)
 	pipelineControllers.AssetExportController.Start(ke.config.ExportIntervals.AssetInterval)
 	pipelineControllers.NetworkInsightExportController.Start(ke.config.ExportIntervals.NetworkInsightInterval)
+	pipelineControllers.KubeModelExportController.Start(ke.config.ExportIntervals.KubeModelInterval)
 
 	// agent presence and heartbeat
 	heartbeatMetadata := heartbeatexporter.NewMultiMetadataProvider(

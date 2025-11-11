@@ -25,6 +25,7 @@ type ExportIntervalConfig struct {
 	AllocationInterval     time.Duration
 	AssetInterval          time.Duration
 	NetworkInsightInterval time.Duration
+	KubeModelInterval      time.Duration
 	HeartbeatInterval      time.Duration
 	DiagnosticsInterval    time.Duration
 }
@@ -35,6 +36,7 @@ func DefaultExportIntervalConfig() *ExportIntervalConfig {
 		AllocationInterval:     10 * time.Minute,
 		AssetInterval:          10 * time.Minute,
 		NetworkInsightInterval: 10 * time.Minute,
+		KubeModelInterval:      10 * time.Minute,
 		HeartbeatInterval:      5 * time.Minute,
 		DiagnosticsInterval:    3 * time.Minute,
 	}
@@ -46,6 +48,7 @@ func NewExportIntervalConfigFromEnv() *ExportIntervalConfig {
 		AllocationInterval:     kcenv.GetAllocationExportInterval(),
 		AssetInterval:          kcenv.GetAssetExportInterval(),
 		NetworkInsightInterval: kcenv.GetNetworkInsightExportInterval(),
+		KubeModelInterval:      kcenv.GetKubeModelExportInterval(),
 		HeartbeatInterval:      kcenv.GetHeartbeatExportInterval(),
 		DiagnosticsInterval:    kcenv.GetDiagnosticsExportInterval(),
 	}
