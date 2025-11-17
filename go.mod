@@ -1,6 +1,6 @@
 module github.com/ibm/finops-agent
 
-go 1.25.3
+go 1.25.4
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.17.1
