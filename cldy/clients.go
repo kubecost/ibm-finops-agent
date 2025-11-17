@@ -458,6 +458,8 @@ func getURLsFromRegion(region string) (string, string) {
 		return formatFrontdoorAndCloudabilityURLs("-jp", "-jp")
 	case "in", "ap-south-1":
 		return formatFrontdoorAndCloudabilityURLs("-in", "-in")
+	case "gov", "us-gov-west-1":
+		return formatFrontdoorAndCloudabilityURLs("-usgov", ".usgov")
 	case "hybrid-eu":
 		return formatFrontdoorAndCloudabilityURLs("-eu", "")
 	case "hybrid-au":
