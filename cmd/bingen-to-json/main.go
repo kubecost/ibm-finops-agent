@@ -25,7 +25,7 @@ func kubeModelBinaryToJson(bytes []byte) ([]byte, error) {
 }
 
 func decodeKubeModel(srcPath, outPath string) {
-	filepath.WalkDir(srcPath, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(srcPath, func(path string, d os.DirEntry, err error) error {
 		kind := "file"
 		if d.IsDir() {
 			kind = "dir"
@@ -69,6 +69,10 @@ func decodeKubeModel(srcPath, outPath string) {
 
 		return nil
 	})
+
+	if err != nil {
+		fmt.Printf("error walking dir (%s): %s", srcPath, err)
+	}
 }
 
 func main() {
