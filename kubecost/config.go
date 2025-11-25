@@ -66,6 +66,7 @@ type EmitterConfig struct {
 	QueryResolution                time.Duration
 	EmitAllocationMinuteResolution bool
 	EmitAssetMinuteResolution      bool
+	EmitKubeModelMinuteResolution  bool
 	KubernetesResourcesRequired    []string
 }
 
@@ -82,6 +83,7 @@ func NewEmitterConfigFromEnv() *EmitterConfig {
 		QueryResolution:                1 * time.Minute,
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),
 		EmitAssetMinuteResolution:      kcenv.IsMinuteMetricsEnabled(),
+		EmitKubeModelMinuteResolution:  kcenv.IsMinuteMetricsEnabled(),
 		// Kubecost emitter requires all kubernetes resources to be enabled
 		KubernetesResourcesRequired: slices.Clone(emitter.SnapshotAllResources),
 	}

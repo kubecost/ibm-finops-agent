@@ -110,6 +110,12 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 			10*time.Minute,
 		)
 	}
+	if ke.config.EmitKubeModelMinuteResolution {
+		pipelineConfig.KubeModelPipelineResolutions = append(
+			pipelineConfig.KubeModelPipelineResolutions,
+			10*time.Minute,
+		)
+	}
 
 	// all pipeline export controllers
 	pipelineControllers := exporter.NewPipelineExportControllers(ke.config.ClusterID, bucketStore, costModel, pipelineConfig)
