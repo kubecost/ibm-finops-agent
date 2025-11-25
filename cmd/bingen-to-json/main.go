@@ -39,7 +39,10 @@ func decodeKubeModel(srcPath, outPath string) {
 		}
 
 		if d.IsDir() {
-			os.MkdirAll(filepath.Join(outPath, path), 0755)
+			err := os.MkdirAll(filepath.Join(outPath, path), 0755)
+			if err != nil {
+				return err
+			}
 			return nil
 		}
 
