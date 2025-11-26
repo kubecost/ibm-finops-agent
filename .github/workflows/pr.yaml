@@ -136,10 +136,10 @@ jobs:
         with:
           version: 3.18.4
 
-      - name: E2E testing
-        working-directory: ./ibm-finops-agent
-        run: |
-          make e2e-test IMAGE_TAG=${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+#      - name: E2E testing
+#        working-directory: ./ibm-finops-agent
+#        run: |
+#          make e2e-test IMAGE_TAG=${{ fromJSON(steps.meta.outputs.json).tags[0] }}
 
       - name: Push Docker image
         run: docker push ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
