@@ -16,7 +16,9 @@ import (
 )
 
 // KubernetesSnapshot contains the state of a Kubernetes cluster at a give n point in time.
+// TODO revisit the ClusterUID idea here
 type KubernetesSnapshot struct {
+	ClusterUID             string
 	Nodes                  []*v1.Node
 	Pods                   []*v1.Pod
 	ShortLivedPods         []*v1.Pod
@@ -77,13 +79,13 @@ type MetricsSnapshot struct {
 	PodsUID                              []*source.PodsResult
 	RAMBytesAllocated                    []*source.RAMBytesAllocatedResult
 	RAMRequests                          []*source.RAMRequestsResult
-  RAMLimits                            []*source.RAMLimitsResult
+	RAMLimits                            []*source.RAMLimitsResult
 	RAMUsageAvg                          []*source.RAMUsageAvgResult
 	RAMUsageMax                          []*source.RAMUsageMaxResult
 	NodeRAMPricePerGiBHr                 []*source.NodeRAMPricePerGiBHrResult
 	CPUCoresAllocated                    []*source.CPUCoresAllocatedResult
 	CPURequests                          []*source.CPURequestsResult
-  CPULimits                            []*source.CPULimitsResult
+	CPULimits                            []*source.CPULimitsResult
 	CPUUsageAvg                          []*source.CPUUsageAvgResult
 	CPUUsageMax                          []*source.CPUUsageMaxResult
 	NodeCPUPricePerHr                    []*source.NodeCPUPricePerHrResult

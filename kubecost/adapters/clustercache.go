@@ -37,6 +37,11 @@ func (cca *ClusterCacheAdapter) Stop() {
 	// no-op
 }
 
+// TODO revisit
+func (cca *ClusterCacheAdapter) GetClusterUID() string {
+	return cca.snapshot.ClusterUID
+}
+
 func (cca *ClusterCacheAdapter) GetAllNamespaces() []*clustercache.Namespace {
 	cca.lock.RLock()
 	defer cca.lock.RUnlock()

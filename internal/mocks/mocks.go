@@ -135,6 +135,7 @@ type MockClusterCache struct {
 	Calls map[string]int
 
 	// Mock data to return
+	ClusterUID             string
 	Namespaces             []*v1.Namespace
 	Nodes                  []*v1.Node
 	Pods                   []*v1.Pod
@@ -174,6 +175,12 @@ func (m *MockClusterCache) Start(stopCh <-chan struct{}) {
 // Shutdown implements ClusterCache interface
 func (m *MockClusterCache) Shutdown() {
 	m.recordCall("Shutdown")
+}
+
+// GetClusterUID implements ClusterCache interface
+func (m *MockClusterCache) GetClusterUID() string {
+	m.recordCall("GetClusterUID")
+	return m.ClusterUID
 }
 
 // GetAllNamespaces implements ClusterCache interface

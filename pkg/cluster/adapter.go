@@ -23,6 +23,11 @@ func (kcc *OpenCostClusterCacheAdapter) Stop() {
 	// no-op
 }
 
+// TODO revisit
+func (kcc *OpenCostClusterCacheAdapter) GetClusterUID() string {
+	return kcc.clusterCache.GetClusterUID()
+}
+
 func (kcc *OpenCostClusterCacheAdapter) GetAllNamespaces() []*clustercache.Namespace {
 	cc := kcc.clusterCache
 
