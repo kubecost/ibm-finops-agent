@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"github.com/opencost/opencost/core/pkg/log"
 	"sync"
 
 	"github.com/ibm/finops-agent/pkg/emitter"
@@ -35,6 +36,11 @@ func (cca *ClusterCacheAdapter) Run() {
 
 func (cca *ClusterCacheAdapter) Stop() {
 	// no-op
+}
+
+func (cca *ClusterCacheAdapter) GetClusterUID() string {
+	log.Error("ClusterCacheAdapter: GetClusterUID is a no-op function and should not be called")
+	return ""
 }
 
 func (cca *ClusterCacheAdapter) GetAllNamespaces() []*clustercache.Namespace {

@@ -37,7 +37,7 @@ func NewOpenCostDataSource(
 	// Create ConfigFileManager for synchronization of shared configuration
 	confManager := config.NewConfigFileManager(nil)
 
-	clusterCache := cluster.NewOpenCostClusterCacheAdapter(k8sCache)
+	clusterCache := cluster.NewOpenCostClusterCacheAdapter(kubeClientset, k8sCache)
 
 	// NOTE: this cloud provider is purely an implementation used to provide cluster info (it does not actively pull pricing data).
 	cloudProvider, err := provider.NewProvider(clusterCache, conf.CloudProviderAPIKey, confManager)
