@@ -152,11 +152,8 @@ func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfi
 		config.KubernetesSnapshot = NewKubernetesSnapshotConfig().EnableAll()
 	}
 
-	// TODO revisit ClusterUID business
-
 	kconfig := config.KubernetesSnapshot
 	return &KubernetesSnapshot{
-		ClusterUID:             cluster.GetClusterUID(),
 		Nodes:                  snapshotResource(kconfig.Nodes, cluster.GetAllNodes),
 		Pods:                   snapshotResource(kconfig.Pods, cluster.GetAllPods),
 		ShortLivedPods:         cluster.GetAllShortLivedPods(), // always snapshot short-lived pods to reset buffer
@@ -532,13 +529,13 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		PodsUID:                              podsUID,
 		RAMBytesAllocated:                    ramBytesAllocated,
 		RAMRequests:                          ramRequests,
-		RAMLimits:                            ramLimits,
+    RAMLimits:                            ramLimits,
 		RAMUsageAvg:                          ramUsageAvg,
 		RAMUsageMax:                          ramUsageMax,
 		NodeRAMPricePerGiBHr:                 nodeRAMPricePerGiBHr,
 		CPUCoresAllocated:                    cpuCoresAllocated,
 		CPURequests:                          cpuRequests,
-		CPULimits:                            cpuLimits,
+    CPULimits:                            cpuLimits,
 		CPUUsageAvg:                          cpuUsageAvg,
 		CPUUsageMax:                          cpuUsageMax,
 		NodeCPUPricePerHr:                    nodeCPUPricePerHr,

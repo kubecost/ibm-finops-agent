@@ -21,10 +21,6 @@ type ClusterCache interface {
 	// Shutdown the watcher processes
 	Shutdown()
 
-	// TODO revisit
-	// GetClusterUID returns the cluster's UID (kube-system namespace UID)
-	GetClusterUID() string
-
 	// GetAllNamespaces returns all the cached namespaces
 	GetAllNamespaces() []*v1.Namespace
 

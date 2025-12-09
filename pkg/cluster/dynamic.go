@@ -1,8 +1,6 @@
 package cluster
 
 import (
-	"context"
-	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -18,7 +16,6 @@ import (
 	stv1 "k8s.io/api/storage/v1"
 
 	"github.com/opencost/opencost/core/pkg/log"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -134,7 +131,6 @@ var (
 // DynamicClusterCache is the implementation of ClusterCache with dynamic informers
 type DynamicClusterCache struct {
 	dynamicinformer.DynamicSharedInformerFactory
-	clusterUID     string
 	shortLivedPods []*corev1.Pod
 	slpMux         sync.RWMutex
 	slpDuration    time.Duration
@@ -151,14 +147,7 @@ func NewDynamicClusterCache(
 		return nil, err
 	}
 
-	var clusterUID string
-	clusterUID, err = getClusterUID(client)
-	if err != nil {
-		return nil, fmt.Errorf("error getting cluster UID: %w", err)
-	}
-
 	cache := DynamicClusterCache{
-		clusterUID:                   clusterUID,
 		DynamicSharedInformerFactory: dynamicinformer.NewDynamicSharedInformerFactory(client, defaultResync),
 		slpDuration:                  slpDuration,
 	}
@@ -181,33 +170,6 @@ func NewDynamicClusterCache(
 	}
 
 	return &cache, nil
-}
-
-// TODO revisit this
-func getClusterUID(client *dynamic.DynamicClient) (string, error) {
-	// Identify GroupVersionResource for namespaces
-	resource := schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}
-
-	// Get the unstructured "kube-system" namespace from the dynamic client
-	nsUnstructured, err := client.Resource(resource).Get(context.Background(), "kube-system", v1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("error getting 'kube-system' namespace: %w", err)
-	}
-
-	// Cast the unstructured "kube-system" namespace to a corev1.Namespace
-	var ns corev1.Namespace
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(nsUnstructured.Object, &ns)
-	if err != nil {
-		return "", fmt.Errorf("error casting unstructured kube-system namaespace object: %w", err)
-	}
-
-	// Grab the UID
-	uid := string(ns.ObjectMeta.UID)
-	if uid == "" {
-		return "", fmt.Errorf("uid field in 'kube-system' namespace is empty")
-	}
-
-	return uid, nil
 }
 
 func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod interface{}) {
@@ -362,10 +324,6 @@ func (dcc *DynamicClusterCache) ListUnstructuredByGroupVersionResource(gvr schem
 	}
 
 	return objs
-}
-
-func (dcc *DynamicClusterCache) GetClusterUID() string {
-	return dcc.clusterUID
 }
 
 func (dcc *DynamicClusterCache) GetAllNamespaces() []*corev1.Namespace {
