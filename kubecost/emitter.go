@@ -80,7 +80,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 		log.Warnf("Failed to download pricing data: %s", err)
 	}
 
-	costModel := costmodel.NewCostModel(dataSource, cloudProvider, clusterCache, clusterMap, dataSource.BatchDuration())
+	costModel := costmodel.NewCostModel(ke.config.ClusterUID, dataSource, cloudProvider, clusterCache, clusterMap, dataSource.BatchDuration())
 
 	// Setup exporters for kubecost pipelines
 	bucketConfig, err := os.ReadFile(ke.config.BucketConfigFile)
@@ -97,7 +97,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 
 	log.Infof("Successfully created bucket storage")
 
-	pipelineConfig := exporter.DefaultPipelinesExportConfig()
+	pipelineConfig := exporter.NewPipelinesExportConfig(ke.config.ClusterUID, ke.config.ClusterName)
 	if ke.config.EmitAllocationMinuteResolution {
 		pipelineConfig.AllocationPiplineResolutions = append(
 			pipelineConfig.AllocationPiplineResolutions,
@@ -118,7 +118,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	}
 
 	// all pipeline export controllers
-	pipelineControllers := exporter.NewPipelineExportControllers(ke.config.ClusterID, bucketStore, costModel, pipelineConfig)
+	pipelineControllers := exporter.NewPipelineExportControllers(bucketStore, costModel, pipelineConfig)
 	pipelineControllers.AllocationExportController.Start(ke.config.ExportIntervals.AllocationInterval)
 	pipelineControllers.AssetExportController.Start(ke.config.ExportIntervals.AssetInterval)
 	pipelineControllers.NetworkInsightExportController.Start(ke.config.ExportIntervals.NetworkInsightInterval)
@@ -129,11 +129,11 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 		heartbeatexporter.NewClusterInfoMetadataProvider(clusterInfo),
 		heartbeatexporter.NewLogLevelMetadataProvider(),
 	)
-	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.AppName, ke.config.ClusterID, version.FriendlyVersion(), bucketStore, heartbeatMetadata)
+	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.AppName, ke.config.ClusterName, version.FriendlyVersion(), bucketStore, heartbeatMetadata)
 	agentHeartbeat.Start(ke.config.ExportIntervals.HeartbeatInterval)
 
 	// diagnostics exporter
-	diagnosticsExporter := diagexporter.NewDiagnosticsExportController(ke.config.AppName, ke.config.ClusterID, bucketStore, ke.diag)
+	diagnosticsExporter := diagexporter.NewDiagnosticsExportController(ke.config.AppName, ke.config.ClusterName, bucketStore, ke.diag)
 	diagnosticsExporter.Start(ke.config.ExportIntervals.DiagnosticsInterval)
 
 	// initialize emitter's internal state

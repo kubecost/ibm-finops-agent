@@ -32,7 +32,7 @@ func TestMissingBucketConfigFileValidateConfig(t *testing.T) {
 	tempDir := os.TempDir()
 	t.Setenv(env.ConfigPathEnvVar, tempDir)
 
-	config := NewEmitterConfigFromEnv()
+	config := NewEmitterConfigFromEnv("cluster-uid")
 	if err := ValidateConfig(config); err == nil {
 		t.Fatal("Expected ValidateConfig to fail due to missing bucket config file, but it succeeded")
 	} else {
@@ -57,7 +57,7 @@ config:
 	t.Setenv(env.ClusterIDEnvVar, "test-cluster")
 	t.Setenv(env.ConfigPathEnvVar, tempDir)
 
-	config := NewEmitterConfigFromEnv()
+	config := NewEmitterConfigFromEnv("cluster-uid")
 	if err := ValidateConfig(config); err == nil {
 		t.Fatal("Expected ValidateConfig to fail due to invalid bucket config file, but it succeeded")
 	} else {
@@ -77,7 +77,7 @@ func TestValidBucketValidateConfig(t *testing.T) {
 	t.Setenv(env.ClusterIDEnvVar, "test-cluster")
 	t.Setenv(env.ConfigPathEnvVar, tempDir)
 
-	config := NewEmitterConfigFromEnv()
+	config := NewEmitterConfigFromEnv("cluster-uid")
 	if err := ValidateConfig(config); err != nil {
 		t.Fatalf("ValidateConfig failed: %v", err)
 	}

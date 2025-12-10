@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/storage"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
@@ -34,6 +35,11 @@ func NewOpenCostDataSource(
 	diag diagnostics.DiagnosticService,
 	conf *OpenCostConfig,
 ) source.OpenCostDataSource {
+	clusterUID, err := kubeconfig.GetClusterUID(kubeClientset)
+	if err != nil {
+		log.Fatalf("Failed to determine cluster UID: %s", err)
+	}
+
 	// Create ConfigFileManager for synchronization of shared configuration
 	confManager := config.NewConfigFileManager(nil)
 
@@ -109,7 +115,7 @@ func NewOpenCostDataSource(
 
 	clusterMap := dataSource.ClusterMap()
 
-	costModel := costmodel.NewCostModel(dataSource, cloudProvider, clusterCache, clusterMap, dataSource.BatchDuration())
+	costModel := costmodel.NewCostModel(clusterUID, dataSource, cloudProvider, clusterCache, clusterMap, dataSource.BatchDuration())
 	metricsEmitter := costmodel.NewCostModelMetricsEmitter(clusterCache, cloudProvider, clusterInfoProvider, costModel)
 	metricsEmitter.Start()
 

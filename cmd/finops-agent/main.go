@@ -18,6 +18,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
+	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/spf13/viper"
 )
@@ -76,7 +77,20 @@ func main() {
 
 	// Initialize/Bootstrap the Agent Data Source
 	emissionInterval := env.GetExporterEmissionInterval()
-	dataSource := core.NewAgentDataSource(router, diag, emissionInterval)
+
+	// NOTE: (bolt) This just uses a fairly straight-forward kube client initialization. We should add specific proxy/auth
+	// NOTE: (bolt) requirements for the other data sources.
+	kubeClientset, err := kubeconfig.LoadKubeClient("")
+	if err != nil {
+		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
+	}
+
+	clusterUID, err := kubeconfig.GetClusterUID(kubeClientset)
+	if err != nil {
+		log.Fatalf("Failed to determine cluster UID: %s", err)
+	}
+
+	dataSource := core.NewAgentDataSource(kubeClientset, router, diag, emissionInterval)
 
 	// Snapshot configuration will gather specific kubernetes resource requirements
 	// from each emitter that is enabled such that we only snapshot the resources that
@@ -85,7 +99,7 @@ func main() {
 
 	var emitters []emitter.Emitter
 	if env.IsKubecostEmitterEnabled() {
-		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv()
+		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv(clusterUID)
 		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
 
 		if err := kubecost.ValidateConfig(kubecostEmitterConfig); err != nil {

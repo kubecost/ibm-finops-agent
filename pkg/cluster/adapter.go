@@ -1,27 +1,17 @@
 package cluster
 
 import (
-	"context"
-	"fmt"
 	"github.com/opencost/opencost/core/pkg/clustercache"
-	"github.com/opencost/opencost/core/pkg/log"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
 type OpenCostClusterCacheAdapter struct {
-	clusterUID   string
 	clusterCache ClusterCache
 }
 
 // NewOpenCostClusterCacheAdapter creates a new adapter that will adapt the unified agent cluster cache to the opencost variant.
 func NewOpenCostClusterCacheAdapter(k8sClient kubernetes.Interface, clusterCache ClusterCache) *OpenCostClusterCacheAdapter {
-	clusterUID, err := getClusterUID(k8sClient)
-	if err != nil {
-		log.Errorf("failed to retrieve cluster uid :%s", err.Error())
-	}
 	return &OpenCostClusterCacheAdapter{
-		clusterUID:   clusterUID,
 		clusterCache: clusterCache,
 	}
 }
@@ -32,10 +22,6 @@ func (kcc *OpenCostClusterCacheAdapter) Run() {
 
 func (kcc *OpenCostClusterCacheAdapter) Stop() {
 	// no-op
-}
-
-func (kcc *OpenCostClusterCacheAdapter) GetClusterUID() string {
-	return kcc.clusterUID
 }
 
 func (kcc *OpenCostClusterCacheAdapter) GetAllNamespaces() []*clustercache.Namespace {
@@ -186,16 +172,4 @@ func (kcc *OpenCostClusterCacheAdapter) GetAllResourceQuotas() []*clustercache.R
 		rqs = append(rqs, clustercache.TransformResourceQuota(rq))
 	}
 	return rqs
-}
-
-func getClusterUID(client kubernetes.Interface) (string, error) {
-	ns, err := client.CoreV1().Namespaces().Get(context.Background(), "kube-system", metav1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("error getting 'kube-system' namespace: %w", err)
-	}
-	uid := string(ns.ObjectMeta.UID)
-	if uid == "" {
-		return "", fmt.Errorf("uid field in 'kube-system' namespace is empty")
-	}
-	return uid, nil
 }
