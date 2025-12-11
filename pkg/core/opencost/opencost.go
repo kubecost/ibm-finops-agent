@@ -89,6 +89,7 @@ func NewOpenCostDataSource(
 			}
 
 			ds := collector.NewDefaultCollectorDataSource(
+				clusterUID,
 				store,
 				clusterInfoProvider,
 				clusterCache,
