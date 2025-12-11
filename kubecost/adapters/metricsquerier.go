@@ -413,13 +413,13 @@ func (mqa *MetricsQuerierAdapter) QueryLBPricePerHr(start, end time.Time) *sourc
 	return source.NewFutureFrom(snapshot.LBPricePerHr)
 }
 
-func (mqa *MetricsQuerierAdapter) QueryClusterUptime(start, end time.Time) *source.Future[source.UpTimeResult] {
+func (mqa *MetricsQuerierAdapter) QueryClusterUptime(start, end time.Time) *source.Future[source.UptimeResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()
 
 	snapshot := mqa.metricsSnapshotFor(start, end)
 	if snapshot == nil {
-		return newErrorResult(source.DecodeUpTimeResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+		return newErrorResult(source.DecodeUptimeResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
 	}
 
 	return source.NewFutureFrom(snapshot.ClusterUptime)
@@ -929,13 +929,13 @@ func (mqa *MetricsQuerierAdapter) QueryNetReceiveBytes(start, end time.Time) *so
 	return source.NewFutureFrom(snapshot.NetReceiveBytes)
 }
 
-func (mqa *MetricsQuerierAdapter) QueryNamespaceUptime(start, end time.Time) *source.Future[source.UpTimeResult] {
+func (mqa *MetricsQuerierAdapter) QueryNamespaceUptime(start, end time.Time) *source.Future[source.UptimeResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()
 
 	snapshot := mqa.metricsSnapshotFor(start, end)
 	if snapshot == nil {
-		return newErrorResult(source.DecodeUpTimeResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+		return newErrorResult(source.DecodeUptimeResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
 	}
 
 	return source.NewFutureFrom(snapshot.NamespaceUptime)
@@ -1097,13 +1097,13 @@ func (mqa *MetricsQuerierAdapter) QueryReplicaSetsWithRollout(start, end time.Ti
 	return source.NewFutureFrom(snapshot.ReplicaSetsWithRollout)
 }
 
-func (mqa *MetricsQuerierAdapter) QueryResourceQuotaUptime(start, end time.Time) *source.Future[source.UpTimeResult] {
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaUptime(start, end time.Time) *source.Future[source.UptimeResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()
 
 	snapshot := mqa.metricsSnapshotFor(start, end)
 	if snapshot == nil {
-		return newErrorResult(source.DecodeUpTimeResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+		return newErrorResult(source.DecodeUptimeResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
 	}
 
 	return source.NewFutureFrom(snapshot.ResourceQuotaUptime)
