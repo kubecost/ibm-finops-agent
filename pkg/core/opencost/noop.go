@@ -173,8 +173,8 @@ func (m *NoOpMetricsQuerier) QueryLBPricePerHr(start, end time.Time) *source.Fut
 	return newEmptyResult(source.DecodeLBPricePerHrResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryClusterUptime(start, end time.Time) *source.Future[source.UpTimeResult] {
-	return newEmptyResult(source.DecodeUpTimeResult)
+func (m *NoOpMetricsQuerier) QueryClusterUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
 }
 
 func (m *NoOpMetricsQuerier) QueryClusterManagementDuration(start, end time.Time) *source.Future[source.ClusterManagementDurationResult] {
@@ -345,8 +345,8 @@ func (m *NoOpMetricsQuerier) QueryNetReceiveBytes(start, end time.Time) *source.
 	return newEmptyResult(source.DecodeNetReceiveBytesResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryNamespaceUptime(start, end time.Time) *source.Future[source.UpTimeResult] {
-	return newEmptyResult(source.DecodeUpTimeResult)
+func (m *NoOpMetricsQuerier) QueryNamespaceUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
 }
 
 func (m *NoOpMetricsQuerier) QueryNamespaceAnnotations(start, end time.Time) *source.Future[source.NamespaceAnnotationsResult] {
@@ -401,8 +401,8 @@ func (m *NoOpMetricsQuerier) QueryReplicaSetsWithRollout(start, end time.Time) *
 	return newEmptyResult(source.DecodeReplicaSetsWithRolloutResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaUptime(start, end time.Time) *source.Future[source.UpTimeResult] {
-	return newEmptyResult(source.DecodeUpTimeResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
 }
 
 func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestAvgResult] {

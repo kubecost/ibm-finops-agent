@@ -406,9 +406,9 @@ func (m *MockMetricsQuerier) QueryLBPricePerHr(start, end time.Time) *source.Fut
 	return newEmptyResult(source.DecodeLBPricePerHrResult)
 }
 
-func (m *MockMetricsQuerier) QueryClusterUptime(start, end time.Time) *source.Future[source.UpTimeResult] {
+func (m *MockMetricsQuerier) QueryClusterUptime(start, end time.Time) *source.Future[source.UptimeResult] {
 	m.recordCall("QueryClusterUptime")
-	return newEmptyResult(source.DecodeUpTimeResult)
+	return newEmptyResult(source.DecodeUptimeResult)
 }
 
 func (m *MockMetricsQuerier) QueryClusterManagementDuration(start, end time.Time) *source.Future[source.ClusterManagementDurationResult] {
@@ -621,9 +621,9 @@ func (m *MockMetricsQuerier) QueryNetReceiveBytes(start, end time.Time) *source.
 	return newEmptyResult(source.DecodeNetReceiveBytesResult)
 }
 
-func (m *MockMetricsQuerier) QueryNamespaceUptime(start, end time.Time) *source.Future[source.UpTimeResult] {
+func (m *MockMetricsQuerier) QueryNamespaceUptime(start, end time.Time) *source.Future[source.UptimeResult] {
 	m.recordCall("QueryNamespaceUptime")
-	return newEmptyResult(source.DecodeUpTimeResult)
+	return newEmptyResult(source.DecodeUptimeResult)
 }
 
 func (m *MockMetricsQuerier) QueryNamespaceAnnotations(start, end time.Time) *source.Future[source.NamespaceAnnotationsResult] {
@@ -691,9 +691,9 @@ func (m *MockMetricsQuerier) QueryReplicaSetsWithRollout(start, end time.Time) *
 	return newEmptyResult(source.DecodeReplicaSetsWithRolloutResult)
 }
 
-func (m *MockMetricsQuerier) QueryResourceQuotaUptime(start, end time.Time) *source.Future[source.UpTimeResult] {
+func (m *MockMetricsQuerier) QueryResourceQuotaUptime(start, end time.Time) *source.Future[source.UptimeResult] {
 	m.recordCall("QueryResourceQuotaUptime")
-	return newEmptyResult(source.DecodeUpTimeResult)
+	return newEmptyResult(source.DecodeUptimeResult)
 }
 
 func (m *MockMetricsQuerier) QueryResourceQuotaSpecCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestAvgResult] {
