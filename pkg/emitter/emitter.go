@@ -71,6 +71,7 @@ type MetricsSnapshot struct {
 	NodeRAMUserPercent                   []*source.NodeRAMUserPercentResult
 	LBActiveMinutes                      []*source.LBActiveMinutesResult
 	LBPricePerHr                         []*source.LBPricePerHrResult
+	ClusterUptime                        []*source.UpTimeResult
 	ClusterManagementDuration            []*source.ClusterManagementDurationResult
 	ClusterManagementPricePerHr          []*source.ClusterManagementPricePerHrResult
 	Pods                                 []*source.PodsResult
@@ -113,6 +114,7 @@ type MetricsSnapshot struct {
 	NetInternetIngressGiB                []*source.NetInternetIngressGiBResult
 	NetInternetServiceIngressGiB         []*source.NetInternetServiceIngressGiBResult
 	NetReceiveBytes                      []*source.NetReceiveBytesResult
+	NamespaceUptime                      []*source.UpTimeResult
 	NamespaceAnnotations                 []*source.NamespaceAnnotationsResult
 	PodAnnotations                       []*source.PodAnnotationsResult
 	NodeLabels                           []*source.NodeLabelsResult
@@ -126,6 +128,7 @@ type MetricsSnapshot struct {
 	PodsWithReplicaSetOwner              []*source.PodsWithReplicaSetOwnerResult
 	ReplicaSetsWithoutOwners             []*source.ReplicaSetsWithoutOwnersResult
 	ReplicaSetsWithRollout               []*source.ReplicaSetsWithRolloutResult
+	ResourceQuotaUptime                  []*source.UpTimeResult
 	ResourceQuotaSpecCPURequestAvg       []*source.ResourceQuotaSpecCPURequestAvgResult
 	ResourceQuotaSpecCPURequestMax       []*source.ResourceQuotaSpecCPURequestMaxResult
 	ResourceQuotaSpecRAMRequestAvg       []*source.ResourceQuotaSpecRAMRequestAvgResult

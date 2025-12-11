@@ -331,6 +331,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	nodeRAMUserPercentFuture := source.WithGroup(grp, mq.QueryNodeRAMUserPercent(start, end))
 	lbActiveMinutesFuture := source.WithGroup(grp, mq.QueryLBActiveMinutes(start, end))
 	lbPricePerHrFuture := source.WithGroup(grp, mq.QueryLBPricePerHr(start, end))
+	clusterUptimeFuture := source.WithGroup(grp, mq.QueryClusterUptime(start, end))
 	clusterManagementDurationFuture := source.WithGroup(grp, mq.QueryClusterManagementDuration(start, end))
 	clusterManagementPricePerHrFuture := source.WithGroup(grp, mq.QueryClusterManagementPricePerHr(start, end))
 	podsFuture := source.WithGroup(grp, mq.QueryPods(start, end))
@@ -373,6 +374,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	netInternetIngressGiBFuture := source.WithGroup(grp, mq.QueryNetInternetIngressGiB(start, end))
 	netInternetServiceIngressGiBFuture := source.WithGroup(grp, mq.QueryNetInternetServiceIngressGiB(start, end))
 	netReceiveBytesFuture := source.WithGroup(grp, mq.QueryNetReceiveBytes(start, end))
+	namespaceUptimeFuture := source.WithGroup(grp, mq.QueryNamespaceUptime(start, end))
 	namespaceAnnotationsFuture := source.WithGroup(grp, mq.QueryNamespaceAnnotations(start, end))
 	podAnnotationsFuture := source.WithGroup(grp, mq.QueryPodAnnotations(start, end))
 	nodeLabelsFuture := source.WithGroup(grp, mq.QueryNodeLabels(start, end))
@@ -386,6 +388,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	podsWithReplicaSetOwnerFuture := source.WithGroup(grp, mq.QueryPodsWithReplicaSetOwner(start, end))
 	replicaSetsWithoutOwnersFuture := source.WithGroup(grp, mq.QueryReplicaSetsWithoutOwners(start, end))
 	replicaSetsWithRolloutFuture := source.WithGroup(grp, mq.QueryReplicaSetsWithRollout(start, end))
+	resourceQuotaUptimeFuture := source.WithGroup(grp, mq.QueryResourceQuotaUptime(start, end))
 	resourceQuotaSpecCpuRequestAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecCPURequestAverage(start, end))
 	resourceQuotaSpecCpuRequestMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecCPURequestMax(start, end))
 	resourceQuotaSpecRamRequestAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaSpecRAMRequestAverage(start, end))
@@ -424,6 +427,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	nodeRAMUserPercent, _ := nodeRAMUserPercentFuture.Await()
 	lbActiveMinutes, _ := lbActiveMinutesFuture.Await()
 	lbPricePerHr, _ := lbPricePerHrFuture.Await()
+	clusterUptime, _ := clusterUptimeFuture.Await()
 	clusterManagementDuration, _ := clusterManagementDurationFuture.Await()
 	clusterManagementPricePerHr, _ := clusterManagementPricePerHrFuture.Await()
 	pods, _ := podsFuture.Await()
@@ -466,6 +470,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	netInternetIngressGiB, _ := netInternetIngressGiBFuture.Await()
 	netInternetServiceIngressGiB, _ := netInternetServiceIngressGiBFuture.Await()
 	netReceiveBytes, _ := netReceiveBytesFuture.Await()
+	namespaceUptime, _ := namespaceUptimeFuture.Await()
 	namespaceAnnotations, _ := namespaceAnnotationsFuture.Await()
 	podAnnotations, _ := podAnnotationsFuture.Await()
 	nodeLabels, _ := nodeLabelsFuture.Await()
@@ -479,6 +484,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	podsWithReplicaSetOwner, _ := podsWithReplicaSetOwnerFuture.Await()
 	replicaSetsWithoutOwners, _ := replicaSetsWithoutOwnersFuture.Await()
 	replicaSetsWithRollout, _ := replicaSetsWithRolloutFuture.Await()
+	resourceQuotaUptime, _ := resourceQuotaUptimeFuture.Await()
 	resourceQuotaSpecCpuRequestAvg, _ := resourceQuotaSpecCpuRequestAvgFuture.Await()
 	resourceQuotaSpecCpuRequestMax, _ := resourceQuotaSpecCpuRequestMaxFuture.Await()
 	resourceQuotaSpecRamRequestAvg, _ := resourceQuotaSpecRamRequestAvgFuture.Await()
@@ -523,6 +529,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		NodeRAMUserPercent:                   nodeRAMUserPercent,
 		LBActiveMinutes:                      lbActiveMinutes,
 		LBPricePerHr:                         lbPricePerHr,
+		ClusterUptime:                        clusterUptime,
 		ClusterManagementDuration:            clusterManagementDuration,
 		ClusterManagementPricePerHr:          clusterManagementPricePerHr,
 		Pods:                                 pods,
@@ -565,6 +572,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		NetInternetIngressGiB:                netInternetIngressGiB,
 		NetInternetServiceIngressGiB:         netInternetServiceIngressGiB,
 		NetReceiveBytes:                      netReceiveBytes,
+		NamespaceUptime:                      namespaceUptime,
 		NamespaceAnnotations:                 namespaceAnnotations,
 		PodAnnotations:                       podAnnotations,
 		NodeLabels:                           nodeLabels,
@@ -578,6 +586,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		PodsWithReplicaSetOwner:              podsWithReplicaSetOwner,
 		ReplicaSetsWithoutOwners:             replicaSetsWithoutOwners,
 		ReplicaSetsWithRollout:               replicaSetsWithRollout,
+		ResourceQuotaUptime:                  resourceQuotaUptime,
 		ResourceQuotaSpecCPURequestAvg:       resourceQuotaSpecCpuRequestAvg,
 		ResourceQuotaSpecCPURequestMax:       resourceQuotaSpecCpuRequestMax,
 		ResourceQuotaSpecRAMRequestAvg:       resourceQuotaSpecRamRequestAvg,
