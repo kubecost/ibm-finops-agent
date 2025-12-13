@@ -1,0 +1,175 @@
+name: Update Go Version in "go.mod" and "Dockerfile"
+
+on:
+  schedule:
+    - cron: '0 14 * * 1'  # Run every Monday at 2 PM UTC
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  check-and-update-go:
+    name: Check and Update Go Version
+    runs-on: Kubecost-Linux-Small-x86
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        ref: 'develop'
+        token: ${{ secrets.GH_PAT }}
+        path: ./ibm-finops-agent
+
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+         go-version: 'stable'
+
+    - name: Check for existing open PRs
+      id: check-existing-prs
+      run: |
+        # Check if there are any open PRs with the go-version-update label
+        EXISTING_PRS=$(gh pr list --label "go-version-update" --state open --json number,title,url)
+        if [ "$(echo "$EXISTING_PRS" | jq 'length')" -gt 0 ]; then
+          echo "Found existing open PR(s) with go-version-update label:"
+          echo "$EXISTING_PRS" | jq -r '.[] | "  - #\(.number): \(.title) (\(.url))"'
+          echo "skip_update=true" >> $GITHUB_OUTPUT
+        else
+          echo "No existing open PRs found, proceeding with update check"
+          echo "skip_update=false" >> $GITHUB_OUTPUT
+        fi
+      env:
+        GH_TOKEN: ${{ secrets.GH_PAT }}
+        GH_REPO: ${{ github.repository }}
+
+    - name: Get current Go version from go.mod
+      id: current-version
+      working-directory: ./ibm-finops-agent
+      if: steps.check-existing-prs.outputs.skip_update == 'false'
+      run: |
+        CURRENT_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
+        echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        echo "Current Go version: $CURRENT_VERSION"
+
+    - name: Get latest Go version
+      id: latest-version
+      working-directory: ./ibm-finops-agent
+      if: steps.check-existing-prs.outputs.skip_update == 'false'
+      run: |
+        # Get the latest Go version from golang.org/dl
+        LATEST_VERSION=$(curl -sL https://golang.org/dl/ | grep -o 'go[0-9]\+\.[0-9]\+\.[0-9]\+' | head -1)
+        echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+        echo "Latest Go version: $LATEST_VERSION"
+
+    - name: Compare versions
+      id: version-check
+      working-directory: ./ibm-finops-agent
+      if: steps.check-existing-prs.outputs.skip_update == 'false'
+      run: |
+        CURRENT_VERSION="${{ steps.current-version.outputs.current_version }}"
+        LATEST_VERSION="${{ steps.latest-version.outputs.latest_version }}"
+        
+        # Remove 'go' prefix for comparison
+        CURRENT_NUM=$(echo $CURRENT_VERSION | sed 's/go//')
+        LATEST_NUM=$(echo $LATEST_VERSION | sed 's/go//')
+        
+        echo "Current version number: $CURRENT_NUM"
+        echo "Latest version number: $LATEST_NUM"
+        
+        if [ "$CURRENT_NUM" != "$LATEST_NUM" ]; then
+          echo "New Go version available: $LATEST_VERSION"
+          echo "update_needed=true" >> $GITHUB_OUTPUT
+          echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+        else
+          echo "Go version is up to date"
+          echo "update_needed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Update go.mod with new Go version
+      if: steps.check-existing-prs.outputs.skip_update == 'false' && steps.version-check.outputs.update_needed == 'true'
+      working-directory: ./ibm-finops-agent
+      run: |
+        NEW_VERSION="$(echo '${{ steps.version-check.outputs.new_version }}' | tr -d 'go')"
+        # Update the go directive in go.mod
+        sed -i "s/^go .*/go $NEW_VERSION/" go.mod
+        echo "Updated go.mod to use Go version: $NEW_VERSION"
+
+    - name: Update Dockerfile with new Go version
+      if: steps.check-existing-prs.outputs.skip_update == 'false' && steps.version-check.outputs.update_needed == 'true'
+      working-directory: ./ibm-finops-agent
+      run: |
+        NEW_VERSION="$(echo '${{ steps.version-check.outputs.new_version }}' | tr -d 'go')"
+        # Update Go version in Dockerfile for both amd64 and arm64 platforms
+        sed -i "s/go1\.[0-9]\+\.[0-9]\+/go$NEW_VERSION/g" Dockerfile
+        echo "Updated Dockerfile to use Go version: $NEW_VERSION"
+        
+
+    - name: Run go mod tidy
+      if: steps.check-existing-prs.outputs.skip_update == 'false' && steps.version-check.outputs.update_needed == 'true'
+      working-directory: ./ibm-finops-agent
+      run: |
+        go mod tidy
+
+    - name: Check for changes
+      id: changes
+      if: steps.check-existing-prs.outputs.skip_update == 'false' && steps.version-check.outputs.update_needed == 'true'
+      working-directory: ./ibm-finops-agent
+      run: |
+        if [ -z "$(git status --porcelain)" ]; then
+          echo "No changes detected, skipping PR creation"
+          echo "skip_pr=true" >> $GITHUB_OUTPUT
+        else
+          echo "Changes detected, will create PR" 
+          echo "skip_pr=false" >> $GITHUB_OUTPUT
+          # Generate a unique branch name with timestamp
+          branch_name="update-go-version-$(date +%Y%m%d-%H%M%S)"
+          echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create Pull Request
+      if: steps.check-existing-prs.outputs.skip_update == 'false' && steps.version-check.outputs.update_needed == 'true' && steps.changes.outputs.skip_pr == 'false'
+      id: create-pr
+      uses: peter-evans/create-pull-request@v7
+      with:
+        path: ./ibm-finops-agent
+        token: ${{ secrets.PR_CREATE_GH_PAT }}
+        branch: ${{ steps.changes.outputs.branch_name }}
+        title: 'chore: update Go version to ${{ steps.version-check.outputs.new_version }}'
+        commit-message: 'chore: update Go version to ${{ steps.version-check.outputs.new_version }}'
+        delete-branch: true
+        add-paths: |
+          go.mod
+          go.sum
+          Dockerfile
+        body: |
+          Automated PR to update Go version from ${{ steps.current-version.outputs.current_version }} to ${{ steps.version-check.outputs.new_version }}.
+          
+          This PR was automatically generated after detecting a newer Go version is available.
+        base: develop
+        labels: automated,dependencies,go-version-update
+
+    - name: Enable Auto-merge
+      if: steps.check-existing-prs.outputs.skip_update == 'false' && steps.version-check.outputs.update_needed == 'true' && steps.changes.outputs.skip_pr == 'false'
+      run: |
+          gh pr merge --auto --merge "${{ steps.create-pr.outputs.pull-request-number }}"
+      env:
+          GH_TOKEN: ${{ secrets.PR_CREATE_GH_PAT }}
+          GH_REPO: ${{ github.repository }}
+    
+    - name: Approve Pull Request
+      if: steps.check-existing-prs.outputs.skip_update == 'false' && steps.version-check.outputs.update_needed == 'true' && steps.changes.outputs.skip_pr == 'false'
+      run: |
+        gh pr review --approve "${{ steps.create-pr.outputs.pull-request-number }}"
+      env:
+        GH_TOKEN: ${{ secrets.GH_PAT }}
+        GH_REPO: ${{ github.repository }}
+
+    - name: Skip message - no update needed
+      if: steps.check-existing-prs.outputs.skip_update == 'false' && steps.version-check.outputs.update_needed == 'false'
+      run: |
+        echo "No Go version update needed. Current version is up to date."
+
+    - name: Skip message - existing PR
+      if: steps.check-existing-prs.outputs.skip_update == 'true'
+      run: |
+        echo "Skipping Go version update because an existing PR with go-version-update label is already open." 

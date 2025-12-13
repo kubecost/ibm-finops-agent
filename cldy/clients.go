@@ -28,17 +28,8 @@ import (
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
-const usFrontdoorURL = "https://frontdoor.apptio.com"
-const usFrontdoorStgURL = "https://frontdoor-stage.apptio.com"
-const euFrontdoorURL = "https://frontdoor-eu.apptio.com"
-const auFrontdoorURL = "https://frontdoor-au.apptio.com"
-const meFrontdoorURL = "https://frontdoor-me.apptio.com"
-
-const usCloudabilityURL = "https://api.cloudability.com"
-const usCloudabilityStgURL = "https://api-s.cloudability.com"
-const euCloudabilityURL = "https://api-eu.cloudability.com"
-const auCloudabilityURL = "https://api-au.cloudability.com"
-const meCloudabilityURL = "https://api-me.cloudability.com"
+const frontdoorBaseURL = "https://frontdoor%s.apptio.com"
+const cloudabilityBaseURL = "https://api%s.cloudability.com"
 
 const contentTypeHeader = "Content-Type"
 const contentMD5 = "Content-MD5"
@@ -49,6 +40,9 @@ const proxyAuthHeader = "Proxy-Authorization"
 const frontDoorLoginDescription = "performing login request to FrontDoor using KeyAccess and KeySecret"
 const presignedURLDescription = "acquiring presigned URL from Cloudability with acquired Open-token"
 const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
+
+const clustersUploadEndpoint = "/v3/internal/containers/clusters/upload"
+const apikeyloginEndpoint = "/service/apikeylogin"
 
 // StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob
 type StorageService interface {
@@ -90,7 +84,7 @@ type CloudabilityClustersUploadInfo struct {
 	RequestID string `json:"requestId"`
 }
 
-func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
+func NewApptioService(config ApptioConfig) (StorageService, error) {
 	body, err := config.SecretManager.GetSecret()
 	if err != nil {
 		return nil, err
@@ -101,11 +95,6 @@ func NewApptioSerivce(config ApptioConfig) (StorageService, error) {
 			body[i] = 0
 		}
 	}()
-
-	// Cloudability upload configuration not set, silently skip
-	if len(body) == 0 && config.EnvID == "" {
-		return nil, nil
-	}
 
 	if len(body) == 0 || config.EnvID == "" {
 		return nil, fmt.Errorf("key access, key secret, and env id must all be set to upload to cloudability")
@@ -149,6 +138,10 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		TLSHandshakeTimeout: config.Timeout,
 	}
 
+	if config.ProxyURL == nil && config.UseProxyForGettingUploadURLOnly {
+		log.Warnf("UseProxyForGettingUploadURLOnly is set, but ProxyUrl is not. Skipping proxy setup.")
+	}
+
 	// configure outbound proxy
 	if config.ProxyURL != nil {
 		ConnectHeader := http.Header{}
@@ -159,7 +152,7 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		}
 
 		netTransport = &http.Transport{
-			Proxy:               http.ProxyURL(config.ProxyURL),
+			Proxy:               BuildProxyFunc(config),
 			ProxyConnectHeader:  ConnectHeader,
 			TLSHandshakeTimeout: config.Timeout,
 			TLSClientConfig: &tls.Config{
@@ -180,24 +173,44 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 }
 
 type ApptioConfig struct {
-	ClusterName                  string
-	SecretManager                SecretManager
-	EnvID                        string
-	OpenToken                    string
-	CustomerType                 string
-	Timeout                      time.Duration
-	Retries                      int
-	ProxyURL                     *url.URL
-	ProxyAuth                    string
-	ProxyInsecure                bool
-	Region                       string
-	CustomS3UploadBucket         string
-	CustomS3UploadRegion         string
-	CustomAzureBlobContainerName string
-	CustomAzureBlobUrl           string
-	CustomAzureTenantID          string
-	CustomAzureClientID          string
-	CustomAzureClientSecret      SecretManager
+	ClusterName                     string
+	SecretManager                   SecretManager
+	EnvID                           string
+	OpenToken                       string
+	CustomerType                    string
+	Timeout                         time.Duration
+	Retries                         int
+	ProxyURL                        *url.URL
+	ProxyAuth                       string
+	ProxyInsecure                   bool
+	Region                          string
+	CustomS3UploadBucket            string
+	CustomS3UploadRegion            string
+	CustomAzureBlobContainerName    string
+	CustomAzureBlobUrl              string
+	CustomAzureTenantID             string
+	CustomAzureClientID             string
+	CustomAzureClientSecret         SecretManager
+	UseProxyForGettingUploadURLOnly bool
+}
+
+func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
+	if config.ProxyURL == nil {
+		log.Warnf("cannot build proxy without a ProxyURL set. Skipping.")
+		return nil
+	}
+	return func(request *http.Request) (*url.URL, error) {
+		if config.UseProxyForGettingUploadURLOnly {
+			// agent configured to only use proxy for GetUploadURL and frontdoor login requests
+			if request.URL.Path == clustersUploadEndpoint || strings.Contains(request.URL.Path, apikeyloginEndpoint) {
+				return config.ProxyURL, nil
+			}
+			return nil, nil
+		}
+
+		// proxy enabled for all requests
+		return config.ProxyURL, nil
+	}
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
@@ -222,7 +235,7 @@ func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
 // login gathers the opentoken required to make requests to Cloudability by hitting Frontdoor's apikeylogin endpoint
 // using the KeyAccess and KeySecret credentials provided by the customer config
 func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
-	url := fmt.Sprintf("%s/service/apikeylogin", s.FrontdoorURL)
+	url := fmt.Sprintf("%s%s", s.FrontdoorURL, apikeyloginEndpoint)
 	body, err := s.SecretManager.GetSecret()
 	// remove secret from memory
 	defer func() {
@@ -327,7 +340,7 @@ func (s *ApptioServiceImpl) testUpload() error {
 // getUploadURL request to Cloudability to gather the presigned s3 URL that allows the agent to
 // upload to Apptio's S3 bucket
 func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL string, rErr error) {
-	url := fmt.Sprintf("%s/v3/internal/containers/clusters/upload", s.CloudabilityURL)
+	url := fmt.Sprintf("%s%s", s.CloudabilityURL, clustersUploadEndpoint)
 	body, err := json.Marshal(map[string]interface{}{
 		"clusterUID":   payload.ClusterUID,
 		"fileName":     payload.FileName,
@@ -424,30 +437,50 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
 }
 
-// Converts region to urls in (FrontdoorURL, CloudabilityURL) format.
-// All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
+// Note: All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
+// Regions are all hardcoded because there is no direct formula from availability zone -> region suffix, 
+// as well as this switch block acts as validation on the region field if changed by the user.
 func getURLsFromRegion(region string) (string, string) {
 	switch region {
-	case "us", "us-west-2": // us-west-2 is for old agent migrations
-		return usFrontdoorURL, usCloudabilityURL
-	case "staging": // staging account
-		return usFrontdoorStgURL, usCloudabilityStgURL
-	case "eu", "eu-central-1": // eu-central-1 is for old agent migrations
-		return euFrontdoorURL, euCloudabilityURL
+	case "staging": // staging account. Note the difference for -stage and -s
+		return formatFrontdoorAndCloudabilityURLs("-stage", "-s")
+	case "us", "us-west-2":
+		return formatFrontdoorAndCloudabilityURLs("", "")
+	case "eu", "eu-central-1":
+		return formatFrontdoorAndCloudabilityURLs("-eu", "-eu")
 	case "au", "ap-southeast-2":
-		return auFrontdoorURL, auCloudabilityURL
-	case "me", "me-central-1": // me-central-1 is for old agent migrations
-		return meFrontdoorURL, meCloudabilityURL
+		return formatFrontdoorAndCloudabilityURLs("-au", "-au")
+	case "me", "me-central-1":
+		return formatFrontdoorAndCloudabilityURLs("-me", "-me")
+	case "sg", "ap-southeast-1":
+		return formatFrontdoorAndCloudabilityURLs("-sg", "-sg")
+	case "jp", "ap-northeast-1":
+		return formatFrontdoorAndCloudabilityURLs("-jp", "-jp")
+	case "in", "ap-south-1":
+		return formatFrontdoorAndCloudabilityURLs("-in", "-in")
+	case "gov", "us-gov-west-1":
+		return formatFrontdoorAndCloudabilityURLs("-usgov", ".usgov")
 	case "hybrid-eu":
-		return euFrontdoorURL, usCloudabilityURL
+		return formatFrontdoorAndCloudabilityURLs("-eu", "")
 	case "hybrid-au":
-		return auFrontdoorURL, usCloudabilityURL
+		return formatFrontdoorAndCloudabilityURLs("-au", "")
 	case "hybrid-me":
-		return meFrontdoorURL, usCloudabilityURL
+		return formatFrontdoorAndCloudabilityURLs("-me", "")
+	case "hybrid-sg":
+		return formatFrontdoorAndCloudabilityURLs("-sg", "")
+	case "hybrid-jp":
+		return formatFrontdoorAndCloudabilityURLs("-jp", "")
+	case "hybrid-in":
+		return formatFrontdoorAndCloudabilityURLs("-in", "")
 	default:
-		log.Warnf("Invalid cloudability region: %s. Defaulting to 'us' region.", region)
-		return usFrontdoorURL, usCloudabilityURL
+		log.Warnf("Invalid cloudability region: %s. Defaulting to 'us-west-2' region.", region)
+		return formatFrontdoorAndCloudabilityURLs("", "")
 	}
+}
+
+// Formats the region suffixes into the respective frontdoor and cloudability url
+func formatFrontdoorAndCloudabilityURLs(frontdoorRegionSuffix string, cloudabilityRegionSuffix string) (string, string) {
+	return fmt.Sprintf(frontdoorBaseURL, frontdoorRegionSuffix), fmt.Sprintf(cloudabilityBaseURL, cloudabilityRegionSuffix)
 }
 
 type CustomS3Client struct {
@@ -457,11 +490,6 @@ type CustomS3Client struct {
 }
 
 func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageService, error) {
-	// Config is not set, silently skip custom s3 setup
-	if customS3Bucket == "" && customS3Region == "" {
-		return nil, nil
-	}
-
 	if customS3Bucket == "" || customS3Region == "" {
 		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_S3_UPLOAD_BUCKET and CLOUDABILITY_CUSTOM_S3_UPLOAD_REGION " +
 			"must be set for custom S3 configuration")
@@ -543,10 +571,6 @@ type CustomBlobClient struct {
 
 func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTenantID string, azureClientID string,
 	azureClientSecret SecretManager) (StorageService, error) {
-	// Primary env variables are not set; silently skip custom blob setup
-	if blobContainerName == "" && customBlobUrl == "" {
-		return nil, nil
-	}
 	if blobContainerName == "" || customBlobUrl == "" {
 		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CONTAINER_NAME and CLOUDABILITY_CUSTOM_AZURE_BLOB_URL " +
 			"must be set for all custom azure blob configurations")
