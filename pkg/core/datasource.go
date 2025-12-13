@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ibm/finops-agent/kubecost"
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core/opencost"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
+	coreenv "github.com/opencost/opencost/core/pkg/env"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
@@ -94,7 +96,7 @@ func NewAgentDataSource(
 			log.Fatalf("failed to initialize cloud provider: %s", err)
 		}
 
-		configWatchers := watcher.NewConfigMapWatchers(kubeClientset, "TODO")
+		configWatchers := watcher.NewConfigMapWatchers(kubeClientset, kubecost.GetFinOpsAgentNamespace())
 		configWatchers.AddWatcher(provider.ConfigWatcherFor(cloudProvider))
 		configWatchers.Watch()
 
