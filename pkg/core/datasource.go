@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	kcenv "github.com/ibm/finops-agent/kubecost/env"
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core/opencost"
 	"github.com/ibm/finops-agent/pkg/env"
@@ -13,10 +12,6 @@ import (
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
-	"github.com/opencost/opencost/pkg/cloud/provider"
-	"github.com/opencost/opencost/pkg/config"
-	ocenv "github.com/opencost/opencost/pkg/env"
-	"github.com/opencost/opencost/pkg/util/watcher"
 	"k8s.io/client-go/discovery"
 
 	"github.com/julienschmidt/httprouter"
@@ -86,18 +81,6 @@ func NewAgentDataSource(
 
 	var opencostSource source.OpenCostDataSource
 	if env.IsOpenCostDataSourceEnabled() {
-		clusterCache := cluster.NewOpenCostClusterCacheAdapter(k8sCache)
-
-		confManager := config.NewConfigFileManager(nil)
-		cloudProvider, err := provider.NewProvider(clusterCache, ocenv.GetCloudProviderAPIKey(), confManager)
-		if err != nil {
-			log.Fatalf("failed to initialize cloud provider: %s", err)
-		}
-
-		configWatchers := watcher.NewConfigMapWatchers(kubeClientset, kcenv.GetFinOpsAgentNamespace())
-		configWatchers.AddWatcher(provider.ConfigWatcherFor(cloudProvider))
-		configWatchers.Watch()
-
 		opencostConf := opencost.NewOpenCostConfigFromEnv()
 		opencostSource = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, nodeStatsSummaryClient, router, diag, opencostConf)
 	} else {
