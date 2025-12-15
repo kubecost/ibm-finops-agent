@@ -146,10 +146,6 @@ func ValidateConfig(config *EmitterConfig) error {
 	return nil
 }
 
-func GetFinOpsAgentNamespace() string {
-	return coreenv.GetInstallNamespace("TODO")
-}
-
 func logPermissionsError(action string, err error) {
 	log.Errorf("Failed to %s test data to/from storage bucket.\n*** Error: %s ***\n*** Please ensure that the bucket is configured correctly and that you have the necessary %s permissions ***", action, err, action)
 }

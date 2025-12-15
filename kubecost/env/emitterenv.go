@@ -64,3 +64,7 @@ func IsDiagnosticsExportEnabled() bool {
 func GetExportBucketConfigFile() string {
 	return path.Join(coreenv.GetConfigPath(), "federated-store.yaml")
 }
+
+func GetFinOpsAgentNamespace() string {
+	return coreenv.GetInstallNamespace("finops-agent")
+}
