@@ -24,6 +24,7 @@ agent:
   kubecost:
     enabled: false # TODO: Delete or make true once kubecost export bucket config is fixed in helm chart
   cloudability:
+    enabled: true
     uploadRegion: staging
     emissionInterval: 10s
     secret:
