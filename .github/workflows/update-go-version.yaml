@@ -147,6 +147,14 @@ jobs:
           This PR was automatically generated after detecting a newer Go version is available.
         base: develop
         labels: automated,dependencies,go-version-update
+
+    - name: Enable Auto-merge
+      if: steps.check-existing-prs.outputs.skip_update == 'false' && steps.version-check.outputs.update_needed == 'true' && steps.changes.outputs.skip_pr == 'false'
+      run: |
+          gh pr merge --auto --merge "${{ steps.create-pr.outputs.pull-request-number }}"
+      env:
+          GH_TOKEN: ${{ secrets.PR_CREATE_GH_PAT }}
+          GH_REPO: ${{ github.repository }}
     
     - name: Approve Pull Request
       if: steps.check-existing-prs.outputs.skip_update == 'false' && steps.version-check.outputs.update_needed == 'true' && steps.changes.outputs.skip_pr == 'false'
