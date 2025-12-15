@@ -2,6 +2,7 @@ clusterId: "e2e"
 global:
   federatedStorage:
     config: |-
+      type: S3
       config:
         bucket: kubecost-store
         endpoint: "localstack:4566"
