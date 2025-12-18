@@ -38,7 +38,8 @@ endef
 e2e-test: add-e2e-chart test-k8s-1.33.0 test-k8s-1.32.0 test-k8s-1.31.0 test-k8s-1.30.0 
 
 add-e2e-chart:
-	helm repo add e2e-test https://kubecost.github.io/finops-agent-chart
+	helm repo add ibm-finops https://kubecost.github.io/finops-agent-chart
+	helm repo add localstack https://helm.localstack.cloud
 
 test-k8s-1.33.0:
 	$(call TEST_KUBERNETES,v1.33.0)

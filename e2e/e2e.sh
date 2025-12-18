@@ -29,8 +29,6 @@ cleanup() {
 }
 
 setup_kind() {
-  export PATH=$PATH:$(go env GOPATH)/bin
-
   cleanup
   if ! (kind create cluster --name=e2e-${KUBERNETES_VERSION} --image=kindest/node:${KUBERNETES_VERSION}) ; then
     echo "Could not create kind cluster"
@@ -58,21 +56,8 @@ setup_kind() {
   done
 }
 
-HELM_INSTALL="helm install unified-agent e2e-test/finops-agent \
---set agent.cloudability.enabled=true \
---set agent.cloudability.uploadRegion="staging" \
---set agent.cloudability.secret.create=true \
---set agent.cloudability.secret.cloudabilityAccessKey="XXX" \
---set agent.cloudability.secret.cloudabilitySecretKey="XXX" \
---set agent.cloudability.secret.cloudabilityEnvId="XXX" \
---set agent.cloudability.emissionInterval="10s" \
---set image.registry="${IMAGE_REG}" \
---set image.repository="${IMAGE_REPO}" \
---set image.tag="${IMAGE_TAG}" \
---set clusterId="e2e" \
---create-namespace -n ibm-finops-agent"
-
-deploy(){
+setup_env(){
+  export PATH=$PATH:$(go env GOPATH)/bin
   mkdir -p -m 0777 ${WORKINGDIR}
 
   if [ ! -d $WORKINGDIR ]; then
@@ -80,8 +65,42 @@ deploy(){
     exit 1
   fi
 
-  ${HELM_INSTALL}
-  sleep 10
+  kubectl create namespace ibm-finops-agent
+}
+
+setup_localstack(){
+   # Localstack bucket setup
+  helm install localstack localstack/localstack -n ibm-finops-agent
+  sleep 15
+
+  LOCALSTACK_POD=$(kubectl get pods -n ibm-finops-agent -l "app.kubernetes.io/name=localstack" -o jsonpath="{.items[0].metadata.name}")
+  i=0
+  until [ $i -ge 5 ]
+  do 
+    if [[ $(kubectl get pods -n ibm-finops-agent -l "app.kubernetes.io/name=localstack" -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') = "True" ]]; then
+      echo "Localstack pod is ready!" && localstackdeployed=0 && break
+    fi
+    echo "Waiting for localstack pod to be ready..."
+    i=$[$i+1]
+    sleep 20
+  done
+
+  # Create kubecost-store bucket
+  kubectl exec -n ibm-finops-agent $LOCALSTACK_POD -- awslocal s3 mb s3://kubecost-store
+}
+
+deploy(){
+  # Install unified-agent
+  helm install unified-agent ibm-finops/finops-agent -n ibm-finops-agent -f e2e/values.yaml \
+  --set image.registry="${IMAGE_REG}" \
+  --set image.repository="${IMAGE_REPO}" \
+  --set image.tag="${IMAGE_TAG}"
+
+  echo ${IMAGE_REG}
+  echo ${IMAGE_REPO}
+  echo ${IMAGE_TAG}
+
+  # Create stress namespace & pod
   kubectl create ns stress
   kubectl -n stress run stress --labels=app=stress --image=jfusterm/stress -- --cpu 50 --vm 1 --vm-bytes 127m
 }
@@ -95,7 +114,7 @@ wait_for_metrics() {
     fi
     echo "Waiting for agent pod to be ready..."
     i=$[$i+1]
-    sleep 5
+    sleep 10
   done
 }
 
@@ -147,6 +166,8 @@ run_tests() {
 
 trap cleanup EXIT
 setup_kind
+setup_env
+setup_localstack
 deploy
 wait_for_metrics
 get_sample_data

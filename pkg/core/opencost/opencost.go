@@ -5,8 +5,10 @@ import (
 	"os"
 	"time"
 
+	kcenv "github.com/ibm/finops-agent/kubecost/env"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/storage"
+	"github.com/opencost/opencost/pkg/util/watcher"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/nodes"
@@ -50,6 +52,10 @@ func NewOpenCostDataSource(
 	if err != nil {
 		panic(err.Error())
 	}
+
+	configWatchers := watcher.NewConfigMapWatchers(kubeClientset, kcenv.GetFinOpsAgentNamespace())
+	configWatchers.AddWatcher(provider.ConfigWatcherFor(cloudProvider))
+	configWatchers.Watch()
 
 	// ClusterInfo Provider to provide the cluster map with local and remote cluster data
 	clusterInfoProvider := costmodel.NewLocalClusterInfoProvider(kubeClientset, cloudProvider)

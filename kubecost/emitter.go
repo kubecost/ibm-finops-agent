@@ -14,13 +14,12 @@ import (
 	ocexporter "github.com/opencost/opencost/core/pkg/exporter"
 	heartbeatexporter "github.com/opencost/opencost/core/pkg/heartbeat/exporter"
 	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/opencost/opencost/core/pkg/opencost/exporter"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/cloud/models"
 	"github.com/opencost/opencost/pkg/cloud/provider"
 	"github.com/opencost/opencost/pkg/config"
 	"github.com/opencost/opencost/pkg/costmodel"
-
-	"github.com/opencost/opencost/core/pkg/opencost/exporter"
 )
 
 type KubecostEmitter struct {
@@ -62,17 +61,6 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 
 	// create our updateable adapter that will drive the opencost exporters
 	dataSource := adapters.NewOpenCostDataSourceAdapter(clusterInfo, clusterMap, clusterCache, metricsQuerier, ke.config.QueryResolution)
-
-	// FIXME: We need a solution for watching kubernetes configmap for the cost provider used to drive the
-	// FIXME: emitter. I don't believe we want to control these costs explicitly in the agent, but it needs
-	// FIXME: further discussion. This watcher utility _may_ be useful for other teams, so we should maybe
-	// FIXME: look to include it in the exporter implementation.
-	/*
-		configWatchers := watcher.NewConfigMapWatchers(kubeClientset, configNamespace, additionalConfigWatchers...)
-		configWatchers.AddWatcher(provider.ConfigWatcherFor(cloudProvider))
-		configWatchers.AddWatcher(metrics.GetMetricsConfigWatcher())
-		configWatchers.Watch()
-	*/
 
 	// download the pricing data
 	err = cloudProvider.DownloadPricingData()
