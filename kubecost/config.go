@@ -25,6 +25,7 @@ type ExportIntervalConfig struct {
 	AllocationInterval     time.Duration
 	AssetInterval          time.Duration
 	NetworkInsightInterval time.Duration
+	KubeModelInterval      time.Duration
 	HeartbeatInterval      time.Duration
 	DiagnosticsInterval    time.Duration
 }
@@ -35,6 +36,7 @@ func DefaultExportIntervalConfig() *ExportIntervalConfig {
 		AllocationInterval:     10 * time.Minute,
 		AssetInterval:          10 * time.Minute,
 		NetworkInsightInterval: 10 * time.Minute,
+		KubeModelInterval:      10 * time.Minute,
 		HeartbeatInterval:      5 * time.Minute,
 		DiagnosticsInterval:    3 * time.Minute,
 	}
@@ -46,6 +48,7 @@ func NewExportIntervalConfigFromEnv() *ExportIntervalConfig {
 		AllocationInterval:     kcenv.GetAllocationExportInterval(),
 		AssetInterval:          kcenv.GetAssetExportInterval(),
 		NetworkInsightInterval: kcenv.GetNetworkInsightExportInterval(),
+		KubeModelInterval:      kcenv.GetKubeModelExportInterval(),
 		HeartbeatInterval:      kcenv.GetHeartbeatExportInterval(),
 		DiagnosticsInterval:    kcenv.GetDiagnosticsExportInterval(),
 	}
@@ -53,7 +56,8 @@ func NewExportIntervalConfigFromEnv() *ExportIntervalConfig {
 
 // EmitterConfig is a struct that holds the configuration for the kubecost emitter.
 type EmitterConfig struct {
-	ClusterID                      string
+	ClusterUID                     string
+	ClusterName                    string
 	AppName                        string
 	ConfigPath                     string
 	CloudProviderAPIKey            string
@@ -63,13 +67,15 @@ type EmitterConfig struct {
 	QueryResolution                time.Duration
 	EmitAllocationMinuteResolution bool
 	EmitAssetMinuteResolution      bool
+	EmitKubeModelMinuteResolution  bool
 	KubernetesResourcesRequired    []string
 }
 
 // NewEmitterConfigFromEnv creates a new EmitterConfig from environment variables.
-func NewEmitterConfigFromEnv() *EmitterConfig {
+func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 	return &EmitterConfig{
-		ClusterID:                      coreenv.GetClusterID(),
+		ClusterUID:                     clusterUID,
+		ClusterName:                    coreenv.GetClusterID(),
 		AppName:                        coreenv.GetAppName(),
 		ConfigPath:                     coreenv.GetConfigPath(),
 		CloudProviderAPIKey:            env.GetCloudProviderAPIKey(),
@@ -79,6 +85,7 @@ func NewEmitterConfigFromEnv() *EmitterConfig {
 		QueryResolution:                1 * time.Minute,
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),
 		EmitAssetMinuteResolution:      kcenv.IsMinuteMetricsEnabled(),
+		EmitKubeModelMinuteResolution:  kcenv.IsMinuteMetricsEnabled(),
 		// Kubecost emitter requires all kubernetes resources to be enabled
 		KubernetesResourcesRequired: slices.Clone(emitter.SnapshotAllResources),
 	}
@@ -89,10 +96,16 @@ func NewEmitterConfigFromEnv() *EmitterConfig {
 // verifies the bucket storage configuration correctly loads, and that the bucket storage
 // has all the required permissions to write, read, and delete data.
 func ValidateConfig(config *EmitterConfig) error {
-	// ClusterID is required for kubecost emitter to function properly.
-	if config.ClusterID == "" {
+	// ClusterUID is required for kubecost emitter to function properly.
+	if config.ClusterUID == "" {
 		//nolint: staticcheck
-		return fmt.Errorf("Kubecost Configuration missing valid ClusterID")
+		return fmt.Errorf("Kubecost Configuration missing valid ClusterUID")
+	}
+
+	// ClusterName is required for kubecost emitter to function properly.
+	if config.ClusterName == "" {
+		//nolint: staticcheck
+		return fmt.Errorf("Kubecost Configuration missing valid ClusterName")
 	}
 
 	// BucketConfigFile is the most important configuration for the emitter
@@ -122,7 +135,7 @@ func ValidateConfig(config *EmitterConfig) error {
 
 	// Attempt to write data to the bucket, and then remove it to ensure that we have the correct permissions to run the emitter
 	testData := "test write permissions for bucket storage"
-	testPath := path.Join(config.ClusterID, "write-test", "test.txt")
+	testPath := path.Join(config.ClusterName, "write-test", "test.txt")
 	err = bucketStore.Write(testPath, []byte(testData))
 	if err != nil {
 		logPermissionsError("write", err)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	kcenv "github.com/ibm/finops-agent/kubecost/env"
+	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/util/watcher"
 
@@ -36,10 +37,15 @@ func NewOpenCostDataSource(
 	diag diagnostics.DiagnosticService,
 	conf *OpenCostConfig,
 ) source.OpenCostDataSource {
+	clusterUID, err := kubeconfig.GetClusterUID(kubeClientset)
+	if err != nil {
+		log.Fatalf("Failed to determine cluster UID: %s", err)
+	}
+
 	// Create ConfigFileManager for synchronization of shared configuration
 	confManager := config.NewConfigFileManager(nil)
 
-	clusterCache := cluster.NewOpenCostClusterCacheAdapter(k8sCache)
+	clusterCache := cluster.NewOpenCostClusterCacheAdapter(kubeClientset, k8sCache)
 
 	// NOTE: this cloud provider is purely an implementation used to provide cluster info (it does not actively pull pricing data).
 	cloudProvider, err := provider.NewProvider(clusterCache, conf.CloudProviderAPIKey, confManager)
@@ -89,6 +95,7 @@ func NewOpenCostDataSource(
 			}
 
 			ds := collector.NewDefaultCollectorDataSource(
+				clusterUID,
 				store,
 				clusterInfoProvider,
 				clusterCache,
@@ -115,7 +122,7 @@ func NewOpenCostDataSource(
 
 	clusterMap := dataSource.ClusterMap()
 
-	costModel := costmodel.NewCostModel(dataSource, cloudProvider, clusterCache, clusterMap, dataSource.BatchDuration())
+	costModel := costmodel.NewCostModel(clusterUID, dataSource, cloudProvider, clusterCache, clusterMap, dataSource.BatchDuration())
 	metricsEmitter := costmodel.NewCostModelMetricsEmitter(clusterCache, cloudProvider, clusterInfoProvider, costModel)
 	metricsEmitter.Start()
 

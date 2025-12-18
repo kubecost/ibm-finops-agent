@@ -413,6 +413,18 @@ func (mqa *MetricsQuerierAdapter) QueryLBPricePerHr(start, end time.Time) *sourc
 	return source.NewFutureFrom(snapshot.LBPricePerHr)
 }
 
+func (mqa *MetricsQuerierAdapter) QueryClusterUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeUptimeResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ClusterUptime)
+}
+
 func (mqa *MetricsQuerierAdapter) QueryClusterManagementDuration(start, end time.Time) *source.Future[source.ClusterManagementDurationResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()
@@ -485,6 +497,18 @@ func (mqa *MetricsQuerierAdapter) QueryRAMRequests(start, end time.Time) *source
 	return source.NewFutureFrom(snapshot.RAMRequests)
 }
 
+func (mqa *MetricsQuerierAdapter) QueryRAMLimits(start, end time.Time) *source.Future[source.RAMLimitsResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeRAMLimitsResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.RAMLimits)
+}
+
 func (mqa *MetricsQuerierAdapter) QueryRAMUsageAvg(start, end time.Time) *source.Future[source.RAMUsageAvgResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()
@@ -543,6 +567,18 @@ func (mqa *MetricsQuerierAdapter) QueryCPURequests(start, end time.Time) *source
 	}
 
 	return source.NewFutureFrom(snapshot.CPURequests)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryCPULimits(start, end time.Time) *source.Future[source.CPULimitsResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeCPULimitsResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.CPULimits)
 }
 
 func (mqa *MetricsQuerierAdapter) QueryCPUUsageAvg(start, end time.Time) *source.Future[source.CPUUsageAvgResult] {
@@ -893,6 +929,18 @@ func (mqa *MetricsQuerierAdapter) QueryNetReceiveBytes(start, end time.Time) *so
 	return source.NewFutureFrom(snapshot.NetReceiveBytes)
 }
 
+func (mqa *MetricsQuerierAdapter) QueryNamespaceUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeUptimeResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.NamespaceUptime)
+}
+
 func (mqa *MetricsQuerierAdapter) QueryNamespaceAnnotations(start, end time.Time) *source.Future[source.NamespaceAnnotationsResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()
@@ -1047,6 +1095,210 @@ func (mqa *MetricsQuerierAdapter) QueryReplicaSetsWithRollout(start, end time.Ti
 	}
 
 	return source.NewFutureFrom(snapshot.ReplicaSetsWithRollout)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeUptimeResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaUptime)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaSpecCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestAvgResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaSpecCPURequestAvgResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaSpecCPURequestAvg)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaSpecCPURequestMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestMaxResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaSpecCPURequestMaxResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaSpecCPURequestMax)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaSpecRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestAvgResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaSpecRAMRequestAvgResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaSpecRAMRequestAvg)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaSpecRAMRequestMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestMaxResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaSpecRAMRequestMaxResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaSpecRAMRequestMax)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaSpecCPULimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitAvgResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaSpecCPULimitAvgResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaSpecCPULimitAvg)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaSpecCPULimitMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitMaxResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaSpecCPULimitMaxResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaSpecCPULimitMax)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaSpecRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitAvgResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaSpecRAMLimitAvgResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaSpecRAMLimitAvg)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaSpecRAMLimitMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitMaxResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaSpecRAMLimitMaxResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaSpecRAMLimitMax)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaStatusUsedCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestAvgResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaStatusUsedCPURequestAvgResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaStatusUsedCPURequestAvg)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaStatusUsedCPURequestMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestMaxResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaStatusUsedCPURequestMaxResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaStatusUsedCPURequestMax)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaStatusUsedRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestAvgResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaStatusUsedRAMRequestAvgResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaStatusUsedRAMRequestAvg)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaStatusUsedRAMRequestMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestMaxResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaStatusUsedRAMRequestMaxResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaStatusUsedRAMRequestMax)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaStatusUsedCPULimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitAvgResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaStatusUsedCPULimitAvgResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaStatusUsedCPULimitAvg)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaStatusUsedCPULimitMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitMaxResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaStatusUsedCPULimitMaxResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaStatusUsedCPULimitMax)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaStatusUsedRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitAvgResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaStatusUsedRAMLimitAvgResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaStatusUsedRAMLimitAvg)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryResourceQuotaStatusUsedRAMLimitMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitMaxResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeResourceQuotaStatusUsedRAMLimitMaxResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ResourceQuotaStatusUsedRAMLimitMax)
 }
 
 // QueryDataCoverage is used for a non-compliant exporter -- we don't need to worry about implementation for now.

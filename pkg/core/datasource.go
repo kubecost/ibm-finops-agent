@@ -13,6 +13,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
 	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/julienschmidt/httprouter"
 )
@@ -37,17 +38,11 @@ type DataSource interface {
 }
 
 func NewAgentDataSource(
+	kubeClientset kubernetes.Interface,
 	router *httprouter.Router,
 	diag diagnostics.DiagnosticService,
 	interval time.Duration,
 ) DataSource {
-	// NOTE: (bolt) This just uses a fairly straight-forward kube client initialization. We should add specific proxy/auth
-	// NOTE: (bolt) requirements for the other data sources.
-	kubeClientset, err := kubeconfig.LoadKubeClient("")
-	if err != nil {
-		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
-	}
-
 	cfg, err := kubeconfig.LoadKubeconfig("")
 	if err != nil {
 		log.Fatalf("Failed to load Kubernetes config: %s", err.Error())

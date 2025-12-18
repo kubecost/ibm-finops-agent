@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"github.com/opencost/opencost/core/pkg/clustercache"
+	"k8s.io/client-go/kubernetes"
 )
 
 type OpenCostClusterCacheAdapter struct {
@@ -9,7 +10,7 @@ type OpenCostClusterCacheAdapter struct {
 }
 
 // NewOpenCostClusterCacheAdapter creates a new adapter that will adapt the unified agent cluster cache to the opencost variant.
-func NewOpenCostClusterCacheAdapter(clusterCache ClusterCache) *OpenCostClusterCacheAdapter {
+func NewOpenCostClusterCacheAdapter(k8sClient kubernetes.Interface, clusterCache ClusterCache) *OpenCostClusterCacheAdapter {
 	return &OpenCostClusterCacheAdapter{
 		clusterCache: clusterCache,
 	}
@@ -161,4 +162,14 @@ func (kcc *OpenCostClusterCacheAdapter) GetAllReplicationControllers() []*cluste
 		rcs = append(rcs, clustercache.TransformReplicationController(rc))
 	}
 	return rcs
+}
+
+func (kcc *OpenCostClusterCacheAdapter) GetAllResourceQuotas() []*clustercache.ResourceQuota {
+	cc := kcc.clusterCache
+
+	var rqs []*clustercache.ResourceQuota
+	for _, rq := range cc.GetAllResourceQuotas() {
+		rqs = append(rqs, clustercache.TransformResourceQuota(rq))
+	}
+	return rqs
 }

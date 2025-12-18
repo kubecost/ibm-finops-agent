@@ -6,19 +6,19 @@ type Metadata interface {
 	GetClusterInfo() *Info
 }
 
-type ClusterMetdata struct {
+type ClusterMetadata struct {
 	info Info
 }
 
-func NewClusterMetadata(versionInfo *version.Info) ClusterMetdata {
-	return ClusterMetdata{
+func NewClusterMetadata(versionInfo *version.Info) ClusterMetadata {
+	return ClusterMetadata{
 		info: Info{
 			Version: versionInfo,
 		},
 	}
 }
 
-func (cm ClusterMetdata) GetClusterInfo() *Info {
+func (cm ClusterMetadata) GetClusterInfo() *Info {
 	return &cm.info
 }
 

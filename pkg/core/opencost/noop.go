@@ -173,6 +173,10 @@ func (m *NoOpMetricsQuerier) QueryLBPricePerHr(start, end time.Time) *source.Fut
 	return newEmptyResult(source.DecodeLBPricePerHrResult)
 }
 
+func (m *NoOpMetricsQuerier) QueryClusterUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
 func (m *NoOpMetricsQuerier) QueryClusterManagementDuration(start, end time.Time) *source.Future[source.ClusterManagementDurationResult] {
 	return newEmptyResult(source.DecodeClusterManagementDurationResult)
 }
@@ -197,6 +201,10 @@ func (m *NoOpMetricsQuerier) QueryRAMRequests(start, end time.Time) *source.Futu
 	return newEmptyResult(source.DecodeRAMRequestsResult)
 }
 
+func (m *NoOpMetricsQuerier) QueryRAMLimits(start, end time.Time) *source.Future[source.RAMLimitsResult] {
+	return newEmptyResult(source.DecodeRAMLimitsResult)
+}
+
 func (m *NoOpMetricsQuerier) QueryRAMUsageAvg(start, end time.Time) *source.Future[source.RAMUsageAvgResult] {
 	return newEmptyResult(source.DecodeRAMUsageAvgResult)
 }
@@ -215,6 +223,10 @@ func (m *NoOpMetricsQuerier) QueryCPUCoresAllocated(start, end time.Time) *sourc
 
 func (m *NoOpMetricsQuerier) QueryCPURequests(start, end time.Time) *source.Future[source.CPURequestsResult] {
 	return newEmptyResult(source.DecodeCPURequestsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryCPULimits(start, end time.Time) *source.Future[source.CPULimitsResult] {
+	return newEmptyResult(source.DecodeCPULimitsResult)
 }
 
 func (m *NoOpMetricsQuerier) QueryCPUUsageAvg(start, end time.Time) *source.Future[source.CPUUsageAvgResult] {
@@ -333,6 +345,10 @@ func (m *NoOpMetricsQuerier) QueryNetReceiveBytes(start, end time.Time) *source.
 	return newEmptyResult(source.DecodeNetReceiveBytesResult)
 }
 
+func (m *NoOpMetricsQuerier) QueryNamespaceUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
 func (m *NoOpMetricsQuerier) QueryNamespaceAnnotations(start, end time.Time) *source.Future[source.NamespaceAnnotationsResult] {
 	return newEmptyResult(source.DecodeNamespaceAnnotationsResult)
 }
@@ -383,6 +399,74 @@ func (m *NoOpMetricsQuerier) QueryReplicaSetsWithoutOwners(start, end time.Time)
 
 func (m *NoOpMetricsQuerier) QueryReplicaSetsWithRollout(start, end time.Time) *source.Future[source.ReplicaSetsWithRolloutResult] {
 	return newEmptyResult(source.DecodeReplicaSetsWithRolloutResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestAvgResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPURequestAvgResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPURequestMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestMaxResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPURequestMaxResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestAvgResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMRequestAvgResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMRequestMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestMaxResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMRequestMaxResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPULimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitAvgResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPULimitAvgResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPULimitMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitMaxResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPULimitMaxResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitAvgResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMLimitAvgResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMLimitMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitMaxResult] {
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMLimitMaxResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestAvgResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPURequestAvgResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPURequestMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestMaxResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPURequestMaxResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestAvgResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMRequestAvgResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMRequestMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestMaxResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMRequestMaxResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPULimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitAvgResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPULimitAvgResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPULimitMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitMaxResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPULimitMaxResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitAvgResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMLimitAvgResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimitMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitMaxResult] {
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMLimitMaxResult)
 }
 
 func (m *NoOpMetricsQuerier) QueryDataCoverage(_ int) (time.Time, time.Time, error) {

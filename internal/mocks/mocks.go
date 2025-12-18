@@ -149,6 +149,7 @@ type MockClusterCache struct {
 	Jobs                   []*batchv1.Job
 	PodDisruptionBudgets   []*policyv1.PodDisruptionBudget
 	ReplicationControllers []*v1.ReplicationController
+	ResourceQuotas         []*v1.ResourceQuota
 	UnstructuredObjects    map[schema.GroupVersionResource][]*unstructured.Unstructured
 }
 
@@ -263,6 +264,12 @@ func (m *MockClusterCache) GetAllPodDisruptionBudgets() []*policyv1.PodDisruptio
 func (m *MockClusterCache) GetAllReplicationControllers() []*v1.ReplicationController {
 	m.recordCall("GetAllReplicationControllers")
 	return m.ReplicationControllers
+}
+
+// GetAllResourceQuotas implements ClusterCache interface
+func (m *MockClusterCache) GetAllResourceQuotas() []*v1.ResourceQuota {
+	m.recordCall("GetAllResourceQuotas")
+	return m.ResourceQuotas
 }
 
 // ListUnstructuredByGroupVersionResource implements ClusterCache interface
@@ -399,6 +406,11 @@ func (m *MockMetricsQuerier) QueryLBPricePerHr(start, end time.Time) *source.Fut
 	return newEmptyResult(source.DecodeLBPricePerHrResult)
 }
 
+func (m *MockMetricsQuerier) QueryClusterUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryClusterUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
 func (m *MockMetricsQuerier) QueryClusterManagementDuration(start, end time.Time) *source.Future[source.ClusterManagementDurationResult] {
 	m.recordCall("QueryClusterManagementDuration")
 	return newEmptyResult(source.DecodeClusterManagementDurationResult)
@@ -429,6 +441,11 @@ func (m *MockMetricsQuerier) QueryRAMRequests(start, end time.Time) *source.Futu
 	return newEmptyResult(source.DecodeRAMRequestsResult)
 }
 
+func (m *MockMetricsQuerier) QueryRAMLimits(start, end time.Time) *source.Future[source.RAMLimitsResult] {
+	m.recordCall("QueryRAMLimits")
+	return newEmptyResult(source.DecodeRAMLimitsResult)
+}
+
 func (m *MockMetricsQuerier) QueryRAMUsageAvg(start, end time.Time) *source.Future[source.RAMUsageAvgResult] {
 	m.recordCall("QueryRAMUsageAvg")
 	return newEmptyResult(source.DecodeRAMUsageAvgResult)
@@ -452,6 +469,11 @@ func (m *MockMetricsQuerier) QueryCPUCoresAllocated(start, end time.Time) *sourc
 func (m *MockMetricsQuerier) QueryCPURequests(start, end time.Time) *source.Future[source.CPURequestsResult] {
 	m.recordCall("QueryCPURequests")
 	return newEmptyResult(source.DecodeCPURequestsResult)
+}
+
+func (m *MockMetricsQuerier) QueryCPULimits(start, end time.Time) *source.Future[source.CPULimitsResult] {
+	m.recordCall("QueryCPULimits")
+	return newEmptyResult(source.DecodeCPULimitsResult)
 }
 
 func (m *MockMetricsQuerier) QueryCPUUsageAvg(start, end time.Time) *source.Future[source.CPUUsageAvgResult] {
@@ -599,6 +621,11 @@ func (m *MockMetricsQuerier) QueryNetReceiveBytes(start, end time.Time) *source.
 	return newEmptyResult(source.DecodeNetReceiveBytesResult)
 }
 
+func (m *MockMetricsQuerier) QueryNamespaceUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryNamespaceUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
 func (m *MockMetricsQuerier) QueryNamespaceAnnotations(start, end time.Time) *source.Future[source.NamespaceAnnotationsResult] {
 	m.recordCall("QueryNamespaceAnnotations")
 	return newEmptyResult(source.DecodeNamespaceAnnotationsResult)
@@ -662,6 +689,91 @@ func (m *MockMetricsQuerier) QueryReplicaSetsWithoutOwners(start, end time.Time)
 func (m *MockMetricsQuerier) QueryReplicaSetsWithRollout(start, end time.Time) *source.Future[source.ReplicaSetsWithRolloutResult] {
 	m.recordCall("QueryReplicaSetsWithRollout")
 	return newEmptyResult(source.DecodeReplicaSetsWithRolloutResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryResourceQuotaUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestAvgResult] {
+	m.recordCall("QueryResourceQuotaSpecCPURequestAverage")
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPURequestAvgResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecCPURequestMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestMaxResult] {
+	m.recordCall("QueryResourceQuotaSpecCPURequestMax")
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPURequestMaxResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestAvgResult] {
+	m.recordCall("QueryResourceQuotaSpecRAMRequestAverage")
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMRequestAvgResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecRAMRequestMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestMaxResult] {
+	m.recordCall("QueryResourceQuotaSpecRAMRequestMax")
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMRequestMaxResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecCPULimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitAvgResult] {
+	m.recordCall("QueryResourceQuotaSpecCPULimitAverage")
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPULimitAvgResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecCPULimitMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitMaxResult] {
+	m.recordCall("QueryResourceQuotaSpecCPULimitMax")
+	return newEmptyResult(source.DecodeResourceQuotaSpecCPULimitMaxResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitAvgResult] {
+	m.recordCall("QueryResourceQuotaSpecRAMLimitAverage")
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMLimitAvgResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaSpecRAMLimitMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitMaxResult] {
+	m.recordCall("QueryResourceQuotaSpecRAMLimitMax")
+	return newEmptyResult(source.DecodeResourceQuotaSpecRAMLimitMaxResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestAvgResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedCPURequestAverage")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPURequestAvgResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedCPURequestMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestMaxResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedCPURequestMax")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPURequestMaxResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestAvgResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedRAMRequestAverage")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMRequestAvgResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedRAMRequestMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestMaxResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedRAMRequestMax")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMRequestMaxResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedCPULimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitAvgResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedCPULimitAverage")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPULimitAvgResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedCPULimitMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitMaxResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedCPULimitMax")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPULimitMaxResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitAvgResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedRAMLimitAverage")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMLimitAvgResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimitMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitMaxResult] {
+	m.recordCall("QueryResourceQuotaStatusUsedRAMLimitMax")
+	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMLimitMaxResult)
 }
 
 func (m *MockMetricsQuerier) QueryDataCoverage(_ int) (time.Time, time.Time, error) {

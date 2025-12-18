@@ -15,6 +15,7 @@ const (
 	AllocationExportIntervalEnvVar     = "ALLOCATION_EXPORT_INTERVAL"
 	AssetExportIntervalEnvVar          = "ASSET_EXPORT_INTERVAL"
 	NetworkInsightExportIntervalEnvVar = "NETWORK_INSIGHT_EXPORT_INTERVAL"
+	KubeModelExportIntervalEnvVar      = "KUBEMODEL_EXPORT_INTERVAL"
 	HeartbeatExportIntervalEnvVar      = "HEARTBEAT_EXPORT_INTERVAL"
 	DiagnosticsExportIntervalEnvVar    = "DIAGNOSTICS_EXPORT_INTERVAL"
 )
@@ -38,6 +39,11 @@ func GetAssetExportInterval() time.Duration {
 // GetNetworkInsightExportInterval returns the configured interval for network insight exports.
 func GetNetworkInsightExportInterval() time.Duration {
 	return coreenv.GetDuration(NetworkInsightExportIntervalEnvVar, 10*time.Minute)
+}
+
+// GetKubeModelExportInterval returns the configured interval for allocation exports.
+func GetKubeModelExportInterval() time.Duration {
+	return coreenv.GetDuration(KubeModelExportIntervalEnvVar, 10*time.Minute)
 }
 
 // GetHeartbeatExportInterval returns the configured interval for heartbeat exports.
