@@ -170,7 +170,7 @@ jobs:
     steps:
       - name: label unit tests failing
         if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled()}}
-        uses: andymckay/labeler@1.0.4
+        uses: kubecost/labeler@1.0.4
         with:
           add-labels: "unit tests failed"
       - uses: mondeja/remove-labels-gh-action@v2
@@ -181,7 +181,7 @@ jobs:
             unit tests passed
       - name: Label unit tests passing
         if: ${{ always()  && !contains(needs.*.result, 'failure') && !cancelled()}}
-        uses: andymckay/labeler@1.0.4
+        uses: kubecost/labeler@1.0.4
         with:
           add-labels: "unit tests passed"
       - uses: mondeja/remove-labels-gh-action@v2
