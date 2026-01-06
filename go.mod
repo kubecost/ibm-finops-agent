@@ -13,10 +13,10 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.36.1
-	github.com/opencost/opencost v1.119.0
-	github.com/opencost/opencost/core v1.119.0
-	github.com/opencost/opencost/modules/collector-source v1.119.0
-	github.com/opencost/opencost/modules/prometheus-source v1.119.0
+	github.com/opencost/opencost v1.119.1
+	github.com/opencost/opencost/core v1.119.1
+	github.com/opencost/opencost/modules/collector-source v1.119.1
+	github.com/opencost/opencost/modules/prometheus-source v1.119.1
 	github.com/prometheus/client_golang v1.22.0
 	github.com/rs/cors v1.8.2
 	github.com/spf13/cast v1.3.1
@@ -55,7 +55,7 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.53.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.53.0 // indirect
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
-	github.com/aliyun/alibaba-cloud-sdk-go v1.62.107 // indirect
+	github.com/aliyun/alibaba-cloud-sdk-go v1.63.107 // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.39.6 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.1 // indirect
