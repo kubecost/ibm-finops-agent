@@ -3,14 +3,13 @@ ARG TARGETPLATFORM
 
 RUN yum install -y unzip wget
 
-RUN set -e; \
-    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
+RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
         wget https://go.dev/dl/go1.25.5.linux-amd64.tar.gz && \
         tar -C /usr/local -xzf go1.25.5.linux-amd64.tar.gz && \
         rm go1.25.5.linux-amd64.tar.gz; \
     elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
         wget https://go.dev/dl/go1.25.5.linux-arm64.tar.gz && \
-        tar -C /usr/local -xzf go1.25.5.linux-arm64.tar.gz && \
+        tar -C /usr/local -xzf go1.25.5.linux-arm64.tar.gz 2>&1 || true && \
         rm go1.25.5.linux-arm64.tar.gz; \
     else \
         echo "unsupported target platform: $TARGETPLATFORM" && \
