@@ -1,7 +1,7 @@
 FROM redhat/ubi9:latest AS build-env
 ARG TARGETPLATFORM
 
-RUN yum install -y unzip wget
+RUN yum install -y unzip wget ca-certificates
 
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
         wget https://go.dev/dl/go1.25.5.linux-amd64.tar.gz && \
