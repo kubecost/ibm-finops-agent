@@ -3,6 +3,7 @@ ARG TARGETPLATFORM
 
 RUN yum install -y unzip wget
 
+RUN echo "TARGETPLATFORM: $TARGETPLATFORM"
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
         wget https://go.dev/dl/go1.25.5.linux-amd64.tar.gz && \
         tar -C /usr/local -xzf go1.25.5.linux-amd64.tar.gz && \
