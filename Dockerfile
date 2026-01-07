@@ -1,23 +1,5 @@
-FROM redhat/ubi9:latest AS build-env
-ARG TARGETPLATFORM
+FROM golang:1.25.5 AS build-env
 
-RUN yum install -y unzip wget
-
-RUN set -e; \
-    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-        wget https://go.dev/dl/go1.25.5.linux-amd64.tar.gz && \
-        tar -C /usr/local -xzf go1.25.5.linux-amd64.tar.gz && \
-        rm go1.25.5.linux-amd64.tar.gz; \
-    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-        wget https://go.dev/dl/go1.25.5.linux-arm64.tar.gz && \
-        tar -C /usr/local -xzf go1.25.5.linux-arm64.tar.gz && \
-        rm go1.25.5.linux-arm64.tar.gz; \
-    else \
-        echo "unsupported target platform: $TARGETPLATFORM" && \
-        exit 1; \
-    fi
-
-ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GOPROXY=https://proxy.golang.org,direct
 ENV GO111MODULE=on
 #ENV GOSUMDB=off
