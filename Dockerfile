@@ -1,8 +1,5 @@
 FROM golang:1.25.5-alpine AS build-env
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
-
 RUN mkdir /app
 WORKDIR /app
 
