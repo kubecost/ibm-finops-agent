@@ -16,7 +16,6 @@ jobs:
 
     outputs:
       AGENT_IMAGE_TAG: ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}
-      AGENT_IMAGE_TAG_LATEST: ${{ steps.tag.outputs.AGENT_IMAGE_TAG_LATEST }}
 
     steps:
       - name: Checkout ibm-finops-agent
