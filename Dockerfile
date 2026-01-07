@@ -9,7 +9,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
         rm go1.25.5.linux-amd64.tar.gz; \
     elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
         wget https://go.dev/dl/go1.25.5.linux-arm64.tar.gz && \
-        tar -C /usr/local -xzf go1.25.5.linux-arm64.tar.gz 2>&1 || true && \
+        tar --no-same-owner --no-same-permissions -C /usr/local -xzf go1.25.5.linux-arm64.tar.gz 2>&1 || true && \
         rm -f go1.25.5.linux-arm64.tar.gz && \
         test -f /usr/local/go/bin/go || (echo "Go binary not found after extraction" && exit 1); \
     else \
