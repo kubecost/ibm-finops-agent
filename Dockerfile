@@ -1,11 +1,7 @@
 FROM golang:1.25.5-alpine AS build-env
 
-ENV PATH="${PATH}:/usr/local/go/bin"
-ENV GOPROXY=https://proxy.golang.org,direct
-ENV GO111MODULE=on
-#ENV GOSUMDB=off
-
-RUN go version
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates tzdata
 
 RUN mkdir /app
 WORKDIR /app
