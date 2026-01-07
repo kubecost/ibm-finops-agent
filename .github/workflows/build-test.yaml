@@ -1,14 +1,14 @@
-name: Build agent
+name: Build test agent
 
 on:
-    pull_request:
-        branches:
-            - develop
+  pull_request:
+    branches:
+      - develop
 env:
   IMAGE_TAG_BASE: "gcr.io/${{ vars.GCR_PROJECT_ID }}/agent"
 
 jobs:
-  build_and_publish:
+  build_test_agent:
     runs-on: Kubecost-Linux-Large-x86
     permissions:
       contents: read
@@ -44,22 +44,8 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: '${{ secrets.GCP_SA_KEY }}'
-
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ vars.GCR_PROJECT_ID }}
-
-      - name: gcloud auth configure-docker
-        run: |
-          gcloud --quiet auth configure-docker
       
-      - name: Build and Push agent
+      - name: Build test agent
         id: docker_build_agent
         uses: docker/build-push-action@v6
         with:
