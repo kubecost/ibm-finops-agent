@@ -1,7 +1,7 @@
 FROM redhat/ubi9:latest AS build-env
 ARG TARGETPLATFORM
 
-RUN yum install -y unzip wget ca-certificates
+RUN yum install -y unzip wget
 
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
         wget https://go.dev/dl/go1.25.5.linux-amd64.tar.gz && \
@@ -21,7 +21,7 @@ ENV GOPROXY=https://proxy.golang.org,direct
 ENV GO111MODULE=on
 #ENV GOSUMDB=off
 
-RUN go version
+RUN go 1.25.5
 
 RUN mkdir /app
 WORKDIR /app
