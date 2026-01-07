@@ -6,12 +6,9 @@ RUN yum install -y unzip wget
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
         wget https://go.dev/dl/go1.25.5.linux-amd64.tar.gz && \
         tar -C /usr/local -xzf go1.25.5.linux-amd64.tar.gz && \
-        rm go1.25.5.linux-amd64.tar.gz; \
     elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
         wget https://go.dev/dl/go1.25.5.linux-arm64.tar.gz && \
-        tar --no-same-owner --no-same-permissions -C /usr/local -xzf go1.25.5.linux-arm64.tar.gz 2>&1 || true && \
-        rm -f go1.25.5.linux-arm64.tar.gz && \
-        test -f /usr/local/go/bin/go || (echo "Go binary not found after extraction" && exit 1); \
+        tar -C /usr/local -xzf go1.25.5.linux-arm64.tar.gz && \
     else \
         echo "unsupported target platform: $TARGETPLATFORM" && \
         exit 1; \
