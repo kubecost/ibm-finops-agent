@@ -1,91 +1,18 @@
-name: Build and Push agent release
+name: Trigger Build in integration-ci-cd
 
 on:
   push:
     tags:
       - 'v*'
 
-env:
-  IMAGE_TAG_BASE: "gcr.io/${{ vars.GCR_PROJECT_ID }}/agent"
-
 jobs:
-  build_and_publish:
-    runs-on: Kubecost-Linux-Large-x86
-    permissions:
-      contents: read
-      id-token: write
-
-    outputs:
-      AGENT_IMAGE_TAG: ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}
-      AGENT_IMAGE_TAG_LATEST: ${{ steps.tag.outputs.AGENT_IMAGE_TAG_LATEST }}
-
+  trigger:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout ibm-finops-agent
-        uses: actions/checkout@v4
+      - name: Trigger repository dispatch
+        uses: peter-evans/repository-dispatch@v3
         with:
-          ref: ${{ github.ref_name }}
-          path: ./ibm-finops-agent
-
-      - name: Checkout opencost
-        uses: actions/checkout@v4
-        with:
-          repository: 'opencost/opencost'
-          ref: 'develop'
-          fetch-depth: 0
-          path: ./opencost
-
-      # Creates tags for agent images 
-      - name: Set image tag
-        id: tag
-        run: |
-          echo "AGENT_IMAGE_TAG=${{ env.IMAGE_TAG_BASE }}:${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          echo "AGENT_IMAGE_TAG_LATEST=${{ env.IMAGE_TAG_BASE }}:latest" >> $GITHUB_OUTPUT
-
-      - name: Output config info
-        run: |
-          echo "Agent image tag: ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}"
-          echo "Agent image tag (latest): ${{ steps.tag.outputs.AGENT_IMAGE_TAG_LATEST }}"
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: '${{ secrets.GCP_SA_KEY }}'
-
-      - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ vars.GCR_PROJECT_ID }}
-
-      - name: gcloud auth configure-docker
-        run: |
-          gcloud --quiet auth configure-docker
-      
-      - name: Build and Push agent
-        id: docker_build_agent
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./ibm-finops-agent/Dockerfile
-          platforms: "linux/amd64,linux/arm64"
-          push: true
-          build-args: |
-            version=${{ github.ref_name }}
-          tags: |
-            ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}
-            ${{ steps.tag.outputs.AGENT_IMAGE_TAG_LATEST }}
-
-  trigger-registry-uploads:
-    needs: build_and_publish
-    runs-on: Kubecost-Linux-Small-x86
-    steps:
-      - name: Trigger upload to Harbor and ICR
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          repo: apptio-pne/kubecost-deploy
-          token: ${{ secrets.PR_CREATE_GH_PAT }}
-          ref: main
-          workflow: Copy Cloudy Images to Harbor and ICR
-          inputs: '{ "docker_image": "${{ needs.build_and_publish.outputs.AGENT_IMAGE_TAG }}" }'
+          token: ${{ secrets.DISPATCH_TOKEN }}
+          repository: kubecost/integration-ci-cd  # or your org/repo name
+          event-type: finops-agent-release
+          client-payload: '{"tag": "${{ github.ref_name }}"}'

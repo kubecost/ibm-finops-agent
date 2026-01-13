@@ -144,25 +144,6 @@ jobs:
       - name: Push Docker image
         run: docker push ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
 
-#   notify-fail:
-#     needs: [test-cost-model]
-#     runs-on: Kubecost-Linux-Small-x86
-#     if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled() && github.ref == 'refs/heads/develop' }}
-#     steps:
-#       - name: Slack notify
-#         id: slack
-#         uses: slackapi/slack-github-action@v2
-#         with:
-#           webhook-type: webhook-trigger
-#           payload: |
-#             {
-#               "workflow": "${{github.workflow}}",
-#               "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-#               "message": "KCM Develop branch unit testing has failed! Please check the logs for more information."
-#             }
-#         env:
-#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }} 
-
   set-labels:
     needs: [test-finops-agent]
     runs-on: Kubecost-Linux-Small-x86
