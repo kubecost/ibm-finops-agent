@@ -153,12 +153,28 @@ jobs:
       issues: read
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
     steps:
+      - name: Debug - Check workspace
+        run: |
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "PWD: $(pwd)"
+          echo "Contents of workspace:"
+          ls -la
       - uses: actions/checkout@v4
         with:
           repository: kubecost/labeler
           ref: '1.0.5'
           path: ./labeler
           token: ${{ secrets.ACTIONS_PAT }}
+      - name: Debug - Verify checkout
+        run: |
+          echo "Checking if labeler directory exists:"
+          ls -la ./labeler || echo "ERROR: ./labeler does not exist"
+          echo "Checking if action.yml exists:"
+          ls -la ./labeler/action.yml || echo "ERROR: action.yml not found"
+          echo "Contents of labeler directory:"
+          ls -la ./labeler/ || echo "Directory does not exist"
+          echo "Absolute path:"
+          realpath ./labeler || echo "Cannot resolve path"
       - name: label unit tests failing
         if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled()}}
         uses: ./labeler
