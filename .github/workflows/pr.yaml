@@ -16,7 +16,7 @@ on:
 
 jobs:
   test-finops-agent:
-    runs-on: Kubecost-Linux-Medium-x86
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
