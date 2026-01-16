@@ -154,6 +154,11 @@ jobs:
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: kubecost/labeler
+          ref: '1.0.5'
+          path: ./labeler
+          token: ${{ secrets.ACTIONS_PAT }}
       - name: label unit tests failing
         if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled()}}
         uses: ./labeler
