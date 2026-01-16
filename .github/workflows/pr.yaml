@@ -147,6 +147,10 @@ jobs:
   set-labels:
     needs: [test-finops-agent]
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+      issues: read
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
     steps:
       - name: label unit tests failing
