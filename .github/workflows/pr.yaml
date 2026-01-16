@@ -153,9 +153,10 @@ jobs:
       issues: read
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
     steps:
+      - uses: actions/checkout@v4
       - name: label unit tests failing
         if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled()}}
-        uses: kubecost/labeler@1.0.5
+        uses: ./labeler
         with:
           add-labels: "unit tests failed"
       - uses: mondeja/remove-labels-gh-action@v2
@@ -166,7 +167,7 @@ jobs:
             unit tests passed
       - name: Label unit tests passing
         if: ${{ always()  && !contains(needs.*.result, 'failure') && !cancelled()}}
-        uses: kubecost/labeler@1.0.5
+        uses: ./labeler
         with:
           add-labels: "unit tests passed"
       - uses: mondeja/remove-labels-gh-action@v2
