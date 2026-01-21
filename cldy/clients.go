@@ -458,6 +458,8 @@ func getURLsFromRegion(region string) (string, string) {
 		return formatFrontdoorAndCloudabilityURLs("-jp", "-jp")
 	case "in", "ap-south-1":
 		return formatFrontdoorAndCloudabilityURLs("-in", "-in")
+	case "ca", "ca-central-1":
+		return formatFrontdoorAndCloudabilityURLs("-ca", "-ca")
 	case "gov", "us-gov-west-1":
 		return formatFrontdoorAndCloudabilityURLs("-usgov", ".usgov")
 	case "gov2", "us-gov-east-1":
@@ -474,6 +476,8 @@ func getURLsFromRegion(region string) (string, string) {
 		return formatFrontdoorAndCloudabilityURLs("-jp", "")
 	case "hybrid-in":
 		return formatFrontdoorAndCloudabilityURLs("-in", "")
+	case "hybrid-ca":
+		return formatFrontdoorAndCloudabilityURLs("-ca", "")
 	default:
 		log.Warnf("Invalid cloudability region: %s. Defaulting to 'us-west-2' region.", region)
 		return formatFrontdoorAndCloudabilityURLs("", "")
