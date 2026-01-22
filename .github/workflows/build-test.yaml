@@ -9,7 +9,7 @@ env:
 
 jobs:
   build_test_agent:
-    runs-on: Kubecost-Linux-Large-x86
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
