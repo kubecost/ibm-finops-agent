@@ -53,6 +53,12 @@ func NewOpenCostDataSource(
 		panic(err.Error())
 	}
 
+	// download the pricing data
+	err = cloudProvider.DownloadPricingData()
+	if err != nil {
+		log.Warnf("Failed to download pricing data: %s", err)
+	}
+
 	configWatchers := watcher.NewConfigMapWatchers(kubeClientset, kcenv.GetFinOpsAgentNamespace())
 	configWatchers.AddWatcher(provider.ConfigWatcherFor(cloudProvider))
 	configWatchers.Watch()
