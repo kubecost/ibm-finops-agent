@@ -21,7 +21,7 @@ jobs:
       contents: read
       packages: write
     outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
+      image-tag: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
 
     steps:
       - name: Install Go
@@ -39,6 +39,15 @@ jobs:
           ref: 'develop'
           fetch-depth: 0
           path: ./opencost
+
+    #   - name: Attempt to check out matching branch name, or target branch name of OC
+    #     run: |
+    #         pushd ./opencost
+    #         echo "Attempting to check out matching branch ${{ github.head_ref }} in OC. If that fails, check out ${{ github.base_ref }}"
+    #         set -x
+    #         git checkout "${{ github.head_ref }}" || git checkout "${{ github.base_ref }}" || true
+    #         set +x
+    #         popd
 
       # Saves us from having to redownload all modules
       - name: Go Mod cache
@@ -154,7 +163,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull Docker image
-        run: docker pull ${{ fromJSON(needs.build-and-test.outputs.image-tag).tags[0] }}
+        run: docker pull ${{ needs.build-and-test.outputs.image-tag }}
 
       - name: Install Helm
         uses: azure/setup-helm@v1
@@ -163,13 +172,10 @@ jobs:
 
       - name: E2E testing for ${{ matrix.k8s-version }}
         working-directory: ./ibm-finops-agent
-        env:
-          KUBERNETES_VERSION: ${{ matrix.k8s-version }}
-          IMAGE_TAG: ${{ fromJSON(needs.build-and-test.outputs.image-tag).tags[0] }}
         run: |
           helm repo add ibm-finops https://kubecost.github.io/finops-agent-chart
           helm repo add localstack https://helm.localstack.cloud
-          KUBERNETES_VERSION=${{ matrix.k8s-version }} IMAGE=${{ fromJSON(needs.build-and-test.outputs.image-tag).tags[0] }} TEMP_DIR=$(mktemp -d) e2e/e2e.sh
+          KUBERNETES_VERSION=${{ matrix.k8s-version }} IMAGE=${{ needs.build-and-test.outputs.image-tag }} TEMP_DIR=$(mktemp -d) e2e/e2e.sh
 
   set-labels:
     needs: [build-and-test, e2e-test]
