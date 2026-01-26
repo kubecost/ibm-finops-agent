@@ -12,7 +12,7 @@ jobs:
       - name: Trigger repository dispatch
         uses: peter-evans/repository-dispatch@v3
         with:
-          token: ${{ secrets.DISPATCH_TOKEN }}
+          token: ${{ secrets.REPO_ACCESS_PAT }}
           repository: kubecost/integration-ci-cd  # or your org/repo name
           event-type: finops-agent-release
           client-payload: '{"tag": "${{ github.ref_name }}"}'
