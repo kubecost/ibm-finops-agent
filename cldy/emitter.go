@@ -14,8 +14,10 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer/protobuf"
+	"k8s.io/client-go/kubernetes/scheme"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/version"
 
@@ -326,8 +328,8 @@ func (ce *Emitter) ClearOldScratchSamples() error {
 	return nil
 }
 
-func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]proto.Message {
-	return map[string][]proto.Message{
+func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]runtime.Object {
+	return map[string][]runtime.Object{
 		//TODO: add cronjobs
 		"nodes":                  checkAndConvertNodes(snapshot.Nodes),
 		"pods":                   convertObj(append(snapshot.Pods, snapshot.ShortLivedPods...)),
@@ -344,8 +346,8 @@ func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]proto.Mess
 	}
 }
 
-func checkAndConvertNodes(nodes []*v1.Node) []proto.Message {
-	var data []proto.Message
+func checkAndConvertNodes(nodes []*v1.Node) []runtime.Object {
+	var data []runtime.Object
 	for _, node := range nodes {
 		if node.Spec.ProviderID == "" {
 			log.Warnf("Node ProviderID is not set for node: %s which may be because the node is running in a self managed environment, and this may cause inconsistent gathering of metrics data.", node.Name)
@@ -355,8 +357,8 @@ func checkAndConvertNodes(nodes []*v1.Node) []proto.Message {
 	return data
 }
 
-func convertObj[T proto.Message](objs []T) []proto.Message {
-	var data []proto.Message
+func convertObj[T runtime.Object](objs []T) []runtime.Object {
+	var data []runtime.Object
 	for _, obj := range objs {
 		if shouldSkipResource(obj) {
 			continue
@@ -367,7 +369,7 @@ func convertObj[T proto.Message](objs []T) []proto.Message {
 	return data
 }
 
-func shouldSkipResource[T proto.Message](obj T) bool {
+func shouldSkipResource[T runtime.Object](obj T) bool {
 	// safe buffer to allow for longer lived resources to be ingested correctly
 	previousHour := time.Now().UTC().Add(-1 * time.Hour)
 	switch resource := any(obj).(type) {
@@ -411,7 +413,7 @@ func shouldSkipPod(previousHour time.Time, resource *v1.Pod) bool {
 	return false
 }
 
-func (ce *Emitter) writeObjects(name string, data []proto.Message) (err error) {
+func (ce *Emitter) writeObjects(name string, data []runtime.Object) (err error) {
 	outputPath := ce.currentSamplePath + name + ce.getSuffix()
 	outFile, err := os.Create(outputPath)
 	defer safeClose(outFile.Close, &err)
@@ -495,7 +497,7 @@ func (ce *Emitter) newNextSamplePath() string {
 	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt+1))
 }
 
-func (ce *Emitter) marshalObject(object proto.Message) ([]byte, error) {
+func (ce *Emitter) marshalObject(object runtime.Object) ([]byte, error) {
 	if ce.config.EmitAsJson {
 		data, err := json.Marshal(object)
 		if err != nil {
@@ -504,7 +506,8 @@ func (ce *Emitter) marshalObject(object proto.Message) ([]byte, error) {
 		data = append(data, []byte("\n")...)
 		return data, nil
 	}
-	data, err := proto.Marshal(object)
+	serializer := protobuf.NewSerializer(scheme.Scheme, scheme.Scheme)
+	data, err := runtime.Encode(serializer, object)
 	if err != nil {
 		return nil, err
 	}
