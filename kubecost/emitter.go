@@ -17,13 +17,11 @@ import (
 	"github.com/opencost/opencost/core/pkg/opencost/exporter"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/cloud/models"
-	"github.com/opencost/opencost/pkg/cloud/provider"
-	"github.com/opencost/opencost/pkg/config"
 	"github.com/opencost/opencost/pkg/costmodel"
 )
 
 type KubecostEmitter struct {
-	cloudProvider       models.Provider
+	cloudCostProvider   models.Provider
 	dataSource          *adapters.OpenCostDataSourceAdapter
 	costModel           *costmodel.CostModel
 	pipelineControllers *exporter.PipelineExportControllers
@@ -34,10 +32,15 @@ type KubecostEmitter struct {
 	config *EmitterConfig
 }
 
-func NewKubecostEmitter(diag diagnostics.DiagnosticService, config *EmitterConfig) *KubecostEmitter {
+func NewKubecostEmitter(
+	cloudCostProvider models.Provider,
+	diag diagnostics.DiagnosticService,
+	config *EmitterConfig,
+) *KubecostEmitter {
 	return &KubecostEmitter{
-		diag:   diag,
-		config: config,
+		cloudCostProvider: cloudCostProvider,
+		diag:              diag,
+		config:            config,
 	}
 }
 
@@ -52,23 +55,10 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	clusterCache := adapters.NewClusterCacheAdapter(snapshot.Kubernetes)
 	metricsQuerier := adapters.NewMetricsQuerierAdapter(snapshot.Metrics)
 
-	confManager := config.NewConfigFileManager(nil)
-
-	cloudProvider, err := provider.NewProvider(clusterCache, ke.config.CloudProviderAPIKey, confManager)
-	if err != nil {
-		return fmt.Errorf("failed to initialize cloud provider: %w", err)
-	}
-
 	// create our updateable adapter that will drive the opencost exporters
 	dataSource := adapters.NewOpenCostDataSourceAdapter(clusterInfo, clusterMap, clusterCache, metricsQuerier, ke.config.QueryResolution)
 
-	// download the pricing data
-	err = cloudProvider.DownloadPricingData()
-	if err != nil {
-		log.Warnf("Failed to download pricing data: %s", err)
-	}
-
-	costModel := costmodel.NewCostModel(ke.config.ClusterUID, dataSource, cloudProvider, clusterCache, clusterMap, dataSource.BatchDuration())
+	costModel := costmodel.NewCostModel(ke.config.ClusterUID, dataSource, ke.cloudCostProvider, clusterCache, clusterMap, dataSource.BatchDuration())
 
 	// Setup exporters for kubecost pipelines
 	bucketConfig, err := os.ReadFile(ke.config.BucketConfigFile)
@@ -125,7 +115,6 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	diagnosticsExporter.Start(ke.config.ExportIntervals.DiagnosticsInterval)
 
 	// initialize emitter's internal state
-	ke.cloudProvider = cloudProvider
 	ke.dataSource = dataSource
 	ke.costModel = costModel
 	ke.pipelineControllers = pipelineControllers
