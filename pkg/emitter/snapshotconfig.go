@@ -213,7 +213,7 @@ func (sc *SnapshotConfig) WithKubernetesSnapshotConfig(ksc *KubernetesSnapshotCo
 // parsed from environment variables.
 func NewSnapshotConfigFromEnv() *SnapshotConfig {
 	return &SnapshotConfig{
-		UseMetricsCache:        !env.IsPromless(),
+		UseMetricsCache:        !env.IsCollectorDataSourceEnabled(),
 		MinutelyMetricsEnabled: env.IsMinuteMetricsEnabled(),
 		Now:                    defaultNow,
 	}

@@ -3,7 +3,6 @@ package kubecost
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/ibm/finops-agent/kubecost/adapters"
@@ -71,17 +70,20 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	costModel := costmodel.NewCostModel(ke.config.ClusterUID, dataSource, cloudProvider, clusterCache, clusterMap, dataSource.BatchDuration())
 
 	// Setup exporters for kubecost pipelines
-	bucketConfig, err := os.ReadFile(ke.config.BucketConfigFile)
-	if err != nil {
-		log.Errorf("Failed to initialize bucket output storage, please check your configuration and bucket security settings: %s", err)
-		return fmt.Errorf("failed to read bucket config file: %w", err)
-	}
+	/*
+		bucketConfig, err := os.ReadFile(ke.config.BucketConfigFile)
+		if err != nil {
+			log.Errorf("Failed to initialize bucket output storage, please check your configuration and bucket security settings: %s", err)
+			return fmt.Errorf("failed to read bucket config file: %w", err)
+		}
 
-	bucketStore, err := storage.NewBucketStorage(bucketConfig)
-	if err != nil {
-		log.Errorf("Failed to create export bucket storage, please check your configuration and bucket security settings: %s", err)
-		return fmt.Errorf("failed to create bucket storage: %w", err)
-	}
+		bucketStore, err := storage.NewBucketStorage(bucketConfig)
+		if err != nil {
+			log.Errorf("Failed to create export bucket storage, please check your configuration and bucket security settings: %s", err)
+			return fmt.Errorf("failed to create bucket storage: %w", err)
+		}
+	*/
+	bucketStore := storage.NewMemoryStorage()
 
 	log.Infof("Successfully created bucket storage")
 

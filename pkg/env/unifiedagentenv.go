@@ -24,8 +24,8 @@ const (
 	OpenCostDataSourceEnabledEnvVar = "OPENCOST_SOURCE_ENABLED"
 
 	// Snapshot Configuration
-	MinuteMetricsEnabledEnvVar = "MINUTE_METRICS_ENABLED"
-	PromlessEnvVar             = "PROMLESS"
+	MinuteMetricsEnabledEnvVar       = "MINUTE_METRICS_ENABLED"
+	CollectorDataSourceEnabledEnvVar = "COLLECTOR_DATA_SOURCE_ENABLED"
 
 	// Node Stats Client Configuration (can be prefixed)
 	NodeStatsForceKubeProxyEnvVar    = "FORCE_KUBE_PROXY"
@@ -80,10 +80,10 @@ func IsPProfEnabled() bool {
 	return env.GetBool(PProfEnabledEnvVar, false)
 }
 
-// IsPromless returns true if the agent should run without a dependency on Prometheus. This
-// is the default mode of operation.
-func IsPromless() bool {
-	return env.GetBool(PromlessEnvVar, true)
+// IsCollectorDataSourceEnabeled returns the environment variable which enables a source.OpencostDatasource
+// which does not use uses Prometheus
+func IsCollectorDataSourceEnabled() bool {
+	return env.GetBool(CollectorDataSourceEnabledEnvVar, true)
 }
 
 // IsMinuteMetricsEnabled returns true if the 10m resolution metrics snapshot

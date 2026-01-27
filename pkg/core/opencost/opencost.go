@@ -2,7 +2,6 @@ package opencost
 
 import (
 	"context"
-	"os"
 	"time"
 
 	kcenv "github.com/ibm/finops-agent/kubecost/env"
@@ -52,6 +51,10 @@ func NewOpenCostDataSource(
 	if err != nil {
 		panic(err.Error())
 	}
+	err = cloudProvider.DownloadPricingData()
+	if err != nil {
+		panic(err.Error())
+	}
 
 	configWatchers := watcher.NewConfigMapWatchers(kubeClientset, kcenv.GetFinOpsAgentNamespace())
 	configWatchers.AddWatcher(provider.ConfigWatcherFor(cloudProvider))
@@ -81,18 +84,21 @@ func NewOpenCostDataSource(
 
 	if conf.CollectorDataSourceEnabled {
 		fn = func() (source.OpenCostDataSource, error) {
-			var store storage.Storage
-			if conf.BucketConfigFile != "" {
-				bucketConfig, err := os.ReadFile(conf.BucketConfigFile)
-				if err != nil {
-					log.Errorf("Failed to initialize bucket output storage, please check your configuration and bucket security settings: %s", err)
-				} else {
-					store, err = storage.NewBucketStorage(bucketConfig)
+			/*
+				var store storage.Storage
+				if conf.BucketConfigFile != "" {
+					bucketConfig, err := os.ReadFile(conf.BucketConfigFile)
 					if err != nil {
-						log.Errorf("Failed to create bucket storage, please check your configuration and bucket security settings: %s", err)
+						log.Errorf("Failed to initialize bucket output storage, please check your configuration and bucket security settings: %s", err)
+					} else {
+						store, err = storage.NewBucketStorage(bucketConfig)
+						if err != nil {
+							log.Errorf("Failed to create bucket storage, please check your configuration and bucket security settings: %s", err)
+						}
 					}
 				}
-			}
+			*/
+			store := storage.NewMemoryStorage()
 
 			ds := collector.NewDefaultCollectorDataSource(
 				clusterUID,

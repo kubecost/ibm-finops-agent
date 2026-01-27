@@ -43,7 +43,7 @@ func NewAgentDataSource(
 	diag diagnostics.DiagnosticService,
 	interval time.Duration,
 ) DataSource {
-	cfg, err := kubeconfig.LoadKubeconfig("")
+	cfg, err := kubeconfig.LoadKubeconfig("/home/mbolt/kubecost/clusters/aws/qa-eks3/.kubeconfig")
 	if err != nil {
 		log.Fatalf("Failed to load Kubernetes config: %s", err.Error())
 	}

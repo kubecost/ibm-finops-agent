@@ -591,6 +591,16 @@ func (m *MockMetricsQuerier) QueryNetInternetServiceGiB(start, end time.Time) *s
 	return newEmptyResult(source.DecodeNetInternetServiceGiBResult)
 }
 
+func (m *MockMetricsQuerier) QueryNetNatGatewayGiB(start, end time.Time) *source.Future[source.NetNatGatewayGiBResult] {
+	m.recordCall("QueryNetNatGatewayGiB")
+	return newEmptyResult(source.DecodeNetNatGatewayGiBResult)
+}
+
+func (m *MockMetricsQuerier) QueryNetNatGatewayPricePerGiB(start, end time.Time) *source.Future[source.NetNatGatewayPricePerGiBResult] {
+	m.recordCall("QueryNetNatGatewayPricePerGiB")
+	return newEmptyResult(source.DecodeNetNatGatewayPricePerGiBResult)
+}
+
 func (m *MockMetricsQuerier) QueryNetTransferBytes(start, end time.Time) *source.Future[source.NetTransferBytesResult] {
 	m.recordCall("QueryNetTransferBytes")
 	return newEmptyResult(source.DecodeNetTransferBytesResult)
@@ -614,6 +624,16 @@ func (m *MockMetricsQuerier) QueryNetInternetIngressGiB(start, end time.Time) *s
 func (m *MockMetricsQuerier) QueryNetInternetServiceIngressGiB(start, end time.Time) *source.Future[source.NetInternetServiceIngressGiBResult] {
 	m.recordCall("QueryNetInternetServiceIngressGiB")
 	return newEmptyResult(source.DecodeNetInternetServiceIngressGiBResult)
+}
+
+func (m *MockMetricsQuerier) QueryNetNatGatewayIngressGiB(start, end time.Time) *source.Future[source.NetNatGatewayIngressGiBResult] {
+	m.recordCall("QueryNetNatGatewayIngressGiB")
+	return newEmptyResult(source.DecodeNetNatGatewayIngressGiBResult)
+}
+
+func (m *MockMetricsQuerier) QueryNetNatGatewayIngressPricePerGiB(start, end time.Time) *source.Future[source.NetNatGatewayPricePerGiBResult] {
+	m.recordCall("QueryNetNatGatewayIngressPricePerGiB")
+	return newEmptyResult(source.DecodeNetNatGatewayPricePerGiBResult)
 }
 
 func (m *MockMetricsQuerier) QueryNetReceiveBytes(start, end time.Time) *source.Future[source.NetReceiveBytesResult] {
