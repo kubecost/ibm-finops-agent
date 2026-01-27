@@ -26,6 +26,7 @@ import (
 	"github.com/opencost/opencost/modules/collector-source/pkg/collector"
 	"github.com/opencost/opencost/modules/prometheus-source/pkg/prom"
 
+	"github.com/opencost/opencost/pkg/cloud/models"
 	"github.com/opencost/opencost/pkg/cloud/provider"
 )
 
@@ -36,7 +37,7 @@ func NewOpenCostDataSource(
 	router *httprouter.Router,
 	diag diagnostics.DiagnosticService,
 	conf *OpenCostConfig,
-) source.OpenCostDataSource {
+) (source.OpenCostDataSource, models.Provider) {
 	clusterUID, err := kubeconfig.GetClusterUID(kubeClientset)
 	if err != nil {
 		log.Fatalf("Failed to determine cluster UID: %s", err)
@@ -44,13 +45,16 @@ func NewOpenCostDataSource(
 
 	// Create ConfigFileManager for synchronization of shared configuration
 	confManager := config.NewConfigFileManager(nil)
-
 	clusterCache := cluster.NewOpenCostClusterCacheAdapter(kubeClientset, k8sCache)
 
-	// NOTE: this cloud provider is purely an implementation used to provide cluster info (it does not actively pull pricing data).
 	cloudProvider, err := provider.NewProvider(clusterCache, conf.CloudProviderAPIKey, confManager)
 	if err != nil {
 		panic(err.Error())
+	}
+
+	err = cloudProvider.DownloadPricingData()
+	if err != nil {
+		log.Warnf("Failed to download public pricing data. Falling back to defaults: %s", err)
 	}
 
 	configWatchers := watcher.NewConfigMapWatchers(kubeClientset, kcenv.GetFinOpsAgentNamespace())
@@ -126,5 +130,5 @@ func NewOpenCostDataSource(
 	metricsEmitter := costmodel.NewCostModelMetricsEmitter(clusterCache, cloudProvider, clusterInfoProvider, costModel)
 	metricsEmitter.Start()
 
-	return dataSource
+	return dataSource, cloudProvider
 }

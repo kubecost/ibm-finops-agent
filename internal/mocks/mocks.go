@@ -9,6 +9,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/clusters"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/source"
+	"github.com/opencost/opencost/pkg/cloud/models"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -27,6 +28,7 @@ import (
 // MockDataSource contains mock implementations of the interfaces returned by the data source.
 type MockDataSource struct {
 	OCDataSource           *MockOpenCostDataSource
+	OCCloudProvider        models.Provider
 	ClusterCache           *MockClusterCache
 	MetricsQuerier         *MockMetricsQuerier
 	NodeStatsSummaryClient *MockStatsSummaryClient
@@ -40,6 +42,7 @@ func NewMockDataSource() *MockDataSource {
 	metrics := ocDataSource.Metrics().(*MockMetricsQuerier)
 	return &MockDataSource{
 		OCDataSource:           ocDataSource,
+		OCCloudProvider:        nil,
 		ClusterCache:           NewMockClusterCache(),
 		MetricsQuerier:         metrics,
 		NodeStatsSummaryClient: NewMockStatsSummaryClient(),
@@ -49,6 +52,10 @@ func NewMockDataSource() *MockDataSource {
 
 func (mds *MockDataSource) OpenCostSource() source.OpenCostDataSource {
 	return mds.OCDataSource
+}
+
+func (mds *MockDataSource) OpenCostCloudCostProvider() models.Provider {
+	return mds.OCCloudProvider
 }
 
 func (mds *MockDataSource) Cluster() cluster.ClusterCache {
