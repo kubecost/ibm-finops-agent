@@ -51,10 +51,6 @@ func NewOpenCostDataSource(
 	if err != nil {
 		panic(err.Error())
 	}
-	err = cloudProvider.DownloadPricingData()
-	if err != nil {
-		panic(err.Error())
-	}
 
 	err = cloudProvider.DownloadPricingData()
 	if err != nil {
