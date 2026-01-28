@@ -11,6 +11,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
+	"github.com/opencost/opencost/pkg/cloud/models"
 )
 
 func TestExporterProcess(t *testing.T) {
@@ -156,6 +157,10 @@ func (e *emptySnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterSnapshot
 type emptyDataSource struct{}
 
 func (e *emptyDataSource) OpenCostSource() source.OpenCostDataSource {
+	return nil
+}
+
+func (e *emptyDataSource) OpenCostCloudCostProvider() models.Provider {
 	return nil
 }
 

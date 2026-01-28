@@ -12,6 +12,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
+	"github.com/opencost/opencost/pkg/cloud/models"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
 
@@ -23,6 +24,9 @@ import (
 type DataSource interface {
 	// OpenCost Data Source
 	OpenCostSource() source.OpenCostDataSource
+
+	// OpenCost implementation of the cloud provider's public pricing.
+	OpenCostCloudCostProvider() models.Provider
 
 	// Opencost Metrics Query API
 	Metrics() source.MetricsQuerier
@@ -74,29 +78,35 @@ func NewAgentDataSource(
 	}
 	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, cfg)
 
+	var opencostCloudCostProvider models.Provider
 	var opencostSource source.OpenCostDataSource
 	if env.IsOpenCostDataSourceEnabled() {
 		opencostConf := opencost.NewOpenCostConfigFromEnv()
-		opencostSource = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, nodeStatsSummaryClient, router, diag, opencostConf)
+		opencostSource, opencostCloudCostProvider = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, nodeStatsSummaryClient, router, diag, opencostConf)
 	} else {
 		// fulfill the contract with a no-op opencost datasource
 		opencostSource = opencost.NewNoOpOpenCostDataSource()
+		opencostCloudCostProvider = nil
 	}
 
 	// TODO: Initialization of any other data sources here
 
 	return &agentDataSource{
-		opencostSource:         opencostSource,
-		metrics:                opencostSource.Metrics(),
-		clusterCache:           k8sCache,
-		nodeStatsSummaryClient: nodeStatsSummaryClient,
-		clusterMetadata:        clusterMetadata,
+		opencostSource:            opencostSource,
+		opencostCloudCostProvider: opencostCloudCostProvider,
+		metrics:                   opencostSource.Metrics(),
+		clusterCache:              k8sCache,
+		nodeStatsSummaryClient:    nodeStatsSummaryClient,
+		clusterMetadata:           clusterMetadata,
 	}
 }
 
 type agentDataSource struct {
 	// opencost data source
 	opencostSource source.OpenCostDataSource
+
+	// opencost public pricing data for cloud
+	opencostCloudCostProvider models.Provider
 
 	// OpenCost Metrics Query API
 	metrics source.MetricsQuerier
@@ -115,6 +125,10 @@ type agentDataSource struct {
 
 func (ads *agentDataSource) OpenCostSource() source.OpenCostDataSource {
 	return ads.opencostSource
+}
+
+func (ads *agentDataSource) OpenCostCloudCostProvider() models.Provider {
+	return ads.opencostCloudCostProvider
 }
 
 func (ads *agentDataSource) Metrics() source.MetricsQuerier {

@@ -102,18 +102,21 @@ func main() {
 		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv(clusterUID)
 		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
 
-		/*
-			if err := kubecost.ValidateConfig(kubecostEmitterConfig); err != nil {
-				panic("invalid kubecost emitter config: " + err.Error())
-			}
-		*/
+		if err := kubecost.ValidateConfig(kubecostEmitterConfig); err != nil {
+			panic("invalid kubecost emitter config: " + err.Error())
+		}
+
+		kubecostCloudProvider := dataSource.OpenCostCloudCostProvider()
+		if kubecostCloudProvider == nil {
+			panic("Public cloud provider pricing API never initialzed. Set OPENCOST_SOURCE_ENABLED=true.")
+		}
 
 		// Update the snapshot config to include the kubecost emitter's required resources
 		snapshotConfig = snapshotConfig.WithKubernetesSnapshotConfig(
 			emitter.NewKubernetesSnapshotConfigFromEnabled(kubecostEmitterConfig.KubernetesResourcesRequired),
 		)
 
-		emitters = append(emitters, kubecost.NewKubecostEmitter(diag, kubecostEmitterConfig))
+		emitters = append(emitters, kubecost.NewKubecostEmitter(kubecostCloudProvider, diag, kubecostEmitterConfig))
 	}
 	if env.IsCloudyEmitterEnabled() {
 		cldyConfig, err := cldy.NewEmitterConfigFromEnv()

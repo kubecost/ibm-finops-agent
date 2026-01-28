@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -174,7 +175,8 @@ func getSecretFromFileVolume(filepath string) string {
 		log.Warnf("error attempting to collect secret from file: %s with err: %v", filepath, err)
 		return ""
 	}
-	return string(key)
+	// Trim space on secrets
+	return strings.TrimSpace(string(key))
 }
 
 func (ce *Emitter) ID() emitter.EmitterID {
