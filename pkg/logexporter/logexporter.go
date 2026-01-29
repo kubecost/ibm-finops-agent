@@ -159,7 +159,10 @@ func (le *LogExporter) uploadFile(filePath string) error {
 		return fmt.Errorf("read file: %w", err)
 	}
 	if len(data) == 0 {
-		os.Remove(filePath)
+		err := os.Remove(filePath)
+		if err != nil {
+			log.Warnf("Failed to delete file %s: %v", filePath, err)
+		}
 		return nil
 	}
 
@@ -190,7 +193,6 @@ func gzipCompress(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	w := gzip.NewWriter(&buf)
 	if _, err := w.Write(data); err != nil {
-		w.Close()
 		return nil, err
 	}
 	if err := w.Close(); err != nil {
