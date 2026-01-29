@@ -61,7 +61,7 @@ func InitializeLogExporter() *LogExporter {
 		logExporter, err := NewLogExporter(logExporterConfig, bucketStore)
 		if err == nil {
 			logExporter.Start()
-			log.Infof("Log export enabled: PVC directory %s, bucket upload every %s", logExporterConfig.LogDirPath, logExporterConfig.UploadInterval)
+			log.Infof("Log export enabled: local directory %s, upload every %s to bucket %s at path %s", logExporterConfig.LogDirPath, logExporterConfig.UploadInterval, bucketConfigFile, logExporterConfig.PathPrefix)
 		} else {
 			log.Errorf("Failed to initialize log exporter: %s. Log export disabled.", err)
 		}
