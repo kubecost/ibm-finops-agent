@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/opencost/opencost/core/pkg/log"
 )
 
 // FileWriter is a thread-safe io.Writer that writes log data to rotating files on disk (PVC).
@@ -65,7 +67,7 @@ func (fw *FileWriter) Write(p []byte) (n int, err error) {
 
 	if fw.syncInterval > 0 && time.Since(fw.lastSyncTime) >= fw.syncInterval {
 		if err := fw.currentFile.Sync(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to sync log file: %v\n", err)
+			log.Warnf("Failed to sync log file: %v", err)
 		} else {
 			fw.lastSyncTime = time.Now()
 		}

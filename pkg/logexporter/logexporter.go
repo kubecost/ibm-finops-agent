@@ -117,7 +117,7 @@ func (le *LogExporter) Stop() error {
 
 	if le.writer != nil {
 		if err := le.writer.Sync(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to sync log file during stop: %v\n", err)
+			log.Warnf("Failed to sync log file during stop: %v", err)
 		}
 	}
 
@@ -138,7 +138,7 @@ func (le *LogExporter) uploadLoop() {
 func (le *LogExporter) uploadPending() {
 	pending, err := le.writer.GetPendingFiles()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Log export: failed to get pending files: %v\n", err)
+		log.Errorf("Log export: failed to get pending files: %v", err)
 		return
 	}
 	for _, filePath := range pending {
@@ -146,7 +146,7 @@ func (le *LogExporter) uploadPending() {
 		go func(fp string) {
 			defer le.uploadWG.Done()
 			if err := le.uploadFile(fp); err != nil {
-				fmt.Fprintf(os.Stderr, "Log export: failed to upload %s: %v\n", fp, err)
+				log.Errorf("Log export: failed to upload %s: %v", fp, err)
 			}
 		}(filePath)
 	}
@@ -168,18 +168,11 @@ func (le *LogExporter) uploadFile(filePath string) error {
 		return fmt.Errorf("gzip: %w", err)
 	}
 
-	info, err := os.Stat(filePath)
-	if err != nil {
-		return fmt.Errorf("stat: %w", err)
-	}
-	t := info.ModTime()
-	// logs/<cluster>/YYYY/MM/DD/HH/<basename>.log.gz (basename from file keeps uniqueness)
+	// logs/<cluster>/<basename>.log.gz
 	base := filepath.Base(filePath) // e.g. log-20060102150405-1706630400123456789.log
 	objectPath := path.Join(
 		le.config.PathPrefix,
 		le.config.ClusterName,
-		t.Format("2006/01/02"),
-		t.Format("15"),
 		base+".gz",
 	)
 
@@ -188,7 +181,7 @@ func (le *LogExporter) uploadFile(filePath string) error {
 	}
 
 	if err := os.Remove(filePath); err != nil {
-		fmt.Fprintf(os.Stderr, "Log export: failed to delete after upload %s: %v\n", filePath, err)
+		log.Warnf("Log export: failed to delete after upload %s: %v", filePath, err)
 	}
 	return nil
 }
