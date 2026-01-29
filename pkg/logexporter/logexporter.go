@@ -20,7 +20,7 @@ import (
 	kcenv "github.com/ibm/finops-agent/kubecost/env"
 )
 
-// LogExporter writes logs to PVC and optionally uploads closed log files to bucket storage.
+// LogExporter writes logs to PVC and uploads closed log files to bucket storage.
 type LogExporter struct {
 	config         *Config
 	writer         *FileWriter
@@ -71,8 +71,6 @@ func InitializeLogExporter() *LogExporter {
 	return logExporter
 }
 
-// NewLogExporter creates a new LogExporter instance.
-// store can be nil to disable bucket upload (logs still written to PVC).
 func NewLogExporter(config *Config, store storage.Storage) (*LogExporter, error) {
 	logger := log.GetLogger()
 
@@ -108,43 +106,16 @@ func NewLogExporter(config *Config, store storage.Storage) (*LogExporter, error)
 	return exporter, nil
 }
 
-// Start starts the periodic upload goroutine that uploads closed log files to bucket storage.
-// No-op if bucket storage was not configured.
 func (le *LogExporter) Start() {
-	if le.store == nil || le.config.UploadInterval <= 0 {
-		return
-	}
-
 	le.ticker = time.NewTicker(le.config.UploadInterval)
 	go le.uploadLoop()
 }
 
-// Stop stops the upload goroutine, runs a final upload of pending files, and syncs the writer.
-// Safe to call multiple times.
+
 func (le *LogExporter) Stop() error {
-	if le.store == nil {
-		return nil
-	}
-
-	le.mu.Lock()
-	if le.ticker != nil {
-		le.ticker.Stop()
-		le.ticker = nil
-	}
-	le.mu.Unlock()
-
-	le.stopOnce.Do(func() { close(le.stopCh) })
-
-	// Final upload of any pending files
-	if le.store != nil && le.writer != nil {
-		le.uploadPending()
-	}
-
-	// Wait for in-flight uploads
-	le.uploadWG.Wait()
-
 	le.mu.Lock()
 	defer le.mu.Unlock()
+	le.stopOnce.Do(func() { close(le.stopCh) })
 
 	if le.writer != nil {
 		if err := le.writer.Sync(); err != nil {

@@ -111,8 +111,6 @@ func (fw *FileWriter) Sync() error {
 	return nil
 }
 
-// GetPendingFiles returns log files in logDir that are not the current active file.
-// Used by the exporter to upload closed/rotated files to bucket storage.
 func (fw *FileWriter) GetPendingFiles() ([]string, error) {
 	fw.mu.Lock()
 	currentPath := fw.currentPath
