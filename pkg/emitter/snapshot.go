@@ -368,11 +368,15 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	netInternetGiBFuture := source.WithGroup(grp, mq.QueryNetInternetGiB(start, end))
 	netInternetPricePerGiBFuture := source.WithGroup(grp, mq.QueryNetInternetPricePerGiB(start, end))
 	netInternetServiceGiBFuture := source.WithGroup(grp, mq.QueryNetInternetServiceGiB(start, end))
+	netNatGatewayPricePerGiBFuture := source.WithGroup(grp, mq.QueryNetNatGatewayPricePerGiB(start, end))
+	netNatGatewayGiBFuture := source.WithGroup(grp, mq.QueryNetNatGatewayGiB(start, end))
 	netTransferBytesFuture := source.WithGroup(grp, mq.QueryNetTransferBytes(start, end))
 	netZoneIngressGiBFuture := source.WithGroup(grp, mq.QueryNetZoneIngressGiB(start, end))
 	netRegionIngressGiBFuture := source.WithGroup(grp, mq.QueryNetRegionIngressGiB(start, end))
 	netInternetIngressGiBFuture := source.WithGroup(grp, mq.QueryNetInternetIngressGiB(start, end))
 	netInternetServiceIngressGiBFuture := source.WithGroup(grp, mq.QueryNetInternetServiceIngressGiB(start, end))
+	netNatGatewayIngressPricePerGiBFuture := source.WithGroup(grp, mq.QueryNetNatGatewayIngressPricePerGiB(start, end))
+	netNatGatewayIngressGiBFuture := source.WithGroup(grp, mq.QueryNetNatGatewayIngressGiB(start, end))
 	netReceiveBytesFuture := source.WithGroup(grp, mq.QueryNetReceiveBytes(start, end))
 	namespaceUptimeFuture := source.WithGroup(grp, mq.QueryNamespaceUptime(start, end))
 	namespaceAnnotationsFuture := source.WithGroup(grp, mq.QueryNamespaceAnnotations(start, end))
@@ -464,11 +468,15 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	netInternetGiB, _ := netInternetGiBFuture.Await()
 	netInternetPricePerGiB, _ := netInternetPricePerGiBFuture.Await()
 	netInternetServiceGiB, _ := netInternetServiceGiBFuture.Await()
+	netNatGatewayPricePerGiB, _ := netNatGatewayPricePerGiBFuture.Await()
+	netNatGatewayGiB, _ := netNatGatewayGiBFuture.Await()
 	netTransferBytes, _ := netTransferBytesFuture.Await()
 	netZoneIngressGiB, _ := netZoneIngressGiBFuture.Await()
 	netRegionIngressGiB, _ := netRegionIngressGiBFuture.Await()
 	netInternetIngressGiB, _ := netInternetIngressGiBFuture.Await()
 	netInternetServiceIngressGiB, _ := netInternetServiceIngressGiBFuture.Await()
+	netNatGatewayIngressPricePerGiB, _ := netNatGatewayIngressPricePerGiBFuture.Await()
+	netNatGatewayIngressGiB, _ := netNatGatewayIngressGiBFuture.Await()
 	netReceiveBytes, _ := netReceiveBytesFuture.Await()
 	namespaceUptime, _ := namespaceUptimeFuture.Await()
 	namespaceAnnotations, _ := namespaceAnnotationsFuture.Await()
@@ -566,11 +574,15 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		NetInternetGiB:                       netInternetGiB,
 		NetInternetPricePerGiB:               netInternetPricePerGiB,
 		NetInternetServiceGiB:                netInternetServiceGiB,
+		NetNatGatewayPricePerGiB:             netNatGatewayPricePerGiB,
+		NetNatGatewayGiB:                     netNatGatewayGiB,
 		NetTransferBytes:                     netTransferBytes,
 		NetZoneIngressGiB:                    netZoneIngressGiB,
 		NetRegionIngressGiB:                  netRegionIngressGiB,
 		NetInternetIngressGiB:                netInternetIngressGiB,
 		NetInternetServiceIngressGiB:         netInternetServiceIngressGiB,
+		NetNatGatewayIngressPricePerGiB:      netNatGatewayIngressPricePerGiB,
+		NetNatGatewayIngressGiB:              netNatGatewayIngressGiB,
 		NetReceiveBytes:                      netReceiveBytes,
 		NamespaceUptime:                      namespaceUptime,
 		NamespaceAnnotations:                 namespaceAnnotations,

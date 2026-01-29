@@ -962,7 +962,7 @@ func (mqa *MetricsQuerierAdapter) QueryNetNatGatewayIngressPricePerGiB(start, en
 		return newErrorResult(source.DecodeNetNatGatewayPricePerGiBResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
 	}
 
-	return source.NewFutureFrom(snapshot.NetNatGatewayPricePerGiB)
+	return source.NewFutureFrom(snapshot.NetNatGatewayIngressPricePerGiB)
 }
 
 func (mqa *MetricsQuerierAdapter) QueryNetReceiveBytes(start, end time.Time) *source.Future[source.NetReceiveBytesResult] {
