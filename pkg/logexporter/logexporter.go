@@ -28,9 +28,8 @@ type LogExporter struct {
 	mu             sync.Mutex
 	uploadWG       sync.WaitGroup
 	ticker         *time.Ticker
-	stopCh         chan struct{}
-	stopOnce       sync.Once
-	originalLogger *zerolog.Logger
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 const (
@@ -96,11 +95,10 @@ func NewLogExporter(config *Config, store storage.Storage) (*LogExporter, error)
 	}
 
 	exporter := &LogExporter{
-		config:         config,
-		writer:         fileWriter,
-		store:          store,
-		stopCh:         make(chan struct{}),
-		originalLogger: logger,
+		config: config,
+		writer: fileWriter,
+		store:  store,
+		stopCh: make(chan struct{}),
 	}
 
 	return exporter, nil

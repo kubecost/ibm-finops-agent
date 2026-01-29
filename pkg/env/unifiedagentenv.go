@@ -172,7 +172,7 @@ func GetLogExportPathPrefix() string {
 	return env.Get(LogExportPathPrefixEnvVar, "logs")
 }
 
-// GetLogExportDirPath returns the directory path where log files will be stored (PVC mount point)
+// GetLogExportDirPath returns the directory path where log files will be stored
 func GetLogExportDirPath() string {
 	return env.Get(LogExportDirPathEnvVar, "/var/logs/finops-agent")
 }
