@@ -8,14 +8,13 @@ import (
 )
 
 type Config struct {
-	BufferSize     int64          // Max file size before new file is created
-	LogDirPath     string         // Directory path for log files
-	SyncInterval   time.Duration  // How often to sync to disk; Stop() always syncs on shutdown
-	ClusterName    string         // Cluster name for bucket path (logs/<cluster>/...)
-	PathPrefix     string         // Path prefix in bucket (default "logs")
-	UploadInterval time.Duration  // How often to upload closed log files to bucket
+	BufferSize     int64         // Max file size before new file is created
+	LogDirPath     string        // Directory path for log files
+	SyncInterval   time.Duration // How often to sync to disk; Stop() always syncs on shutdown
+	ClusterName    string        // Cluster name for bucket path (logs/<cluster>/...)
+	PathPrefix     string        // Path prefix in bucket (default "logs")
+	UploadInterval time.Duration // How often to rotate and upload log files to bucket
 }
-
 
 func NewConfigFromEnv() *Config {
 	return &Config{

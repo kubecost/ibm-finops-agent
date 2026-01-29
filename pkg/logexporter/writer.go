@@ -10,7 +10,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
-// FileWriter is a thread-safe io.Writer that writes log data to rotating files on disk (PVC).
+// FileWriter is a thread-safe io.Writer that writes log data to rotating files on disk.
 // Files are rotated when they exceed maxSize. Sync runs periodically (syncInterval), not after every write.
 type FileWriter struct {
 	logDir       string
@@ -22,7 +22,6 @@ type FileWriter struct {
 	lastSyncTime time.Time
 	mu           sync.Mutex
 }
-
 
 func NewFileWriter(logDir string, maxSize int64, syncInterval time.Duration) (*FileWriter, error) {
 	if err := os.MkdirAll(logDir, 0755); err != nil {
@@ -46,7 +45,6 @@ func NewFileWriter(logDir string, maxSize int64, syncInterval time.Duration) (*F
 
 	return fw, nil
 }
-
 
 func (fw *FileWriter) Write(p []byte) (n int, err error) {
 	fw.mu.Lock()
@@ -76,9 +74,11 @@ func (fw *FileWriter) Write(p []byte) (n int, err error) {
 	return n, nil
 }
 
-
 func (fw *FileWriter) rotateFile() error {
 	if fw.currentFile != nil {
+		if err := fw.currentFile.Sync(); err != nil {
+			return fmt.Errorf("failed to sync current log file: %w", err)
+		}
 		if err := fw.currentFile.Close(); err != nil {
 			return fmt.Errorf("failed to close current log file: %w", err)
 		}
@@ -101,6 +101,12 @@ func (fw *FileWriter) rotateFile() error {
 	return nil
 }
 
+// Rotate closes the current log file and opens a new one.
+func (fw *FileWriter) Rotate() error {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+	return fw.rotateFile()
+}
 
 func (fw *FileWriter) Sync() error {
 	fw.mu.Lock()
@@ -139,5 +145,3 @@ func (fw *FileWriter) GetPendingFiles() ([]string, error) {
 	}
 	return files, nil
 }
-
-

@@ -46,12 +46,12 @@ const (
 	ParseMetricDataEnvVar = "PARSE_METRIC_DATA"
 
 	// Log Export Configuration
-	LogExportEnabledEnvVar         = "LOG_EXPORT_ENABLED"
-	LogExportIntervalEnvVar        = "LOG_EXPORT_INTERVAL"
-	LogExportBufferSizeEnvVar      = "LOG_EXPORT_BUFFER_SIZE"
-	LogExportPathPrefixEnvVar      = "LOG_EXPORT_PATH_PREFIX"
-	LogExportDirPathEnvVar         = "LOG_EXPORT_DIR_PATH"
-	LogExportSyncIntervalEnvVar    = "LOG_EXPORT_SYNC_INTERVAL"
+	LogExportEnabledEnvVar      = "LOG_EXPORT_ENABLED"
+	LogExportIntervalEnvVar     = "LOG_EXPORT_INTERVAL"
+	LogExportBufferSizeEnvVar   = "LOG_EXPORT_BUFFER_SIZE"
+	LogExportPathPrefixEnvVar   = "LOG_EXPORT_PATH_PREFIX"
+	LogExportDirPathEnvVar      = "LOG_EXPORT_DIR_PATH"
+	LogExportSyncIntervalEnvVar = "LOG_EXPORT_SYNC_INTERVAL"
 
 	// Prefixes for
 	CloudabilityPrefix = "CLOUDABILITY_"

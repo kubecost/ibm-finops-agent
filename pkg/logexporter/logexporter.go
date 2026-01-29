@@ -12,22 +12,22 @@ import (
 	"sync"
 	"time"
 
+	kcenv "github.com/ibm/finops-agent/kubecost/env"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
-	kcenv "github.com/ibm/finops-agent/kubecost/env"
 )
 
 // LogExporter writes logs to PVC and uploads closed log files to bucket storage.
 type LogExporter struct {
-	config         *Config
-	writer         *FileWriter
-	store          storage.Storage 
-	mu             sync.Mutex
-	uploadWG       sync.WaitGroup
-	ticker         *time.Ticker
+	config   *Config
+	writer   *FileWriter
+	store    storage.Storage
+	mu       sync.Mutex
+	uploadWG sync.WaitGroup
+	ticker   *time.Ticker
 	stopCh   chan struct{}
 	stopOnce sync.Once
 }
@@ -37,7 +37,6 @@ const (
 	flagLevel        = "log-level"
 	flagDisableColor = "disable-log-color"
 )
-
 
 func InitializeLogExporter() *LogExporter {
 	if !env.IsLogExportEnabled() {
@@ -109,7 +108,6 @@ func (le *LogExporter) Start() {
 	go le.uploadLoop()
 }
 
-
 func (le *LogExporter) Stop() error {
 	le.mu.Lock()
 	defer le.mu.Unlock()
@@ -136,6 +134,11 @@ func (le *LogExporter) uploadLoop() {
 }
 
 func (le *LogExporter) uploadPending() {
+	// Rotate current file so it becomes pending and gets uploaded this cycle.
+	if err := le.writer.Rotate(); err != nil {
+		log.Warnf("Log export: rotate: %v", err)
+	}
+
 	pending, err := le.writer.GetPendingFiles()
 	if err != nil {
 		log.Errorf("Log export: failed to get pending files: %v", err)
@@ -150,6 +153,7 @@ func (le *LogExporter) uploadPending() {
 			}
 		}(filePath)
 	}
+	le.uploadWG.Wait()
 }
 
 // uploadFile reads a log file, compresses it, uploads to bucket at logs/<cluster>/YYYY/MM/DD/HH/<timestamp>.log.gz, then deletes the local file.
