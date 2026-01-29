@@ -47,46 +47,60 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	uploadPathDir := config.ScratchDir + "/" + uploadPath
 	err := createIfNotExists(uploadPathDir)
 	if err != nil {
-		panic("failed to create upload directory: " + err.Error())
+		log.Errorf("Failed to create %s directory for uploading: %w", uploadPathDir, err)
 	}
 
 	var storageServices []StorageService
 
+	// Fetch apikey to determine which upload path to use
+	body, err := config.SecretManager.GetSecret()
+	if err != nil {
+		log.Warnf("Error retrieving secrets for Cloudability uploader: %w", err)
+	}
+	// Remove secret from memory
+	defer func() {
+		for i := range body {
+			body[i] = 0
+		}
+	}()
+
 	// Cloudability emitter
-	if config.EnvID != "" {
+	if len(body) != 0 || config.EnvID != "" {
 		apptioService, err := NewApptioService(config.ApptioConfig)
 		if err != nil {
-			log.Errorf("Failed to create cloudability uploader: %v", err)
+			log.Errorf("Failed to create Cloudability uploader: %w", err)
 		}
 		if apptioService != nil {
 			storageServices = append(storageServices, apptioService)
 		}
 
-		// S3 emitter
-	} else if config.CustomS3UploadBucket != "" && config.CustomS3UploadRegion != "" {
+	// S3 emitter
+	} else if config.CustomS3UploadBucket != "" || config.CustomS3UploadRegion != "" {
 		s3Client, err := NewCustomS3Client(config.CustomS3UploadBucket, config.CustomS3UploadRegion)
 		if err != nil {
-			log.Errorf("Failed to create custom s3 uploader: %v", err)
+			log.Errorf("Failed to create custom S3 uploader: %w", err)
 		}
 		if s3Client != nil {
-			log.Infof("Successfully created custom s3 uploader")
+			log.Infof("Successfully created custom S3 uploader!")
 			storageServices = append(storageServices, s3Client)
 		}
 
-		// Azure emitter
-	} else if config.CustomAzureBlobContainerName != "" && config.CustomAzureBlobUrl != "" {
+	// Azure emitter
+	} else if config.CustomAzureBlobContainerName != "" || config.CustomAzureBlobUrl != "" {
 		blobClient, err := NewCustomBlobClient(config.CustomAzureBlobContainerName, config.CustomAzureBlobUrl, config.CustomAzureTenantID,
 		config.CustomAzureClientID, config.CustomAzureClientSecret)
 		if err != nil {
-			log.Errorf("Failed to create custom azure blob uploader: %v", err)
+			log.Errorf("Failed to create custom Azure Blob uploader: %w", err)
 		}
 		if blobClient != nil {
-			log.Infof("Successfully created custom azure blob uploader")
+			log.Infof("Successfully created custom Azure Blob uploader!")
 			storageServices = append(storageServices, blobClient)
 		}
-		// No env vars for any of the required configurations were set.
+	// No env vars for any of the required configurations were set.
 	} else {
-		log.Errorf("No complete upload configurations were detected. Please ensure that you have set the required " +
+
+		// Some logic to help the customer figure out what's going on
+		log.Errorf("No upload configurations were detected. Please ensure that you have set the required " +
 			"environment variables for your upload type.")
 	}
 
@@ -103,7 +117,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	}
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
-		log.Warnf("failed to recover historic samples on startup: %v", err)
+		log.Warnf("Failed to recover historic samples on startup: %v", err)
 	}
 	if uploader.RecoveredUploads != 0 || uploader.RecoveredSamples != 0 {
 		log.Infof("Cloudability successfully recovered %d samples and prepared %d uploads on startup",
@@ -294,13 +308,13 @@ func (cu *CldyUploader) uploadLoop() {
 			}
 			path, err := cu.ConstructPayload(time.Now().UTC())
 			if err != nil {
-				log.Warnf("did not construct cldy payload: %s", err)
+				log.Warnf("Did not construct Cloudability payload: %s", err.Error())
 				continue
 			}
 			cu.uploadSet.add(path)
 			err = cu.uploadSet.operateAndRemove(cu.uploadData)
 			if err != nil {
-				log.Warnf("error uploading: %s", err.Error())
+				log.Warnf("Error uploading: %s", err.Error())
 			}
 		}
 	}
@@ -319,10 +333,7 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 
 	path = SafePath(
 		cu.UploadPathDir,
-		fmt.Sprintf(
-			"%s_%s.tgz",
-			cu.clusterID,
-			sampleTime.Format("2006-01-02-15-04-05"),
+		fmt.Sprintf("%s_%s.tgz", cu.clusterID, sampleTime.Format("2006-01-02-15-04-05"),
 		),
 	)
 	tw, err := os.Create(path)
@@ -338,15 +349,16 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 	if err != nil && errors.Is(err, ErrDiskSpaceExceeded) {
 		sErr := os.RemoveAll(path)
 		if sErr != nil {
-			log.Warnf("failed to remove problematic tar: %s", sErr)
+			log.Warnf("Failed to remove problematic tar: %s", sErr)
 		}
 		sErr = cu.removeSamples(files)
 		if sErr != nil {
-			log.Warnf("failed to remove samples: %s", sErr)
+			log.Warnf("Failed to remove samples: %s", sErr)
 		}
 		return "", err
 	}
 
+	log.Debug("Removing samples...")
 	err = cu.removeSamples(files)
 	if err != nil {
 		return "", err
@@ -359,7 +371,6 @@ func (cu *CldyUploader) removeSamples(files []*os.File) error {
 	for _, file := range files {
 		cu.sampleSet.remove(file.Name())
 		err := os.RemoveAll(file.Name())
-		// TODO: eval this case, shouldn't happen
 		if err != nil {
 			return err
 		}
@@ -388,14 +399,14 @@ func (cu *CldyUploader) uploadData(path string) error {
 		}
 	}
 
-	// retain size of file before removal for disk calculation purposes
+	// Retain size of file before removal for disk calculation purposes
 	f, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
 	cu.lastUploadSize = uint64(f.Size())
 
-	// uploads data, then removes tar from path if successful
+	// Uploads data, then removes tar from path if successful
 	return os.Remove(path)
 }
 
@@ -489,14 +500,14 @@ func (cu *CldyUploader) ClearOldUploadSamples() error {
 		filePath := filepath.Join(cu.UploadPathDir, file.Name())
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
-			log.Warnf("problem retrieving file information: %s", err)
+			log.Warnf("Problem retrieving file information: %s", err)
 			continue
 		}
 
 		if time.Since(fileInfo.ModTime()) > cu.recoveryPeriod/2 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
-				log.Warnf("problem deleting file: %s", err)
+				log.Warnf("Problem deleting file: %s", err)
 			}
 		}
 	}

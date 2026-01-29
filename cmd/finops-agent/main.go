@@ -36,7 +36,7 @@ func initLogging() {
 func main() {
 	initLogging()
 
-	log.Infof("Starting IBM Finops Agent...") // TODO: Include version.Version once semantic version tagging is implemented.
+	log.Infof("Starting IBM Finops Agent version: %s", version.Version)
 
 	// Shared application utilities (http router, diagnostics, etc...)
 	router := httprouter.New()
@@ -140,7 +140,8 @@ func main() {
 	}
 	if env.IsTurboEmitterEnabled() {
 		log.Infof("Turbonomic emitter not yet implemented.")
-		//emitters = append(emitters, emitter.NewTurboEmitter(dataSource))
+		// TODO: Uncomment once turbo emitter implemented.
+		// emitters = append(emitters, emitter.NewTurboEmitter(dataSource))
 	}
 
 	// TODO: Uncomment once we have full support for all emitters.

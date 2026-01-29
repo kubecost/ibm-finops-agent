@@ -67,7 +67,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.AutomaticEnv()
 
 	// Set defaults
-	viper.SetDefault("HTTPS_CLIENT_TIMEOUT", 60) // Note for readme: In seconds
+	viper.SetDefault("HTTPS_CLIENT_TIMEOUT", 60) // NOTE: Seconds
 	viper.SetDefault("UPLOAD_RETRY_COUNT", 5)
 	viper.SetDefault("OUTBOUND_PROXY_INSECURE", false)
 	viper.SetDefault("UPLOAD_REGION", "us")
@@ -86,21 +86,24 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 			return EmitterConfig{}, fmt.Errorf("failed to parse CLOUDABILITY_OUTBOUND_PROXY")
 		}
 	}
-	// check for custom mode env vars
+
+	// Check for custom upload mode env vars (i.e. S3, Azure Blob)
 	customS3UploadBucket := viper.GetString("CUSTOM_S3_UPLOAD_BUCKET")
 	customS3UploadRegion := viper.GetString("CUSTOM_S3_UPLOAD_REGION")
 	customAzureBlobContainerName := viper.GetString("CUSTOM_AZURE_BLOB_CONTAINER_NAME")
-
+	// Azure Blob Storage
 	var azureBlobClientSecret string
 	if customAzureBlobContainerName != "" {
 		azureBlobClientSecret = getSecretFromFileVolume(viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_SECRET_FILEPATH"))
 	}
+	// S3 Upload
 	var keyAccess, keySecret, envID string
 	if customS3UploadBucket == "" && customS3UploadRegion == "" && customAzureBlobContainerName == "" {
 		keyAccess = getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
 		keySecret = getSecretFromFileVolume(viper.GetString("KEY_SECRET_FILEPATH"))
 		envID = getSecretFromFileVolume(viper.GetString("ENV_ID_FILEPATH"))
 	}
+
 	return EmitterConfig{
 		UploaderConfig: UploaderConfig{
 			ApptioConfig: ApptioConfig{
@@ -128,7 +131,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		EmitAsJson:       viper.GetBool("EMIT_AS_JSON"),
 		ParseMetricData:  viper.GetBool("PARSE_METRIC_DATA"),
 		EmissionInterval: viper.GetDuration("EMISSION_INTERVAL"),
-		// Cloudy emitter requires the following kubernetes resources to be enabled
+		// NOTE: Cloudy emitter requires the following kubernetes resources to be enabled
 		KubernetesResourcesRequired: []string{
 			emitter.SnapshotNodes,
 			emitter.SnapshotPods,
@@ -172,10 +175,10 @@ func createIfNotExists(path string) error {
 func getSecretFromFileVolume(filepath string) string {
 	key, err := os.ReadFile(filepath)
 	if err != nil {
-		log.Warnf("error attempting to collect secret from file: %s with err: %v", filepath, err)
+		log.Warnf("Error attempting to collect secret from file: %s with err: %v", filepath, err)
 		return ""
 	}
-	// Trim space on secrets
+	// NOTE: Whitespace is removing surrounding secrets
 	return strings.TrimSpace(string(key))
 }
 
@@ -184,7 +187,7 @@ func (ce *Emitter) ID() emitter.EmitterID {
 }
 
 func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
-	log.Infof("Initializing Cloudability emitter.")
+	log.Infof("Initializing Cloudability emitter...")
 
 	clusterID := getClusterID(cs.Kubernetes.Namespaces)
 	ce.ClusterID = &clusterID
@@ -193,7 +196,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	ce.ScratchPath = ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
 	err := createIfNotExists(ce.ScratchPath)
 	if err != nil {
-		return fmt.Errorf("failed to create scratch directory: %s", err.Error())
+		return fmt.Errorf("failed to create %s directory: %s", ce.ScratchPath, err.Error())
 	}
 
 	// Since sample count is intiialized at -1, use next path to get 0 as first index
@@ -236,14 +239,14 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 	ce.Uploader.AddSample(ce.currentSamplePath)
 	ce.sampleCt++
 	ce.currentSamplePath = ce.nextSamplePath
-	log.Debugf("Emitted sample to Cldy: %d", ce.sampleCt)
+	log.Debugf("Emitted sample to Cloudability: %d", ce.sampleCt)
 
 	return nil
 }
 
 func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 	if statsData == nil {
-		return fmt.Errorf("stats data was nil")
+		return fmt.Errorf("Stats data was nil.")
 	}
 	for _, val := range statsData.Stats {
 		data, err := json.Marshal(val)
@@ -264,6 +267,7 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
 	if !IsAvailableDiskSpace(uint64(len(data)), ce.ScratchPath) {
+		log.Debugf("Clearing samples from scratch directory: %s", ce.ScratchPath)
 		err := ce.ClearOldScratchSamples()
 		if err != nil {
 			return err
@@ -290,7 +294,7 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 
 func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	if snapshot == nil {
-		return fmt.Errorf("k8s snapshot was nil")
+		return fmt.Errorf("K8s snapshot was nil.")
 	}
 	for name, objs := range metadataToObj(snapshot) {
 		err := ce.writeObjects(name, objs)
@@ -312,14 +316,14 @@ func (ce *Emitter) ClearOldScratchSamples() error {
 		filePath := filepath.Join(ce.ScratchPath, file.Name())
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
-			log.Warnf("problem retrieving file information: %s", err)
+			log.Warnf("Problem retrieving file information for %s: %s", filePath, err)
 			continue
 		}
 
 		if time.Since(fileInfo.ModTime()) > time.Hour*1 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
-				log.Warnf("problem deleting file: %s", err)
+				log.Warnf("Problem deleting file: %s", err)
 			}
 			ce.Uploader.RemoveSample(filePath + "/")
 		}
@@ -330,7 +334,7 @@ func (ce *Emitter) ClearOldScratchSamples() error {
 
 func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]runtime.Object {
 	return map[string][]runtime.Object{
-		//TODO: add cronjobs
+		// TODO: add cronjobs
 		"nodes":                  checkAndConvertNodes(snapshot.Nodes),
 		"pods":                   convertObj(append(snapshot.Pods, snapshot.ShortLivedPods...)),
 		"deployments":            convertObj(snapshot.Deployments),
@@ -350,7 +354,8 @@ func checkAndConvertNodes(nodes []*v1.Node) []runtime.Object {
 	var data []runtime.Object
 	for _, node := range nodes {
 		if node.Spec.ProviderID == "" {
-			log.Warnf("Node ProviderID is not set for node: %s which may be because the node is running in a self managed environment, and this may cause inconsistent gathering of metrics data.", node.Name)
+			log.Warnf("Node ProviderID is not set for node: %s which may be because the node is running in a self managed environment, " + 
+				"and this may cause inconsistent gathering of metrics data.", node.Name)
 		}
 		data = append(data, node)
 	}
@@ -523,7 +528,8 @@ func getClusterID(namespaces []*v1.Namespace) string {
 			return string(ns.GetUID())
 		}
 	}
-	// should probably error?
+	// TODO: Should this throw an Errorf instead, or have a more explicit message?
+	log.Warnf("Error retrieving cluster IDs.")
 	return ""
 }
 

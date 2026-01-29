@@ -89,15 +89,18 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 	if err != nil {
 		return nil, err
 	}
-	// remove secret from memory
+	// Remove secret from memory
 	defer func() {
 		for i := range body {
 			body[i] = 0
 		}
 	}()
 
-	if len(body) == 0 || config.EnvID == "" {
-		return nil, fmt.Errorf("key access, key secret, and env id must all be set to upload to cloudability")
+	if len(body) == 0 {
+		return nil, fmt.Errorf("CLOUDABILITY_KEY_ACCESS and CLOUDABILITY_KEY_SECRET must be set to upload to Cloudability.")
+	}
+	if config.EnvID == "" {
+		return nil, fmt.Errorf("CLOUDABILITY_ENV_ID must be set to upload to Cloudability.")
 	}
 
 	frontdoorURL, cloudabilityURL := getURLsFromRegion(config.Region)
@@ -111,12 +114,12 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 		CloudabilityURL:  cloudabilityURL,
 	}
 
-	log.Infof("Testing Cloudability upload connection.")
+	log.Infof("Testing Cloudability upload connection...")
 	err = apptioService.testUpload()
 	if err != nil {
 		return nil, fmt.Errorf("cloudability test connection failed: %s", err)
 	}
-	log.Infof("Cloudability upload test succeeded.")
+	log.Infof("Cloudability upload test succeeded!")
 	return apptioService, nil
 }
 
@@ -430,11 +433,20 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 			log.Warnf("HTTPS request failed with error: %s", err.Error())
 		}
 		if resp != nil {
-			log.Warnf("Request failed with status code: %s", resp.Status)
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				log.Warnf("Error reading response body: %w")
+			}
+			log.Warnf("Request failed with status code: %s and body: %s", resp.Status, body)
+			
+			err = resp.Body.Close()
+			if err != nil {
+				log.Warnf("Error closing response body: %w", err)
+			}
 		}
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
-	return nil, fmt.Errorf("failed to complete request after maximum retries")
+	return nil, fmt.Errorf("failed to complete request after maximum retries.")
 }
 
 // Note: All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
@@ -496,9 +508,11 @@ type CustomS3Client struct {
 }
 
 func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageService, error) {
-	if customS3Bucket == "" || customS3Region == "" {
-		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_S3_UPLOAD_BUCKET and CLOUDABILITY_CUSTOM_S3_UPLOAD_REGION " +
-			"must be set for custom S3 configuration")
+	if customS3Bucket == "" {
+		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_S3_UPLOAD_BUCKET must be set for custom S3 configuration")
+	}
+	if customS3Region == "" {
+		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_S3_UPLOAD_REGION must be set for custom S3 configuration")
 	}
 
 	uploadClient, err := newUploadClient(customS3Region)
@@ -577,9 +591,11 @@ type CustomBlobClient struct {
 
 func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTenantID string, azureClientID string,
 	azureClientSecret SecretManager) (StorageService, error) {
-	if blobContainerName == "" || customBlobUrl == "" {
-		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CONTAINER_NAME and CLOUDABILITY_CUSTOM_AZURE_BLOB_URL " +
-			"must be set for all custom azure blob configurations")
+	if blobContainerName == "" {
+		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CONTAINER_NAME must be set for all custom azure blob configurations")
+	}
+	if customBlobUrl == "" {
+		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_URL must be set for all custom azure blob configurations")
 	}
 
 	body, err := azureClientSecret.GetSecret()
@@ -607,9 +623,14 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 			}, nil
 		}
 	} else {
-		if azureTenantID == "" || azureClientID == "" || len(body) == 0 {
-			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_TENANT_ID, CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_ID, " +
-				"and CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_SECRET_FILEPATH must be set for Azure client creation through environment")
+		if azureTenantID == "" {
+			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_TENANT_ID must be set for Azure client creation through environment.")
+		}
+		if azureClientID == "" {
+			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_ID must be set for Azure client creation through environment.")
+		}
+		if len(body) == 0 {
+			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_SECRET must be set for Azure client creation through environment.")
 		}
 
 		uploadClient, err := newBlobServicePrincipalClient(customBlobUrl, azureTenantID, azureClientID, azureClientSecret)
