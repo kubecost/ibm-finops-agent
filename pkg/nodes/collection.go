@@ -133,7 +133,7 @@ type nodeFetchData struct {
 
 // retrieveNodeData fetches summary and container data for the node
 func retrieveNodeData(endpoint string, connectionMethods []connectionMethod, bearerToken string) ([]byte, error) {
-	var errs []error
+
 	// Fail after trying all connections the alloted number of retries
 	for _, cm := range connectionMethods {
 		data, err := cm.client.AttemptEndPoint(http.MethodGet, cm.API.formatEndpoint(endpoint), bearerToken)
@@ -141,11 +141,11 @@ func retrieveNodeData(endpoint string, connectionMethods []connectionMethod, bea
 			return data, err
 		} else {
 			log.Debugf("failed to connect to node: %s, error: %s", cm.API.formatEndpoint(endpoint), err)
-			errs = append(errs, fmt.Errorf("failed to connect to node: %s, error: %s", cm.API.formatEndpoint(endpoint), err))
 		}
 	}
 
-	return nil, errors.Join(errs...)
+	return nil, fmt.Errorf("problem getting node address: %v. "+
+		"Use DEBUG log level for individual connection method errors", endpoint)
 }
 
 // isFargateNode detects if it is a fargate node, disallowing direct connections
