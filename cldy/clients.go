@@ -97,9 +97,11 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 	}()
 
 	if len(body) == 0 {
+		// nolint: staticcheck
 		return nil, fmt.Errorf("CLOUDABILITY_KEY_ACCESS and CLOUDABILITY_KEY_SECRET must be set to upload to Cloudability")
 	}
 	if config.EnvID == "" {
+		// nolint: staticcheck
 		return nil, fmt.Errorf("CLOUDABILITY_ENV_ID must be set to upload to Cloudability")
 	}
 
@@ -509,9 +511,11 @@ type CustomS3Client struct {
 
 func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageService, error) {
 	if customS3Bucket == "" {
+		// nolint: staticcheck
 		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_S3_UPLOAD_BUCKET must be set for custom S3 configuration")
 	}
 	if customS3Region == "" {
+		// nolint: staticcheck
 		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_S3_UPLOAD_REGION must be set for custom S3 configuration")
 	}
 
@@ -592,9 +596,11 @@ type CustomBlobClient struct {
 func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTenantID string, azureClientID string,
 	azureClientSecret SecretManager) (StorageService, error) {
 	if blobContainerName == "" {
+		// nolint: staticcheck
 		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CONTAINER_NAME must be set for all custom azure blob configurations")
 	}
 	if customBlobUrl == "" {
+		// nolint: staticcheck
 		return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_URL must be set for all custom azure blob configurations")
 	}
 
@@ -624,12 +630,15 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		}
 	} else {
 		if azureTenantID == "" {
+			// nolint: staticcheck
 			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_TENANT_ID must be set for Azure client creation through environment")
 		}
 		if azureClientID == "" {
+			// nolint: staticcheck
 			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_ID must be set for Azure client creation through environment")
 		}
 		if len(body) == 0 {
+			// nolint: staticcheck
 			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_SECRET must be set for Azure client creation through environment")
 		}
 
