@@ -246,7 +246,7 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 
 func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 	if statsData == nil {
-		return fmt.Errorf("Stats data was nil.")
+		return fmt.Errorf("Stats data was nil")
 	}
 	for _, val := range statsData.Stats {
 		data, err := json.Marshal(val)
@@ -294,7 +294,7 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 
 func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	if snapshot == nil {
-		return fmt.Errorf("K8s snapshot was nil.")
+		return fmt.Errorf("K8s snapshot was nil")
 	}
 	for name, objs := range metadataToObj(snapshot) {
 		err := ce.writeObjects(name, objs)
