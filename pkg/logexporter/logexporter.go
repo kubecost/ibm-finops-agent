@@ -70,6 +70,11 @@ func InitializeLogExporter() *LogExporter {
 }
 
 func NewLogExporter(config *Config, store storage.Storage) (*LogExporter, error) {
+	// Validate configuration first
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+	
 	logger := log.GetLogger()
 
 	fileWriter, err := NewFileWriter(config.LogDirPath, config.BufferSize, config.SyncInterval)
@@ -109,12 +114,15 @@ func (le *LogExporter) Start() {
 }
 
 func (le *LogExporter) Stop() error {
-	le.mu.Lock()
-	defer le.mu.Unlock()
 	le.stopOnce.Do(func() { close(le.stopCh) })
+	
+	// Lock after closing stopCh to avoid deadlock with uploadLoop
+	le.mu.Lock()
+	writer := le.writer
+	le.mu.Unlock()
 
-	if le.writer != nil {
-		if err := le.writer.Sync(); err != nil {
+	if writer != nil {
+		if err := writer.Sync(); err != nil {
 			log.Warnf("Failed to sync log file during stop: %v", err)
 		}
 	}

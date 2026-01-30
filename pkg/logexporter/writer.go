@@ -10,6 +10,15 @@ import (
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
+const (
+	// File permissions
+	dirPermissions  = 0755
+	filePermissions = 0644
+	
+	// Log file pattern for matching rotated log files
+	logFilePattern = "log-*.log"
+)
+
 // FileWriter is a thread-safe io.Writer that writes log data to rotating files on disk.
 // Files are rotated when they exceed maxSize. Sync runs periodically (syncInterval), not after every write.
 type FileWriter struct {
@@ -24,16 +33,15 @@ type FileWriter struct {
 }
 
 func NewFileWriter(logDir string, maxSize int64, syncInterval time.Duration) (*FileWriter, error) {
-	if err := os.MkdirAll(logDir, 0755); err != nil {
+	if err := os.MkdirAll(logDir, dirPermissions); err != nil {
 		return nil, fmt.Errorf("failed to create log directory %s: %w", logDir, err)
 	}
 
-	now := time.Now()
 	fw := &FileWriter{
 		logDir:       logDir,
 		maxSize:      maxSize,
 		syncInterval: syncInterval,
-		lastSyncTime: now,
+		lastSyncTime: time.Time{}, // Zero time so first sync happens immediately
 	}
 
 	fw.mu.Lock()
@@ -76,11 +84,20 @@ func (fw *FileWriter) Write(p []byte) (n int, err error) {
 
 func (fw *FileWriter) rotateFile() error {
 	if fw.currentFile != nil {
-		if err := fw.currentFile.Sync(); err != nil {
-			return fmt.Errorf("failed to sync current log file: %w", err)
+		// Sync first, but continue with close even if sync fails
+		syncErr := fw.currentFile.Sync()
+		closeErr := fw.currentFile.Close()
+		
+		// Return the first error encountered
+		if syncErr != nil {
+			log.Warnf("Failed to sync log file during rotation: %v", syncErr)
+			if closeErr != nil {
+				log.Warnf("Failed to close log file during rotation: %v", closeErr)
+			}
+			return fmt.Errorf("failed to sync current log file: %w", syncErr)
 		}
-		if err := fw.currentFile.Close(); err != nil {
-			return fmt.Errorf("failed to close current log file: %w", err)
+		if closeErr != nil {
+			return fmt.Errorf("failed to close current log file: %w", closeErr)
 		}
 	}
 
@@ -89,7 +106,7 @@ func (fw *FileWriter) rotateFile() error {
 	fileName := fmt.Sprintf("log-%s-%d.log", now.Format("20060102150405"), now.UnixNano())
 	fw.currentPath = filepath.Join(fw.logDir, fileName)
 
-	file, err := os.OpenFile(fw.currentPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	file, err := os.OpenFile(fw.currentPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, filePermissions)
 	if err != nil {
 		return fmt.Errorf("failed to open log file %s: %w", fw.currentPath, err)
 	}
@@ -134,7 +151,7 @@ func (fw *FileWriter) GetPendingFiles() ([]string, error) {
 		if entry.IsDir() {
 			continue
 		}
-		if matched, _ := filepath.Match("log-*.log", entry.Name()); !matched {
+		if matched, _ := filepath.Match(logFilePattern, entry.Name()); !matched {
 			continue
 		}
 		fullPath := filepath.Join(fw.logDir, entry.Name())
