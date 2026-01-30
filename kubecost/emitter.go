@@ -108,6 +108,14 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 		heartbeatexporter.NewLogLevelMetadataProvider(),
 	)
 	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.AppName, ke.config.ClusterName, version.FriendlyVersion(), bucketStore, heartbeatMetadata)
+	
+	// Send immediate heartbeat on startup to confirm agent is running
+	log.Infof("Sending initial heartbeat...")
+	agentHeartbeat.Start(time.Millisecond) // Start with very short interval to trigger immediate export
+	time.Sleep(100 * time.Millisecond)     // Give it time to send the first heartbeat
+	agentHeartbeat.Stop()                   // Stop the short interval
+	
+	// Start normal periodic heartbeat
 	agentHeartbeat.Start(ke.config.ExportIntervals.HeartbeatInterval)
 
 	// diagnostics exporter
