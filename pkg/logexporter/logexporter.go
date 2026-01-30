@@ -195,6 +195,9 @@ func (le *LogExporter) uploadFile(filePath string) error {
 		return fmt.Errorf("write to bucket: %w", err)
 	}
 
+	sizeMiB := float64(len(compressed)) / (1024 * 1024)
+	log.Debugf("writing new binary data to storage %s %.2f MiB", objectPath, sizeMiB)
+
 	if err := os.Remove(filePath); err != nil {
 		log.Warnf("Log export: failed to delete after upload %s: %v", filePath, err)
 	}
