@@ -425,8 +425,23 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 }
 
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
+	var bodyBytes []byte
+	var err error
+    if req.Body != nil {
+        bodyBytes, err = io.ReadAll(req.Body)
+		if err != nil {
+			return nil, fmt.Errorf("error reading original request body: %s", err.Error())
+		}
+        req.Body.Close()
+    }
+
 	for i := 1; i < 4; i++ {
 		log.Debugf("Attempt %d: %s", i, requestDescription)
+
+		if bodyBytes != nil {
+            req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+        }
+
 		resp, err := ac.client.Do(req)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 			return resp, nil
