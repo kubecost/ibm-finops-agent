@@ -435,13 +435,13 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		if resp != nil {
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
-				log.Warnf("Error reading response body: %w")
+				log.Warnf("Error reading response body: %s", err.Error())
 			}
 			log.Warnf("Request failed with status code: %s and body: %s", resp.Status, body)
 			
 			err = resp.Body.Close()
 			if err != nil {
-				log.Warnf("Error closing response body: %w", err)
+				log.Warnf("Error closing response body: %s", err.Error())
 			}
 		}
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))

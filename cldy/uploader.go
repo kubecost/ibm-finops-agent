@@ -47,7 +47,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	uploadPathDir := config.ScratchDir + "/" + uploadPath
 	err := createIfNotExists(uploadPathDir)
 	if err != nil {
-		log.Errorf("Failed to create %s directory for uploading: %w", uploadPathDir, err)
+		log.Errorf("Failed to create %s directory for uploading: %s", uploadPathDir, err.Error())
 	}
 
 	var storageServices []StorageService
@@ -55,7 +55,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	// Fetch apikey to determine which upload path to use
 	body, err := config.SecretManager.GetSecret()
 	if err != nil {
-		log.Warnf("Error retrieving secrets for Cloudability uploader: %w", err)
+		log.Warnf("Error retrieving secrets for Cloudability uploader: %s", err.Error())
 	}
 	// Remove secret from memory
 	defer func() {
@@ -68,7 +68,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	if len(body) != 0 || config.EnvID != "" {
 		apptioService, err := NewApptioService(config.ApptioConfig)
 		if err != nil {
-			log.Errorf("Failed to create Cloudability uploader: %w", err)
+			log.Errorf("Failed to create Cloudability uploader: %s", err.Error())
 		}
 		if apptioService != nil {
 			storageServices = append(storageServices, apptioService)
@@ -78,7 +78,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	} else if config.CustomS3UploadBucket != "" || config.CustomS3UploadRegion != "" {
 		s3Client, err := NewCustomS3Client(config.CustomS3UploadBucket, config.CustomS3UploadRegion)
 		if err != nil {
-			log.Errorf("Failed to create custom S3 uploader: %w", err)
+			log.Errorf("Failed to create custom S3 uploader: %s", err.Error())
 		}
 		if s3Client != nil {
 			log.Infof("Successfully created custom S3 uploader!")
@@ -90,7 +90,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		blobClient, err := NewCustomBlobClient(config.CustomAzureBlobContainerName, config.CustomAzureBlobUrl, config.CustomAzureTenantID,
 		config.CustomAzureClientID, config.CustomAzureClientSecret)
 		if err != nil {
-			log.Errorf("Failed to create custom Azure Blob uploader: %w", err)
+			log.Errorf("Failed to create custom Azure Blob uploader: %s", err.Error())
 		}
 		if blobClient != nil {
 			log.Infof("Successfully created custom Azure Blob uploader!")
@@ -151,7 +151,7 @@ func (cu *CldyUploader) recoverDataOnStartup() error {
 	err := cu.recoverCompleteSamples()
 	err = errors.Join(err, cu.recoverUploadFiles())
 	if err != nil {
-		return fmt.Errorf("error(s) occurred attempting to recover data on startup. errors: %w", err)
+		return fmt.Errorf("error(s) occurred attempting to recover data on startup. errors: %s", err.Error())
 	}
 	return nil
 }
