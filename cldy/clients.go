@@ -97,10 +97,10 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 	}()
 
 	if len(body) == 0 {
-		return nil, fmt.Errorf("CLOUDABILITY_KEY_ACCESS and CLOUDABILITY_KEY_SECRET must be set to upload to Cloudability.")
+		return nil, fmt.Errorf("CLOUDABILITY_KEY_ACCESS and CLOUDABILITY_KEY_SECRET must be set to upload to Cloudability")
 	}
 	if config.EnvID == "" {
-		return nil, fmt.Errorf("CLOUDABILITY_ENV_ID must be set to upload to Cloudability.")
+		return nil, fmt.Errorf("CLOUDABILITY_ENV_ID must be set to upload to Cloudability")
 	}
 
 	frontdoorURL, cloudabilityURL := getURLsFromRegion(config.Region)
@@ -446,7 +446,7 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		}
 		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
 	}
-	return nil, fmt.Errorf("failed to complete request after maximum retries.")
+	return nil, fmt.Errorf("failed to complete request after maximum retries")
 }
 
 // Note: All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
