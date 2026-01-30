@@ -174,7 +174,7 @@ func GetLogExportPathPrefix() string {
 
 // GetLogExportDirPath returns the directory path where log files will be stored
 func GetLogExportDirPath() string {
-	return env.Get(LogExportDirPathEnvVar, "/var/logs/finops-agent")
+	return env.Get(LogExportDirPathEnvVar, "/opt/finops-agent/logs")
 }
 
 // GetLogExportSyncInterval returns how often to sync log file to disk (default 5s). Stop() always syncs on shutdown.
