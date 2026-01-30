@@ -430,9 +430,12 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
     if req.Body != nil {
         bodyBytes, err = io.ReadAll(req.Body)
 		if err != nil {
-			return nil, fmt.Errorf("error reading original request body: %s", err.Error())
+			return nil, err
 		}
-        req.Body.Close()
+        err = req.Body.Close()
+		if err != nil {
+			return nil, err
+		}
     }
 
 	for i := 1; i < 4; i++ {
