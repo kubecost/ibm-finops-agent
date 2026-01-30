@@ -624,13 +624,13 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 		}
 	} else {
 		if azureTenantID == "" {
-			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_TENANT_ID must be set for Azure client creation through environment.")
+			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_TENANT_ID must be set for Azure client creation through environment")
 		}
 		if azureClientID == "" {
-			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_ID must be set for Azure client creation through environment.")
+			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_ID must be set for Azure client creation through environment")
 		}
 		if len(body) == 0 {
-			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_SECRET must be set for Azure client creation through environment.")
+			return nil, fmt.Errorf("CLOUDABILITY_CUSTOM_AZURE_BLOB_CLIENT_SECRET must be set for Azure client creation through environment")
 		}
 
 		uploadClient, err := newBlobServicePrincipalClient(customBlobUrl, azureTenantID, azureClientID, azureClientSecret)
