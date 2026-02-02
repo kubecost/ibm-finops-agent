@@ -3,6 +3,7 @@ package logexporter
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -14,10 +15,14 @@ import (
 
 	kcenv "github.com/ibm/finops-agent/kubecost/env"
 	"github.com/ibm/finops-agent/pkg/env"
+	coreenv "github.com/opencost/opencost/core/pkg/env"
+	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	podV1 "k8s.io/api/core/v1"
 )
 
 // LogExporter writes logs to PVC and uploads closed log files to bucket storage.
@@ -109,6 +114,11 @@ func NewLogExporter(config *Config, store storage.Storage) (*LogExporter, error)
 }
 
 func (le *LogExporter) Start() {
+	if err := pastEventsTracker(le.config.LogDirPath); err != nil {
+		log.Errorf("Failed to track past events: %v", err)
+	}
+	// Uploading anything remaining in the log directory
+	le.uploadPending()
 	le.ticker = time.NewTicker(le.config.UploadInterval)
 	go le.uploadLoop()
 }
@@ -134,6 +144,9 @@ func (le *LogExporter) uploadLoop() {
 	for {
 		select {
 		case <-le.ticker.C:
+			if err := le.writer.Rotate(); err != nil {
+				log.Warnf("Log export: rotate: %v", err)
+			}
 			le.uploadPending()
 		case <-le.stopCh:
 			return
@@ -142,11 +155,6 @@ func (le *LogExporter) uploadLoop() {
 }
 
 func (le *LogExporter) uploadPending() {
-	// Rotate current file so it becomes pending and gets uploaded this cycle.
-	if err := le.writer.Rotate(); err != nil {
-		log.Warnf("Log export: rotate: %v", err)
-	}
-
 	pending, err := le.writer.GetPendingFiles()
 	if err != nil {
 		log.Errorf("Log export: failed to get pending files: %v", err)
@@ -214,4 +222,33 @@ func gzipCompress(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func pastEventsTracker(logDir string) error {
+	client, err := kubeconfig.LoadKubeClient("")
+	if err != nil {
+		return fmt.Errorf("failed to build Kubernetes client: %w", err)
+	}
+	log.Infof("Kubernetes client built successfully")
+	namespace := coreenv.GetInstallNamespace("finops-agent")
+	pods, err := client.CoreV1().Pods(namespace).List(context.Background(), v1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	var pastStatuses []podV1.PodStatus
+	for _, pod := range pods.Items {
+		pastStatuses = append(pastStatuses, pod.Status)
+	}
+
+	file, err := os.OpenFile(path.Join(logDir, "log-past-events.log"), os.O_CREATE|os.O_WRONLY, filePermissions)
+	if err != nil {
+		return fmt.Errorf("failed to open log file %s: %w", path.Join(logDir, "past-events.log"), err)
+	}
+	defer file.Close()
+
+	file.WriteString(fmt.Sprintf("%v", pastStatuses))
+	file.Sync()
+	log.Infof("Past statuses tracked successfully")
+	return nil
 }
