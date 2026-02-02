@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"time"
 
 	"github.com/opencost/opencost/core/pkg/log"
 )
+
+var ansiEscapeRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
 const (
 	// File permissions
@@ -58,18 +61,21 @@ func (fw *FileWriter) Write(p []byte) (n int, err error) {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
-	if fw.fileSize+int64(len(p)) > fw.maxSize {
+	// Strip ANSI escape codes before writing to disk
+	cleaned := ansiEscapeRegex.ReplaceAll(p, nil)
+
+	if fw.fileSize+int64(len(cleaned)) > fw.maxSize {
 		if err := fw.rotateFile(); err != nil {
 			return 0, fmt.Errorf("failed to rotate log file: %w", err)
 		}
 	}
 
-	n, err = fw.currentFile.Write(p)
+	written, err := fw.currentFile.Write(cleaned)
 	if err != nil {
-		return n, err
+		return written, err
 	}
 
-	fw.fileSize += int64(n)
+	fw.fileSize += int64(written)
 
 	if fw.syncInterval > 0 && time.Since(fw.lastSyncTime) >= fw.syncInterval {
 		if err := fw.currentFile.Sync(); err != nil {
@@ -79,7 +85,8 @@ func (fw *FileWriter) Write(p []byte) (n int, err error) {
 		}
 	}
 
-	return n, nil
+	// Return original length to satisfy io.Writer interface
+	return len(p), nil
 }
 
 func (fw *FileWriter) rotateFile() error {
