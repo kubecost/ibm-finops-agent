@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -21,8 +22,8 @@ import (
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	podV1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // LogExporter writes logs to PVC and uploads closed log files to bucket storage.
@@ -241,14 +242,22 @@ func pastEventsTracker(logDir string) error {
 		pastStatuses = append(pastStatuses, pod.Status)
 	}
 
-	file, err := os.OpenFile(path.Join(logDir, "log-past-events.log"), os.O_CREATE|os.O_WRONLY, filePermissions)
+	file, err := os.OpenFile(path.Join(logDir, "log-past-events.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePermissions)
 	if err != nil {
 		return fmt.Errorf("failed to open log file %s: %w", path.Join(logDir, "past-events.log"), err)
 	}
 	defer file.Close()
 
-	file.WriteString(fmt.Sprintf("%v", pastStatuses))
-	file.Sync()
+	data, err := json.MarshalIndent(pastStatuses, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal past statuses: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		return fmt.Errorf("failed to write log file: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync log file: %w", err)
+	}
 	log.Infof("Past statuses tracked successfully")
 	return nil
 }

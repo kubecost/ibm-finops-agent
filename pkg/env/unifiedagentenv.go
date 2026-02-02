@@ -169,7 +169,7 @@ func GetLogExportBufferSize() int64 {
 
 // GetLogExportPathPrefix returns the path prefix for log files in bucket storage
 func GetLogExportPathPrefix() string {
-	return env.Get(LogExportPathPrefixEnvVar, "logs")
+	return env.Get(LogExportPathPrefixEnvVar, "finops-agent-logs")
 }
 
 // GetLogExportDirPath returns the directory path where log files will be stored
