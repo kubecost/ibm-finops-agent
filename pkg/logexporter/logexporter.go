@@ -230,7 +230,6 @@ func pastEventsTracker(logDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to build Kubernetes client: %w", err)
 	}
-	log.Infof("Kubernetes client built successfully")
 	namespace := coreenv.GetInstallNamespace("finops-agent")
 	pods, err := client.CoreV1().Pods(namespace).List(context.Background(), v1.ListOptions{})
 	if err != nil {
@@ -241,10 +240,10 @@ func pastEventsTracker(logDir string) error {
 	for _, pod := range pods.Items {
 		pastStatuses = append(pastStatuses, pod.Status)
 	}
-
-	file, err := os.OpenFile(path.Join(logDir, "log-past-events.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePermissions)
+	fileName := fmt.Sprintf("log-past-events-%s.log", time.Now().Format("20060102150405"))
+	file, err := os.OpenFile(path.Join(logDir, fileName), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePermissions)
 	if err != nil {
-		return fmt.Errorf("failed to open log file %s: %w", path.Join(logDir, "past-events.log"), err)
+		return fmt.Errorf("failed to open log file %s: %w", path.Join(logDir, fileName), err)
 	}
 	defer file.Close()
 
