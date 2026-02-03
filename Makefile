@@ -24,6 +24,3 @@ $(ENVTEST): $(LOCALBIN)
 ci-lint: 
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.2.1
 	golangci-lint run
-
-# To run the e2e tests locally, have an image built off the total UA docker file tagged 'localhost/e2e/ibm-finops-agent:e2e'
-# and export it to IMAGE_TAG. This could be manually configured by editing the HELM_INSTALL variable in the e2e.sh files
