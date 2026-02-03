@@ -440,12 +440,13 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 
 	for i := 1; i < 4; i++ {
 		log.Debugf("Attempt %d: %s", i, requestDescription)
-
+		// Do not use stale req
+		retryReq := req.Clone(req.Context())
 		if bodyBytes != nil {
-            req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+            retryReq.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
         }
 
-		resp, err := ac.client.Do(req)
+		resp, err := ac.client.Do(retryReq)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 			return resp, nil
 		}
@@ -457,14 +458,20 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 			if err != nil {
 				log.Warnf("Error reading response body: %s", err.Error())
 			}
-			log.Warnf("Request failed with status code: %s and body: %s", resp.Status, body)
+			log.Warnf("Request failed with status code: %s and body: %s", resp.Status, string(body))
 			
+			// Drain body
+			_, err = io.Copy(io.Discard, resp.Body)
+			if err != nil {
+				log.Warnf("Error draining response body: %s", err.Error())
+			}
+
 			err = resp.Body.Close()
 			if err != nil {
 				log.Warnf("Error closing response body: %s", err.Error())
 			}
 		}
-		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
+		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))) * time.Second)
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
 }
