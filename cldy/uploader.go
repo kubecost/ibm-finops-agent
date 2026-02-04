@@ -117,7 +117,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 	}
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
-		log.Warnf("Failed to recover historic samples on startup: %v", err)
+		log.Warnf("failed to recover historic samples on startup: %v", err)
 	}
 	if uploader.RecoveredUploads != 0 || uploader.RecoveredSamples != 0 {
 		log.Infof("Cloudability successfully recovered %d samples and prepared %d uploads on startup",
@@ -314,7 +314,7 @@ func (cu *CldyUploader) uploadLoop() {
 			cu.uploadSet.add(path)
 			err = cu.uploadSet.operateAndRemove(cu.uploadData)
 			if err != nil {
-				log.Warnf("Error uploading: %s", err.Error())
+				log.Warnf("error uploading: %s", err.Error())
 			}
 		}
 	}
@@ -349,11 +349,11 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 	if err != nil && errors.Is(err, ErrDiskSpaceExceeded) {
 		sErr := os.RemoveAll(path)
 		if sErr != nil {
-			log.Warnf("Failed to remove problematic tar: %s", sErr)
+			log.Warnf("failed to remove problematic tar: %s", sErr)
 		}
 		sErr = cu.removeSamples(files)
 		if sErr != nil {
-			log.Warnf("Failed to remove samples: %s", sErr)
+			log.Warnf("failed to remove samples: %s", sErr)
 		}
 		return "", err
 	}
@@ -399,14 +399,14 @@ func (cu *CldyUploader) uploadData(path string) error {
 		}
 	}
 
-	// Retain size of file before removal for disk calculation purposes
+	// retain size of file before removal for disk calculation purposes
 	f, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
 	cu.lastUploadSize = uint64(f.Size())
 
-	// Uploads data, then removes tar from path if successful
+	// uploads data, then removes tar from path if successful
 	return os.Remove(path)
 }
 
@@ -500,14 +500,14 @@ func (cu *CldyUploader) ClearOldUploadSamples() error {
 		filePath := filepath.Join(cu.UploadPathDir, file.Name())
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
-			log.Warnf("Problem retrieving file information: %s", err)
+			log.Warnf("problem retrieving file information: %s", err)
 			continue
 		}
 
 		if time.Since(fileInfo.ModTime()) > cu.recoveryPeriod/2 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
-				log.Warnf("Problem deleting file: %s", err)
+				log.Warnf("problem deleting file: %s", err)
 			}
 		}
 	}

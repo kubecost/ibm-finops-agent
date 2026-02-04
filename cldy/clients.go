@@ -89,7 +89,7 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Remove secret from memory
+	// remove secret from memory
 	defer func() {
 		for i := range body {
 			body[i] = 0

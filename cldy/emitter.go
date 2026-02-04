@@ -175,7 +175,7 @@ func createIfNotExists(path string) error {
 func getSecretFromFileVolume(filepath string) string {
 	key, err := os.ReadFile(filepath)
 	if err != nil {
-		log.Warnf("Error attempting to collect secret from file: %s with err: %v", filepath, err)
+		log.Warnf("error attempting to collect secret from file: %s with err: %v", filepath, err)
 		return ""
 	}
 	// NOTE: Whitespace is removed surrounding secrets
@@ -316,14 +316,14 @@ func (ce *Emitter) ClearOldScratchSamples() error {
 		filePath := filepath.Join(ce.ScratchPath, file.Name())
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
-			log.Warnf("Problem retrieving file information for %s: %s", filePath, err)
+			log.Warnf("problem retrieving file information for %s: %s", filePath, err)
 			continue
 		}
 
 		if time.Since(fileInfo.ModTime()) > time.Hour*1 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
-				log.Warnf("Problem deleting file: %s", err)
+				log.Warnf("problem deleting file: %s", err)
 			}
 			ce.Uploader.RemoveSample(filePath + "/")
 		}
