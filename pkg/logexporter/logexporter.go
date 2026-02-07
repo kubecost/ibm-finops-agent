@@ -80,7 +80,7 @@ func NewLogExporter(config *Config, store storage.Storage) (*LogExporter, error)
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
-	
+
 	logger := log.GetLogger()
 
 	fileWriter, err := NewFileWriter(config.LogDirPath, config.BufferSize, config.SyncInterval)
@@ -126,7 +126,7 @@ func (le *LogExporter) Start() {
 
 func (le *LogExporter) Stop() error {
 	le.stopOnce.Do(func() { close(le.stopCh) })
-	
+
 	// Lock after closing stopCh to avoid deadlock with uploadLoop
 	le.mu.Lock()
 	writer := le.writer
@@ -245,7 +245,11 @@ func pastEventsTracker(logDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open log file %s: %w", path.Join(logDir, fileName), err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Warnf("Failed to close file %s: %v", fileName, err)
+		}
+	}()
 
 	data, err := json.MarshalIndent(pastStatuses, "", "  ")
 	if err != nil {
