@@ -1,6 +1,7 @@
 package logexporter
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 var ansiEscapeRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
 const (
-	// File permissions
 	dirPermissions  = 0755
 	filePermissions = 0644
 	
@@ -22,8 +22,8 @@ const (
 	logFilePattern = "log-*.log"
 )
 
-// FileWriter is a thread-safe io.Writer that writes log data to rotating files on disk.
-// Files are rotated when they exceed maxSize. Sync runs periodically (syncInterval), not after every write.
+// FileWriter is an io.Writer that writes log data to rotating files on disk.
+// Files are rotated when they exceed maxSize. Sync runs periodically as per the syncInterval.
 type FileWriter struct {
 	logDir       string
 	maxSize      int64
@@ -44,7 +44,7 @@ func NewFileWriter(logDir string, maxSize int64, syncInterval time.Duration) (*F
 		logDir:       logDir,
 		maxSize:      maxSize,
 		syncInterval: syncInterval,
-		lastSyncTime: time.Time{}, // Zero time so first sync happens immediately
+		lastSyncTime: time.Time{},
 	}
 
 	fw.mu.Lock()
@@ -61,7 +61,7 @@ func (fw *FileWriter) Write(p []byte) (n int, err error) {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
-	// Strip ANSI escape codes before writing to disk
+	// Strip ANSI escape codes to ensure we don't write any color codes to the log file(stripping them makes the logs more readable)
 	cleaned := ansiEscapeRegex.ReplaceAll(p, nil)
 
 	if fw.fileSize+int64(len(cleaned)) > fw.maxSize {
@@ -85,32 +85,28 @@ func (fw *FileWriter) Write(p []byte) (n int, err error) {
 		}
 	}
 
-	// Return original length to satisfy io.Writer interface
 	return len(p), nil
 }
 
 func (fw *FileWriter) rotateFile() error {
 	if fw.currentFile != nil {
-		// Sync first, but continue with close even if sync fails
 		syncErr := fw.currentFile.Sync()
 		closeErr := fw.currentFile.Close()
 		
-		// Return the first error encountered
-		if syncErr != nil {
-			log.Warnf("Failed to sync log file during rotation: %v", syncErr)
+		if syncErr != nil || closeErr != nil {
+			if syncErr != nil {
+				log.Warnf("Failed to sync log file during rotation: %v", syncErr)
+			}
 			if closeErr != nil {
 				log.Warnf("Failed to close log file during rotation: %v", closeErr)
 			}
-			return fmt.Errorf("failed to sync current log file: %w", syncErr)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("failed to close current log file: %w", closeErr)
+			return errors.Join(syncErr, closeErr)
 		}
 	}
 
-	now := time.Now()
-	// Timestamp + UnixNano so multiple rotations in the same second get unique names
-	fileName := fmt.Sprintf("log-%s-%d.log", now.Format("20060102150405"), now.UnixNano())
+	now := time.Now().UTC()
+	// Timestamp + UnixNano to ensure unique file names for multiple rotations in the same second
+	fileName := fmt.Sprintf("log-%s-%d.log", now.Format("20060102150405"), now.Nanosecond())
 	fw.currentPath = filepath.Join(fw.logDir, fileName)
 
 	file, err := os.OpenFile(fw.currentPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, filePermissions)
@@ -125,7 +121,6 @@ func (fw *FileWriter) rotateFile() error {
 	return nil
 }
 
-// Rotate closes the current log file and opens a new one.
 func (fw *FileWriter) Rotate() error {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()

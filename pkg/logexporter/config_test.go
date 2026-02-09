@@ -1,8 +1,12 @@
 package logexporter
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/ibm/finops-agent/pkg/env"
+	coreenv "github.com/opencost/opencost/core/pkg/env"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -20,7 +24,7 @@ func TestConfig_Validate(t *testing.T) {
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: false,
 		},
@@ -32,7 +36,7 @@ func TestConfig_Validate(t *testing.T) {
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: true,
 			errMsg:  "buffer size",
@@ -45,23 +49,22 @@ func TestConfig_Validate(t *testing.T) {
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: true,
 			errMsg:  "buffer size",
 		},
 		{
-			name: "empty log dir path",
+			name: "empty log dir path(Default value is used)",
 			config: &Config{
 				BufferSize:     5 * 1024 * 1024,
 				LogDirPath:     "",
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
-			wantErr: true,
-			errMsg:  "log directory path cannot be empty",
+			wantErr: false,
 		},
 		{
 			name: "relative log dir path",
@@ -71,7 +74,7 @@ func TestConfig_Validate(t *testing.T) {
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: true,
 			errMsg:  "log directory path must be absolute",
@@ -84,7 +87,7 @@ func TestConfig_Validate(t *testing.T) {
 				SyncInterval:   500 * time.Millisecond, // < 1 second minimum
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: true,
 			errMsg:  "sync interval",
@@ -97,7 +100,7 @@ func TestConfig_Validate(t *testing.T) {
 				SyncInterval:   0, // Disabled is valid
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: false,
 		},
@@ -109,7 +112,7 @@ func TestConfig_Validate(t *testing.T) {
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 30 * time.Second, // < 1 minute minimum
+				ExportInterval: 30 * time.Second, // < 1 minute minimum
 			},
 			wantErr: true,
 			errMsg:  "upload interval",
@@ -122,35 +125,35 @@ func TestConfig_Validate(t *testing.T) {
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: true,
 			errMsg:  "cluster name cannot be empty",
 		},
 		{
-			name: "path prefix with null character",
-			config: &Config{
-				BufferSize:     5 * 1024 * 1024,
-				LogDirPath:     "/var/log/finops",
-				SyncInterval:   5 * time.Second,
-				ClusterName:    "test-cluster",
-				PathPrefix:     "logs\x00invalid",
-				UploadInterval: 5 * time.Minute,
-			},
-			wantErr: true,
-			errMsg:  "path prefix contains invalid characters",
-		},
-		{
-			name: "minimum valid values",
+			name: "no path prefix (default value is used)",
 			config: &Config{
 				BufferSize:     minBufferSize,
 				LogDirPath:     "/tmp",
 				SyncInterval:   minSyncInterval,
 				ClusterName:    "c",
 				PathPrefix:     "",
-				UploadInterval: minUploadInterval,
+				ExportInterval: minExportInterval,
 			},
 			wantErr: false,
+		},
+		{
+			name: "Upload interval too small",
+			config: &Config{
+				BufferSize:     minBufferSize,
+				LogDirPath:     "/tmp",
+				SyncInterval:   minSyncInterval,
+				ClusterName:    "c",
+				PathPrefix:     "logs",
+				ExportInterval: 30 * time.Second,
+			},
+			wantErr: true,
+			errMsg:  "upload interval 30s is below minimum 1m0s",
 		},
 		{
 			name: "maximum valid buffer size",
@@ -160,7 +163,7 @@ func TestConfig_Validate(t *testing.T) {
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: false,
 		},
@@ -168,7 +171,16 @@ func TestConfig_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.Validate()
+			// set env vars
+			t.Setenv(env.LogExportBufferSizeEnvVar, fmt.Sprintf("%d", tt.config.BufferSize))
+			t.Setenv(env.LogExportDirPathEnvVar, tt.config.LogDirPath)
+			t.Setenv(env.LogExportSyncIntervalEnvVar, fmt.Sprintf("%v", tt.config.SyncInterval))
+			t.Setenv(coreenv.ClusterIDEnvVar, tt.config.ClusterName)
+			t.Setenv(env.LogExportPathPrefixEnvVar, tt.config.PathPrefix)
+			t.Setenv(env.LogExportIntervalEnvVar, fmt.Sprintf("%v", tt.config.ExportInterval))
+
+			config := NewConfigFromEnv()
+			err := config.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Config.Validate() error = %v, wantErr %v", err, tt.wantErr)
 				return

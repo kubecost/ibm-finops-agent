@@ -26,7 +26,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// LogExporter writes logs to PVC and uploads closed log files to bucket storage.
+// LogExporter writes logs to log files in the disk and uploads log files to bucket storage.
 type LogExporter struct {
 	config   *Config
 	writer   *FileWriter
@@ -35,12 +35,10 @@ type LogExporter struct {
 	uploadWG sync.WaitGroup
 	ticker   *time.Ticker
 	stopCh   chan struct{}
-	stopOnce sync.Once
 }
 
 const (
 	flagFormat       = "log-format"
-	flagLevel        = "log-level"
 	flagDisableColor = "disable-log-color"
 )
 
@@ -66,7 +64,7 @@ func InitializeLogExporter() *LogExporter {
 		logExporter, err := NewLogExporter(logExporterConfig, bucketStore)
 		if err == nil {
 			logExporter.Start()
-			log.Infof("Log export enabled: local directory %s, upload every %s to bucket %s at path %s", logExporterConfig.LogDirPath, logExporterConfig.UploadInterval, bucketConfigFile, logExporterConfig.PathPrefix)
+			log.Infof("Log export enabled: local directory %s, upload every %s to bucket %s at path %s", logExporterConfig.LogDirPath, logExporterConfig.ExportInterval, bucketConfigFile, logExporterConfig.PathPrefix)
 		} else {
 			log.Errorf("Failed to initialize log exporter: %s. Log export disabled.", err)
 		}
@@ -76,7 +74,6 @@ func InitializeLogExporter() *LogExporter {
 }
 
 func NewLogExporter(config *Config, store storage.Storage) (*LogExporter, error) {
-	// Validate configuration first
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -118,16 +115,16 @@ func (le *LogExporter) Start() {
 	if err := pastEventsTracker(le.config.LogDirPath); err != nil {
 		log.Errorf("Failed to track past events: %v", err)
 	}
-	// Uploading anything remaining in the log directory
-	le.uploadPending()
-	le.ticker = time.NewTicker(le.config.UploadInterval)
-	go le.uploadLoop()
+	// Exporting anything remaining in the log directory before we start
+	le.exportPending()
+	le.ticker = time.NewTicker(le.config.ExportInterval)
+	go le.exportLoop()
 }
 
 func (le *LogExporter) Stop() error {
-	le.stopOnce.Do(func() { close(le.stopCh) })
+	close(le.stopCh)
 
-	// Lock after closing stopCh to avoid deadlock with uploadLoop
+	// Lock after closing stopCh to avoid deadlock with exportLoop
 	le.mu.Lock()
 	writer := le.writer
 	le.mu.Unlock()
@@ -141,21 +138,21 @@ func (le *LogExporter) Stop() error {
 	return nil
 }
 
-func (le *LogExporter) uploadLoop() {
+func (le *LogExporter) exportLoop() {
 	for {
 		select {
 		case <-le.ticker.C:
 			if err := le.writer.Rotate(); err != nil {
 				log.Warnf("Log export: rotate: %v", err)
 			}
-			le.uploadPending()
+			le.exportPending()
 		case <-le.stopCh:
 			return
 		}
 	}
 }
 
-func (le *LogExporter) uploadPending() {
+func (le *LogExporter) exportPending() {
 	pending, err := le.writer.GetPendingFiles()
 	if err != nil {
 		log.Errorf("Log export: failed to get pending files: %v", err)
@@ -192,7 +189,7 @@ func (le *LogExporter) uploadFile(filePath string) error {
 		return fmt.Errorf("gzip: %w", err)
 	}
 
-	// logs/<cluster>/<basename>.log.gz
+	// finops-agent-logs/<cluster>/<basename>.log.gz
 	base := filepath.Base(filePath) // e.g. log-20060102150405-1706630400123456789.log
 	objectPath := path.Join(
 		le.config.PathPrefix,
@@ -240,7 +237,13 @@ func pastEventsTracker(logDir string) error {
 	for _, pod := range pods.Items {
 		pastStatuses = append(pastStatuses, pod.Status)
 	}
-	fileName := fmt.Sprintf("log-past-events-%s.log", time.Now().Format("20060102150405"))
+
+	data, err := json.MarshalIndent(pastStatuses, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal past statuses: %w", err)
+	}
+
+	fileName := fmt.Sprintf("log-past-events-%s.log", time.Now().UTC().Format("20060102150405"))
 	file, err := os.OpenFile(path.Join(logDir, fileName), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePermissions)
 	if err != nil {
 		return fmt.Errorf("failed to open log file %s: %w", path.Join(logDir, fileName), err)
@@ -251,10 +254,6 @@ func pastEventsTracker(logDir string) error {
 		}
 	}()
 
-	data, err := json.MarshalIndent(pastStatuses, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal past statuses: %w", err)
-	}
 	if _, err := file.Write(data); err != nil {
 		return fmt.Errorf("failed to write log file: %w", err)
 	}

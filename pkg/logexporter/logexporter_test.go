@@ -122,7 +122,7 @@ func TestNewLogExporter(t *testing.T) {
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: false,
 		},
@@ -134,7 +134,7 @@ func TestNewLogExporter(t *testing.T) {
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "test-cluster",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: true,
 		},
@@ -146,7 +146,7 @@ func TestNewLogExporter(t *testing.T) {
 				SyncInterval:   5 * time.Second,
 				ClusterName:    "",
 				PathPrefix:     "logs",
-				UploadInterval: 5 * time.Minute,
+				ExportInterval: 5 * time.Minute,
 			},
 			wantErr: true,
 		},
@@ -172,14 +172,14 @@ func TestNewLogExporter(t *testing.T) {
 func TestLogExporter_Stop(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := newMockStorage()
-	
+
 	config := &Config{
 		BufferSize:     5 * 1024 * 1024,
 		LogDirPath:     tmpDir,
 		SyncInterval:   5 * time.Second,
 		ClusterName:    "test-cluster",
 		PathPrefix:     "logs",
-		UploadInterval: 5 * time.Minute,
+		ExportInterval: 5 * time.Minute,
 	}
 
 	t.Run("stop without start", func(t *testing.T) {
@@ -201,7 +201,7 @@ func TestLogExporter_Stop(t *testing.T) {
 		}
 
 		exporter.Start()
-		
+
 		// Give it a moment to start
 		time.Sleep(10 * time.Millisecond)
 
@@ -236,14 +236,14 @@ func TestLogExporter_Stop(t *testing.T) {
 func TestLogExporter_uploadFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := newMockStorage()
-	
+
 	config := &Config{
 		BufferSize:     5 * 1024 * 1024,
 		LogDirPath:     tmpDir,
 		SyncInterval:   0,
 		ClusterName:    "test-cluster",
 		PathPrefix:     "logs",
-		UploadInterval: 5 * time.Minute,
+		ExportInterval: 5 * time.Minute,
 	}
 
 	exporter, err := NewLogExporter(config, store)
@@ -322,7 +322,7 @@ func TestLogExporter_uploadFile(t *testing.T) {
 
 	t.Run("upload non-existent file", func(t *testing.T) {
 		testFile := filepath.Join(tmpDir, "nonexistent.log")
-		
+
 		err := exporter.uploadFile(testFile)
 		if err == nil {
 			t.Error("uploadFile() should return error for non-existent file")
@@ -333,14 +333,14 @@ func TestLogExporter_uploadFile(t *testing.T) {
 func TestLogExporter_uploadPending(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := newMockStorage()
-	
+
 	config := &Config{
 		BufferSize:     5 * 1024 * 1024,
 		LogDirPath:     tmpDir,
 		SyncInterval:   0,
 		ClusterName:    "test-cluster",
 		PathPrefix:     "logs",
-		UploadInterval: 5 * time.Minute,
+		ExportInterval: 5 * time.Minute,
 	}
 
 	exporter, err := NewLogExporter(config, store)
@@ -362,7 +362,7 @@ func TestLogExporter_uploadPending(t *testing.T) {
 	}
 
 	// Upload pending files
-	exporter.uploadPending()
+	exporter.exportPending()
 
 	// Verify at least one file was uploaded
 	store.mu.Lock()
@@ -422,7 +422,7 @@ func TestGzipCompress(t *testing.T) {
 
 func TestLogExporter_Integration(t *testing.T) {
 	t.Skip("Skipping long-running integration test - covered by unit tests")
-	
+
 	// This test would require waiting for the full upload interval (1 minute minimum)
 	// The functionality is adequately covered by the unit tests above which test
 	// individual components: rotation, upload, compression, etc.

@@ -159,7 +159,7 @@ func IsLogExportEnabled() bool {
 
 // GetLogExportInterval returns the configured interval for log uploads
 func GetLogExportInterval() time.Duration {
-	return env.GetDuration(LogExportIntervalEnvVar, 5*time.Minute)
+	return env.GetDuration(LogExportIntervalEnvVar, 30*time.Minute)
 }
 
 // GetLogExportBufferSize returns the maximum buffer size in bytes before forced upload
