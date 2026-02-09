@@ -1,6 +1,6 @@
 module github.com/ibm/finops-agent
 
-go 1.25.5
+go 1.25.7
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.19.1
@@ -8,7 +8,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.3
 	github.com/aws/aws-sdk-go v1.50.8
 	github.com/aws/smithy-go v1.23.2
-	github.com/gogo/protobuf v1.3.2
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/onsi/ginkgo/v2 v2.27.2
@@ -103,6 +102,7 @@ require (
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/gofrs/uuid v4.2.0+incompatible // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
