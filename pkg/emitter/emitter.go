@@ -108,11 +108,15 @@ type MetricsSnapshot struct {
 	NetInternetGiB                       []*source.NetInternetGiBResult
 	NetInternetPricePerGiB               []*source.NetInternetPricePerGiBResult
 	NetInternetServiceGiB                []*source.NetInternetServiceGiBResult
+	NetNatGatewayPricePerGiB             []*source.NetNatGatewayPricePerGiBResult
+	NetNatGatewayGiB                     []*source.NetNatGatewayGiBResult
 	NetTransferBytes                     []*source.NetTransferBytesResult
 	NetZoneIngressGiB                    []*source.NetZoneIngressGiBResult
 	NetRegionIngressGiB                  []*source.NetRegionIngressGiBResult
 	NetInternetIngressGiB                []*source.NetInternetIngressGiBResult
 	NetInternetServiceIngressGiB         []*source.NetInternetServiceIngressGiBResult
+	NetNatGatewayIngressPricePerGiB      []*source.NetNatGatewayPricePerGiBResult
+	NetNatGatewayIngressGiB              []*source.NetNatGatewayIngressGiBResult
 	NetReceiveBytes                      []*source.NetReceiveBytesResult
 	NamespaceUptime                      []*source.UptimeResult
 	NamespaceAnnotations                 []*source.NamespaceAnnotationsResult
