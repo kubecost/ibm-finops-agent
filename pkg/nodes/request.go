@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ibm/finops-agent/pkg/datasourcehealth"
 	"github.com/opencost/opencost/core/pkg/log"
 	v1 "k8s.io/api/core/v1"
 )
@@ -18,6 +19,10 @@ func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) 
 
 	for i := uint(0); i < attempts; i++ {
 		if i > 0 {
+			// Track retry attempts
+			if instrumentedClient, ok := c.client.(*datasourcehealth.InstrumentedHTTPClient); ok {
+				instrumentedClient.TrackRetry()
+			}
 			time.Sleep(time.Duration(int64(math.Pow(2, float64(i)))) * time.Second)
 		}
 
@@ -71,8 +76,10 @@ type Client struct {
 }
 
 func NewClient(client *http.Client, retries uint) Client {
+	// Wrap the client with datasource health instrumentation
+	instrumentedClient := datasourcehealth.NewInstrumentedHTTPClient(client, "node_stats")
 	return Client{
-		client:  client,
+		client:  instrumentedClient,
 		retries: retries,
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/http"
+	"github.com/ibm/finops-agent/pkg/datasourcehealth"
 	"github.com/ibm/finops-agent/pkg/logexporter"
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
@@ -38,6 +39,12 @@ func main() {
 	initLogging()
 
 	log.Infof("Starting IBM Finops Agent...") // TODO: Include version.Version once semantic version tagging is implemented.
+	log.Infof("Data source health metrics enabled - HTTP request and metrics query diagnostics will be tracked")
+
+	// Initialize data source health metrics - automatically registered via promauto
+	// This log statement confirms that the metrics are available
+	_ = datasourcehealth.HTTPRequestsTotal
+	_ = datasourcehealth.MetricsQueryTotal
 
 	logExporter := logexporter.InitializeLogExporter()
 

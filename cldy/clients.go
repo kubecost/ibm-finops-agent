@@ -25,6 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/ibm/finops-agent/pkg/datasourcehealth"
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
@@ -122,7 +123,7 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 
 // ApptioClient is the client used in the cloudability uploader
 type ApptioClient struct {
-	client     *http.Client
+	client     *datasourcehealth.InstrumentedHTTPClient
 	maxRetries int
 }
 
@@ -162,12 +163,16 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		}
 	}
 
-	httpClient := http.Client{
+	httpClient := &http.Client{
 		Timeout:   config.Timeout,
 		Transport: netTransport,
 	}
+	
+	// Wrap with datasource health instrumentation
+	instrumentedClient := datasourcehealth.NewInstrumentedHTTPClient(httpClient, "cloudability_api")
+	
 	return ApptioClient{
-		client:     &httpClient,
+		client:     instrumentedClient,
 		maxRetries: 3,
 	}
 }
@@ -421,6 +426,10 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (r
 
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
 	for i := 1; i < 4; i++ {
+		if i > 1 {
+			// Track retry attempts (skip first attempt as it's not a retry)
+			ac.client.TrackRetry()
+		}
 		log.Debugf("Attempt %d: %s", i, requestDescription)
 		resp, err := ac.client.Do(req)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {

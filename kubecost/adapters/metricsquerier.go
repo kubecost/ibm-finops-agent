@@ -5,11 +5,26 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ibm/finops-agent/pkg/datasourcehealth"
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/opencost"
 	"github.com/opencost/opencost/core/pkg/source"
 )
+
+// formatResolution converts a time duration to a string label for metrics
+func formatResolution(d time.Duration) string {
+	switch d {
+	case 10 * time.Minute:
+		return "10m"
+	case time.Hour:
+		return "1h"
+	case 24 * time.Hour:
+		return "24h"
+	default:
+		return "unknown"
+	}
+}
 
 // MaxBackfillSnapshots is the total number of snapshots to retain historically for the metrics querier
 const MaxBackfillSnapshots = 2
@@ -127,13 +142,31 @@ func (mqa *MetricsQuerierAdapter) Update(summary *emitter.MetricsSummary) {
 // must hold the read lock when calling this function
 func (mqa *MetricsQuerierAdapter) metricsSnapshotFor(start, end time.Time) *emitter.MetricsSnapshot {
 	t := end.Sub(start)
+	resolution := formatResolution(t)
+	
+	// Track query attempt
+	startTime := time.Now()
+	var status string
+	var errorType string
+	
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		datasourcehealth.MetricsQueryDuration.WithLabelValues(resolution).Observe(duration)
+		datasourcehealth.MetricsQueryTotal.WithLabelValues(resolution, status).Inc()
+		if errorType != "" {
+			datasourcehealth.MetricsQueryErrors.WithLabelValues(resolution, errorType).Inc()
+		}
+	}()
 
 	if t == (10 * time.Minute) {
 		snapshot := mqa.tenMinuteResolution.SnapshotFor(start, end)
 		if snapshot != nil {
+			status = "success"
 			return snapshot
 		}
 
+		status = "error"
+		errorType = "snapshot_not_available"
 		log.Warnf("No metrics snapshot available for 10m duration. Must enable minutely metrics snapshotting!")
 		return nil
 	}
@@ -141,9 +174,12 @@ func (mqa *MetricsQuerierAdapter) metricsSnapshotFor(start, end time.Time) *emit
 	if t == time.Hour {
 		snapshot := mqa.hourlyResolution.SnapshotFor(start, end)
 		if snapshot != nil {
+			status = "success"
 			return snapshot
 		}
 
+		status = "error"
+		errorType = "snapshot_not_available"
 		log.Warnf("No metrics snapshot available for the start and end times: %s, %s", start.Format(time.RFC3339), end.Format(time.RFC3339))
 		return nil
 	}
@@ -151,13 +187,18 @@ func (mqa *MetricsQuerierAdapter) metricsSnapshotFor(start, end time.Time) *emit
 	if t == (24 * time.Hour) {
 		snapshot := mqa.dailyResolution.SnapshotFor(start, end)
 		if snapshot != nil {
+			status = "success"
 			return snapshot
 		}
 
+		status = "error"
+		errorType = "snapshot_not_available"
 		log.Warnf("No metrics snapshot available for the start and end times: %s, %s", start.Format(time.RFC3339), end.Format(time.RFC3339))
 		return nil
 	}
 
+	status = "error"
+	errorType = "invalid_resolution"
 	return nil
 }
 
