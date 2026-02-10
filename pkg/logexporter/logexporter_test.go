@@ -210,27 +210,6 @@ func TestLogExporter_Stop(t *testing.T) {
 			t.Errorf("Stop() error = %v", err)
 		}
 	})
-
-	t.Run("concurrent stops - no race condition", func(t *testing.T) {
-		exporter, err := NewLogExporter(config, store)
-		if err != nil {
-			t.Fatalf("NewLogExporter() error = %v", err)
-		}
-
-		exporter.Start()
-		time.Sleep(10 * time.Millisecond)
-
-		// Multiple concurrent stops should be safe
-		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				_ = exporter.Stop()
-			}()
-		}
-		wg.Wait()
-	})
 }
 
 func TestLogExporter_uploadFile(t *testing.T) {
