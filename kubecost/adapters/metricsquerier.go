@@ -898,6 +898,30 @@ func (mqa *MetricsQuerierAdapter) QueryNetInternetServiceGiB(start, end time.Tim
 	return source.NewFutureFrom(snapshot.NetInternetServiceGiB)
 }
 
+func (mqa *MetricsQuerierAdapter) QueryNetNatGatewayGiB(start, end time.Time) *source.Future[source.NetNatGatewayGiBResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeNetNatGatewayGiBResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.NetNatGatewayGiB)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryNetNatGatewayPricePerGiB(start, end time.Time) *source.Future[source.NetNatGatewayPricePerGiBResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeNetNatGatewayPricePerGiBResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.NetNatGatewayPricePerGiB)
+}
+
 func (mqa *MetricsQuerierAdapter) QueryNetTransferBytes(start, end time.Time) *source.Future[source.NetTransferBytesResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()
@@ -956,6 +980,30 @@ func (mqa *MetricsQuerierAdapter) QueryNetInternetServiceIngressGiB(start, end t
 	}
 
 	return source.NewFutureFrom(snapshot.NetInternetServiceIngressGiB)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryNetNatGatewayIngressGiB(start, end time.Time) *source.Future[source.NetNatGatewayIngressGiBResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeNetNatGatewayIngressGiBResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.NetNatGatewayIngressGiB)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryNetNatGatewayIngressPricePerGiB(start, end time.Time) *source.Future[source.NetNatGatewayPricePerGiBResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeNetNatGatewayPricePerGiBResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.NetNatGatewayIngressPricePerGiB)
 }
 
 func (mqa *MetricsQuerierAdapter) QueryNetReceiveBytes(start, end time.Time) *source.Future[source.NetReceiveBytesResult] {
