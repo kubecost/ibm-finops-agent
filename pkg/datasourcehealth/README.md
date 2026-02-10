@@ -178,6 +178,45 @@ rate(finops_metrics_query_total[5m])
 - `dns_error`: DNS resolution failure
 - `unknown_error`: Other transport errors
 
+## Metrics Export
+
+When `LOG_EXPORT_ENABLED` is set, data source health metrics are automatically exported alongside logs:
+
+### Export Behavior
+- Snapshots captured at each `LOG_EXPORT_INTERVAL` (default: 5 minutes)
+- Exported as timestamped JSON files: `dataSourceMetrics-YYYYMMDDHHMMSS.json.gz`
+- Uploaded to same bucket path as logs: `<path_prefix>/<cluster>/`
+- Compressed with gzip for efficient storage
+
+### Snapshot Format
+```json
+{
+  "timestamp": "2026-02-10T03:00:00Z",
+  "metrics": {
+    "finops_http_requests_total": {
+      "type": "COUNTER",
+      "help": "Total number of HTTP requests made by the finops agent",
+      "values": [
+        {
+          "labels": {
+            "endpoint": "node_stats",
+            "method": "GET",
+            "status_code": "200"
+          },
+          "value": 1523
+        }
+      ]
+    }
+  }
+}
+```
+
+### Use Cases
+- Historical analysis of data source health trends
+- Debugging intermittent connectivity issues
+- Capacity planning and performance optimization
+- Compliance and audit trails
+
 ## Testing
 
 Run tests with:
@@ -191,3 +230,4 @@ go test ./pkg/datasourcehealth/...
 - Label cardinality is controlled (limited set of endpoints and status codes)
 - Histograms use default buckets suitable for typical HTTP request latencies
 - In-flight gauge updates are atomic and lock-free
+- Snapshot export adds minimal overhead (~1-2ms per interval)

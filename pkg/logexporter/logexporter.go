@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ibm/finops-agent/pkg/datasourcehealth"
 	kcenv "github.com/ibm/finops-agent/kubecost/env"
 	"github.com/ibm/finops-agent/pkg/env"
 	coreenv "github.com/opencost/opencost/core/pkg/env"
@@ -146,6 +147,7 @@ func (le *LogExporter) exportLoop() {
 				log.Warnf("Log export: rotate: %v", err)
 			}
 			le.exportPending()
+			le.exportMetricsSnapshot()
 		case <-le.stopCh:
 			return
 		}
@@ -208,6 +210,45 @@ func (le *LogExporter) uploadFile(filePath string) error {
 		log.Warnf("Log export: failed to delete after upload %s: %v", filePath, err)
 	}
 	return nil
+}
+
+// exportMetricsSnapshot captures and uploads current data source health metrics
+func (le *LogExporter) exportMetricsSnapshot() {
+	snapshot, err := datasourcehealth.CaptureMetricsSnapshot()
+	if err != nil {
+		log.Errorf("Failed to capture metrics snapshot: %v", err)
+		return
+	}
+
+	jsonData, err := snapshot.ToJSON()
+	if err != nil {
+		log.Errorf("Failed to marshal metrics snapshot: %v", err)
+		return
+	}
+
+	compressed, err := gzipCompress(jsonData)
+	if err != nil {
+		log.Errorf("Failed to compress metrics snapshot: %v", err)
+		return
+	}
+
+	// Create filename with timestamp: dataSourceMetrics-20060102150405.json.gz
+	fileName := fmt.Sprintf("dataSourceMetrics-%s.json.gz",
+		snapshot.Timestamp.Format("20060102150405"))
+	
+	objectPath := path.Join(
+		le.config.PathPrefix,
+		le.config.ClusterName,
+		fileName,
+	)
+
+	if err := le.store.Write(objectPath, compressed); err != nil {
+		log.Errorf("Failed to write metrics snapshot to bucket: %v", err)
+		return
+	}
+
+	sizeMiB := float64(len(compressed)) / (1024 * 1024)
+	log.Debugf("Exported data source metrics snapshot to %s (%.2f MiB)", objectPath, sizeMiB)
 }
 
 func gzipCompress(data []byte) ([]byte, error) {
