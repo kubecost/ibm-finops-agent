@@ -512,14 +512,6 @@ github.com/onsi/ginkgo/v2 v2.27.2 h1:LzwLj0b89qtIy6SSASkzlNvX6WktqurSHwkk2ipF/Ns
 github.com/onsi/ginkgo/v2 v2.27.2/go.mod h1:ArE1D/XhNXBXCBkKOLkbsb2c81dQHCRcF5zwn/ykDRo=
 github.com/onsi/gomega v1.38.2 h1:eZCjf2xjZAqe+LeWvKb5weQ+NcPwX84kqJ0cZNxok2A=
 github.com/onsi/gomega v1.38.2/go.mod h1:W2MJcYxRGV63b418Ai34Ud0hEdTVXq9NW9+Sx6uXf3k=
-github.com/opencost/opencost v1.119.2 h1:TLHUZuXIgMGgWmICPI3le4UvXwwGRErJH/3la5kQhRg=
-github.com/opencost/opencost v1.119.2/go.mod h1:j1kc9oXZBVV3DJM+H92YX3fHC3sRbeyN5ujzneM0daU=
-github.com/opencost/opencost/core v1.119.2 h1:e1yJhowTfsoehZSInn83LO1mS4t81/cA3yR0a3XzVE4=
-github.com/opencost/opencost/core v1.119.2/go.mod h1:9MGHQXJSWg/mdJnUXDpu5ieOuUO226ZKZWizILHkrOE=
-github.com/opencost/opencost/modules/collector-source v1.119.2 h1:k+okEGrH7Hzzi57qsw/5GbGx63YN6A3FKCWC6W2Y6Ms=
-github.com/opencost/opencost/modules/collector-source v1.119.2/go.mod h1:UgyFS19FuRN4r8/t5nsUX2rJQwrdu+4QnExgafHQOGI=
-github.com/opencost/opencost/modules/prometheus-source v1.119.2 h1:U3jqh8SYpU2CX8e2o9UMmtnj0eI6DvvpHDvIvE01+y0=
-github.com/opencost/opencost/modules/prometheus-source v1.119.2/go.mod h1:vbDTd0eClx+nmmV6cFLF4Pfzw/PJh78QlIbIgJG1XsU=
 github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b h1:FfH+VrHHk6Lxt9HdVS0PXzSXFyS2NbZKXv33FYPol0A=
 github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b/go.mod h1:AC62GU6hc0BrNm+9RK9VSiwa/EUe1bkIeFORAMcHvJU=
 github.com/oracle/oci-go-sdk/v65 v65.71.0 h1:eEnFD/CzcoqdAA0xu+EmK32kJL3jfV0oLYNWVzoKNyo=

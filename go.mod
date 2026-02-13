@@ -2,6 +2,13 @@ module github.com/ibm/finops-agent
 
 go 1.25.7
 
+replace (
+	github.com/opencost/opencost => ../opencost
+	github.com/opencost/opencost/core => ../opencost/core
+	github.com/opencost/opencost/modules/collector-source => ../opencost/modules/collector-source
+	github.com/opencost/opencost/modules/prometheus-source => ../opencost/modules/prometheus-source
+)
+
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.0
