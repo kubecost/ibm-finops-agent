@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -24,6 +25,8 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	keyFile := env.GetNodeStatsKeyFile()
 	forceKubeProxy := env.IsNodeStatsForceKubeProxy()
 	localProxy := env.GetNodeStatsLocalProxy()
+	backgroundServiceEnabled := env.IsNodeStatsBackgroundServiceEnabled()
+	refreshInterval := env.GetExporterEmissionInterval()
 
 	if strings.TrimSpace(clusterName) == "" {
 		return NodeClientConfig{}, fmt.Errorf("cluster name is required and cannot be exclusively whitespace")
@@ -81,6 +84,8 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 			ForceKubeProxy: forceKubeProxy,
 			LocalProxy:     localProxy,
 		},
+		BackgroundServiceEnabled: backgroundServiceEnabled,
+		RefreshInterval:          refreshInterval,
 	}, nil
 }
 
@@ -94,13 +99,15 @@ func (nac NodeClientProxyConfig) IsLocalProxy() bool {
 }
 
 type NodeClientConfig struct {
-	ClusterName       string
-	ConcurrentPollers int
-	DirectNodeClient  Client
-	InClusterClient   Client
-	CertFile          string
-	KeyFile           string
-	ProxyConfig       NodeClientProxyConfig
+	ClusterName              string
+	ConcurrentPollers        int
+	DirectNodeClient         Client
+	InClusterClient          Client
+	CertFile                 string
+	KeyFile                  string
+	ProxyConfig              NodeClientProxyConfig
+	BackgroundServiceEnabled bool
+	RefreshInterval          time.Duration
 }
 
 // connectionOptions returns the connection methods that are allowed for this node based on config

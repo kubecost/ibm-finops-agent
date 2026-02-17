@@ -4,12 +4,17 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	goatomic "sync/atomic"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/util/atomic"
 )
+
+// EmissionTasksThreshold is the total number of emission tasks that are allowed to back up before a warning is
+// issued.
+const EmissionTasksThreshold = 5
 
 // Exporter is an interface that defines a data emission management system and facilitates the
 // snapshot and distribution of those cluster snapshots to the management emitters.
@@ -72,6 +77,12 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			}
 		}
 
+		// tracks the total number of concurrent emission tasks running. The snapshot process
+		// is synchronous, but the emission process is fire and forget. We do not throttle
+		// emission, but we should track and warn if the number of concurrent emissions grows beyond
+		// a reasonable count
+		emissionTasks := new(goatomic.Int64)
+
 		for {
 			// use a select statement to receive whichever channel receives data first
 			select {
@@ -86,15 +97,27 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			case <-time.After(interval):
 			}
 
+			// take a snapshot of the current cluster state -- on failure, continue to next iteration
+			snapshot, err := de.snapshotProvider.SnapshotOf(de.ds)
+			if err != nil {
+				log.Errorf("failed to take snapshot: %v", err)
+				continue
+			}
+
+			// if the number of emission tassks exceeds the threshold, we want to issue a warning log
+			// that we're falling behind (possibly a good candidate to replace with instrumentation).
+			emissionTasksCount := emissionTasks.Add(1)
+			if emissionTasksCount > EmissionTasksThreshold {
+				log.Warnf("Number of concurrent emission tasks has reached %d - We are still attempting to emit data with a snapshot of age: %d seconds",
+					emissionTasksCount,
+					uint64((time.Duration(emissionTasksCount) * interval).Seconds()),
+				)
+			}
+
 			// Kick off a new goroutine to snapshot and emit the data, this will allow the interval to reset
 			// immediately and not wait for the snapshot and emission to complete
 			go func() {
-				// take a snapshot of the current cluster state
-				snapshot, err := de.snapshotProvider.SnapshotOf(de.ds)
-				if err != nil {
-					log.Errorf("failed to take snapshot: %v", err)
-					return
-				}
+				defer emissionTasks.Add(-1)
 
 				// emit the snapshot to all registered emitters -- note that the emitters run serially,
 				// each blocking until emission is complete. This gives us a _little_ bit of flexibility

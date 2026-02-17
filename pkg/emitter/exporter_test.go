@@ -12,6 +12,9 @@ import (
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/pkg/cloud/models"
+
+	"github.com/rs/zerolog"
+	zerologger "github.com/rs/zerolog/log"
 )
 
 func TestExporterProcess(t *testing.T) {
@@ -95,9 +98,86 @@ func TestExporterProcessWithCancellation(t *testing.T) {
 	}
 }
 
+// NOTE: This test explicitly tests the logging output for emit calls within the exporter.
+// NOTE: It tests a very specific scenario just to conclude that the warning is being written.
+func TestExporterEmissionBackPressure(t *testing.T) {
+	initLogging(t, "debug", false)
+
+	// use a single log writer so we can examine the logs after each query
+	logWriter := new(SingleLogWriter)
+	zerologger.Logger = zerologger.Output(zerolog.ConsoleWriter{
+		Out:        logWriter,
+		TimeFormat: "",
+		NoColor:    true,
+		PartsExclude: []string{
+			zerolog.TimestampFieldName,
+			zerolog.LevelFieldName,
+			zerolog.CallerFieldName,
+		},
+	})
+
+	// reinitialize logging when tests are complete
+	defer initLogging(t, "debug", false)
+
+	ds := newEmptyDataSource()
+	snapshotProvider := newEmptySnapshotProvider()
+	a := newWorkSimulatingEmitterWithID("slow-emitter", 3*time.Second)
+	b := newWorkSimulatingEmitterWithID("normal-emitter", 250*time.Millisecond)
+
+	exporter := NewExporter(ds, snapshotProvider, a, b)
+
+	if !exporter.Start(500 * time.Millisecond) {
+		t.Fatal("Failed to start exporter")
+	}
+
+	// wait for at least one emitter to generate a warning
+	time.Sleep(3*time.Second + 500*time.Millisecond)
+
+	// get log output from executing query
+	output := logWriter.Log
+	if len(output) == 0 {
+		t.Errorf("Expected at least one warning log related to emission counts falling behind")
+	}
+	output = output[:len(output)-1]
+
+	expectedWarning := "Number of concurrent emission tasks has reached 6 - We are still attempting to emit data with a snapshot of age: 3 seconds"
+	if output != expectedWarning {
+		t.Errorf("Output of:\n\"%s\"\nis not equivalent to:\n\"%s\"", output, expectedWarning)
+	}
+}
+
 //--------------------------------------------------------------------------
 //  helpers
 //--------------------------------------------------------------------------
+
+func initLogging(t *testing.T, logLevel string, colorEnabled bool) {
+	zerolog.TimeFieldFormat = time.RFC3339Nano
+	zerologger.Logger = zerologger.Output(zerolog.ConsoleWriter{
+		Out:        zerolog.NewTestWriter(t),
+		TimeFormat: time.RFC3339Nano,
+		NoColor:    !colorEnabled,
+	})
+
+	logLevelParsed, err := zerolog.ParseLevel(logLevel)
+	if err != nil {
+		logLevelParsed = zerolog.DebugLevel
+	}
+
+	zerolog.SetGlobalLevel(logLevelParsed)
+}
+
+type SingleLogWriter struct {
+	Log string
+}
+
+// Write to testing.TB.
+func (slw *SingleLogWriter) Write(p []byte) (n int, err error) {
+	err = nil
+	n = len(p)
+
+	slw.Log = string(p)
+	return
+}
 
 type countingEmitter struct {
 	count  atomic.Uint32
@@ -121,13 +201,16 @@ func (ce *countingEmitter) Emit(ctx context.Context, snapshot *ClusterSnapshot) 
 	return nil
 }
 
+var idCount atomic.Uint64
+
 type workSimulatingEmitter struct {
+	id           EmitterID
 	workDuration time.Duration
 	isCancelled  atomic.Bool
 }
 
 func (wse *workSimulatingEmitter) ID() EmitterID {
-	return EmitterID("work-simulating-emitter")
+	return wse.id
 }
 
 func (wse *workSimulatingEmitter) Init(snapshot *ClusterSnapshot) error {
@@ -195,6 +278,14 @@ func newFailingCountingEmitter(name string, failOn uint) *countingEmitter {
 
 func newWorkSimulatingEmitter(workDuration time.Duration) *workSimulatingEmitter {
 	return &workSimulatingEmitter{
+		id:           EmitterID(fmt.Sprintf("work-simulating-emitter-%d", idCount.Add(1))),
+		workDuration: workDuration,
+	}
+}
+
+func newWorkSimulatingEmitterWithID(id string, workDuration time.Duration) *workSimulatingEmitter {
+	return &workSimulatingEmitter{
+		id:           EmitterID(id),
 		workDuration: workDuration,
 	}
 }
