@@ -100,7 +100,7 @@ func (nssp *NodeStatsSummaryProvider) GetNodeData() ([]*stats.Summary, error) {
 
 	// no valid node stats recording has taken place
 	if nssp.lastRecordedSummary.IsZero() {
-		return nil, fmt.Errorf("No node stats summary data has been recorded.")
+		return nil, fmt.Errorf("no node stats summary data has been recorded")
 	}
 
 	// log warning if the stats summary being returned is older than 10m (this is a very reasonable data integrity threshold)
