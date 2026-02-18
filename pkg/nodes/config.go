@@ -25,7 +25,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	keyFile := env.GetNodeStatsKeyFile()
 	forceKubeProxy := env.IsNodeStatsForceKubeProxy()
 	localProxy := env.GetNodeStatsLocalProxy()
-	backgroundServiceEnabled := env.IsNodeStatsBackgroundServiceEnabled()
+	backgroundNodeCollectionEnabled := env.IsNodeStatsBackgroundCollectionEnabled()
 	refreshInterval := env.GetExporterEmissionInterval()
 
 	if strings.TrimSpace(clusterName) == "" {
@@ -84,7 +84,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 			ForceKubeProxy: forceKubeProxy,
 			LocalProxy:     localProxy,
 		},
-		BackgroundServiceEnabled: backgroundServiceEnabled,
+		BackgroundNodeCollection: backgroundNodeCollectionEnabled,
 		RefreshInterval:          refreshInterval,
 	}, nil
 }
@@ -106,7 +106,7 @@ type NodeClientConfig struct {
 	CertFile                 string
 	KeyFile                  string
 	ProxyConfig              NodeClientProxyConfig
-	BackgroundServiceEnabled bool
+	BackgroundNodeCollection bool
 	RefreshInterval          time.Duration
 }
 

@@ -81,7 +81,7 @@ func NewAgentDataSource(
 
 	// If we use a background service, we leverage the client to refresh node data on an interval
 	// otherwise, we retrieve node data _at_ snapshot time
-	if nodeClientConfig.BackgroundServiceEnabled {
+	if nodeClientConfig.BackgroundNodeCollection {
 		nodesProvider := nodes.NewNodeStatsSummaryProvider(nodeStatsSummaryClient)
 		nodesProvider.Start(nodeClientConfig.RefreshInterval)
 
