@@ -4,17 +4,14 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
-	goatomic "sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/core"
+	"github.com/ibm/finops-agent/pkg/util"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/util/atomic"
 )
-
-// EmissionTasksThreshold is the total number of emission tasks that are allowed to back up before a warning is
-// issued.
-const EmissionTasksThreshold = 5
 
 // Exporter is an interface that defines a data emission management system and facilitates the
 // snapshot and distribution of those cluster snapshots to the management emitters.
@@ -38,6 +35,7 @@ type defaultExporter struct {
 	ds               core.DataSource
 	snapshotProvider SnapshotProvider
 	emitters         []Emitter
+	cancel           *util.CancelToken
 }
 
 func NewExporter(ds core.DataSource, snapshotProvider SnapshotProvider, emitters ...Emitter) Exporter {
@@ -45,6 +43,7 @@ func NewExporter(ds core.DataSource, snapshotProvider SnapshotProvider, emitters
 		ds:               ds,
 		snapshotProvider: snapshotProvider,
 		emitters:         emitters,
+		cancel:           util.NewCancelToken(),
 	}
 }
 
@@ -59,10 +58,13 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 		return false
 	}
 
+	// To ensure that we are able to cancel a running emitter AND the export loop, use a thread-safe
+	// cancellation token that can generate a context and execute cancellations directly
+	runContext := de.cancel.NewContext(context.Background())
+
 	// spawn a new goroutine which will loop and wait the interval each iteration
 	go func() {
-		runContext, cancelRun := context.WithCancel(context.Background())
-		defer cancelRun()
+		defer de.cancel.Cancel()
 
 		// take a snapshot of the current cluster state
 		snapshot, err := de.snapshotProvider.SnapshotOf(de.ds)
@@ -77,12 +79,6 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			}
 		}
 
-		// tracks the total number of concurrent emission tasks running. The snapshot process
-		// is synchronous, but the emission process is fire and forget. We do not throttle
-		// emission, but we should track and warn if the number of concurrent emissions grows beyond
-		// a reasonable count
-		emissionTasks := new(goatomic.Int64)
-
 		for {
 			// use a select statement to receive whichever channel receives data first
 			select {
@@ -90,7 +86,6 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			// Stop(), and must reset our AtomicRunState to it's initial idle state
 			case <-de.runState.OnStop():
 				de.runState.Reset()
-				cancelRun()
 				return // exit go routine
 
 			// After our interval elapses, fall through
@@ -104,30 +99,20 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 				continue
 			}
 
-			// if the number of emission tassks exceeds the threshold, we want to issue a warning log
-			// that we're falling behind (possibly a good candidate to replace with instrumentation).
-			emissionTasksCount := emissionTasks.Add(1)
-			if emissionTasksCount > EmissionTasksThreshold {
-				log.Warnf("Number of concurrent emission tasks has reached %d - We are still attempting to emit data with a snapshot of age: %d seconds",
-					emissionTasksCount,
-					uint64((time.Duration(emissionTasksCount) * interval).Seconds()),
-				)
-			}
+			var emitTasks sync.WaitGroup
 
-			// Kick off a new goroutine to snapshot and emit the data, this will allow the interval to reset
-			// immediately and not wait for the snapshot and emission to complete
-			go func() {
-				defer emissionTasks.Add(-1)
-
-				// emit the snapshot to all registered emitters -- note that the emitters run serially,
-				// each blocking until emission is complete. This gives us a _little_ bit of flexibility
-				// in the emission process at the cost of performance. We can definitely iterate on this.
-				for _, emitter := range de.emitters {
+			// sandbox each emitter.Emit() call to it's own goroutine and trap any panics that occur, logging
+			// the error and emitter id
+			for _, emitter := range de.emitters {
+				emitTasks.Go(func() {
 					if err := emit(runContext, emitter, snapshot); err != nil {
 						log.Errorf("[%s] failed to emit snapshot: %v", emitter.ID(), err)
 					}
-				}
-			}()
+				})
+			}
+
+			// wait for all emit tasks to complete before continuing
+			emitTasks.Wait()
 		}
 	}()
 
@@ -164,6 +149,7 @@ func emit(ctx context.Context, emitter Emitter, snapshot *ClusterSnapshot) (err 
 // any emissions that are currently in progress.
 func (de *defaultExporter) Stop() {
 	de.runState.Stop()
+	de.cancel.Cancel()
 }
 
 // Emitters returns a list of the `EmitterID`s registered within the exporter.
