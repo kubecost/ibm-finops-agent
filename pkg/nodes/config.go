@@ -15,15 +15,10 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 )
-
 const (
-	defaultHTTPTimeout           = 10 * time.Second
-	defaultMaxIdleConns          = 0
-	defaultMaxIdleConnsPerHost   = 2
-	defaultIdleConnTimeout       = 30 * time.Second
-	defaultTLSHandshakeTimeout   = 5 * time.Second
-	defaultExpectContinueTimeout = 500 * time.Millisecond
+	defaultHTTPTimeout = 15 * time.Second
 )
+
 
 func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	viper.AutomaticEnv()
@@ -43,17 +38,13 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 		return NodeClientConfig{}, fmt.Errorf("number of concurrent pollers is either zero or misconfigured")
 	}
 
-	var transport *http.Transport
+	// Start with http.DefaultTransport
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
+	// Configure TLS
 	if insecure {
-		transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-			MaxIdleConns:          defaultMaxIdleConns,
-			MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
-			IdleConnTimeout:       defaultIdleConnTimeout,
-			TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
-			ExpectContinueTimeout: defaultExpectContinueTimeout,
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
 		}
 	} else {
 		pemData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
@@ -64,39 +55,19 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(pemData)
 
-		var tlsConfig *tls.Config
-
 		if certFile != "" && keyFile != "" {
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-
 			if err != nil {
 				log.Fatalf("Unable to load cert: %s key: %s error: %v", certFile, keyFile, err)
 			}
 
-			tlsConfig = &tls.Config{
+			transport.TLSClientConfig = &tls.Config{
 				Certificates: []tls.Certificate{cert},
 				RootCAs:      caCertPool,
 			}
-
-			transport = &http.Transport{
-				TLSClientConfig:       tlsConfig,
-				MaxIdleConns:          defaultMaxIdleConns,
-				MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
-				IdleConnTimeout:       defaultIdleConnTimeout,
-				TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
-				ExpectContinueTimeout: defaultExpectContinueTimeout,
-			}
 		} else {
-			tlsConfig = &tls.Config{
+			transport.TLSClientConfig = &tls.Config{
 				RootCAs: caCertPool,
-			}
-			transport = &http.Transport{
-				TLSClientConfig:       tlsConfig,
-				MaxIdleConns:          defaultMaxIdleConns,
-				MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
-				IdleConnTimeout:       defaultIdleConnTimeout,
-				TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
-				ExpectContinueTimeout: defaultExpectContinueTimeout,
 			}
 		}
 	}
