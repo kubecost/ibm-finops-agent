@@ -38,11 +38,9 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 
 	var transport *http.Transport
 	if insecure {
-		transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		}
+		transport = transportWithTLSConfig(&tls.Config{
+			InsecureSkipVerify: true,
+		})
 	} else {
 		pemData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 		if err != nil {
@@ -66,20 +64,20 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 				RootCAs:      caCertPool,
 			}
 
-			transport = &http.Transport{TLSClientConfig: tlsConfig}
+			transport = transportWithTLSConfig(tlsConfig)
 		} else {
 			tlsConfig = &tls.Config{
 				RootCAs: caCertPool,
 			}
-			transport = &http.Transport{TLSClientConfig: tlsConfig}
+			transport = transportWithTLSConfig(tlsConfig)
 		}
 	}
 
 	return NodeClientConfig{
 		ClusterName:       clusterName,
 		ConcurrentPollers: concurrentPollers,
-		DirectNodeClient:  NewClient(&http.Client{Transport: transport}, 0),
-		InClusterClient:   NewClient(&http.Client{Transport: transport}, 0),
+		DirectNodeClient:  NewClient(newHttpClient(transport), 0),
+		InClusterClient:   NewClient(newHttpClient(transport), 0),
 		ProxyConfig: NodeClientProxyConfig{
 			ForceKubeProxy: forceKubeProxy,
 			LocalProxy:     localProxy,
