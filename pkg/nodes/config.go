@@ -7,12 +7,22 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/spf13/viper"
 
 	v1 "k8s.io/api/core/v1"
+)
+
+const (
+	defaultHTTPTimeout           = 10 * time.Second
+	defaultMaxIdleConns          = 0
+	defaultMaxIdleConnsPerHost   = 2
+	defaultIdleConnTimeout       = 30 * time.Second
+	defaultTLSHandshakeTimeout   = 5 * time.Second
+	defaultExpectContinueTimeout = 500 * time.Millisecond
 )
 
 func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
@@ -39,6 +49,11 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
+			MaxIdleConns:          defaultMaxIdleConns,
+			MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
+			IdleConnTimeout:       defaultIdleConnTimeout,
+			TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
+			ExpectContinueTimeout: defaultExpectContinueTimeout,
 		}
 	} else {
 		pemData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
@@ -63,20 +78,34 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 				RootCAs:      caCertPool,
 			}
 
-			transport = &http.Transport{TLSClientConfig: tlsConfig}
+			transport = &http.Transport{
+				TLSClientConfig:       tlsConfig,
+				MaxIdleConns:          defaultMaxIdleConns,
+				MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
+				IdleConnTimeout:       defaultIdleConnTimeout,
+				TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
+				ExpectContinueTimeout: defaultExpectContinueTimeout,
+			}
 		} else {
 			tlsConfig = &tls.Config{
 				RootCAs: caCertPool,
 			}
-			transport = &http.Transport{TLSClientConfig: tlsConfig}
+			transport = &http.Transport{
+				TLSClientConfig:       tlsConfig,
+				MaxIdleConns:          defaultMaxIdleConns,
+				MaxIdleConnsPerHost:   defaultMaxIdleConnsPerHost,
+				IdleConnTimeout:       defaultIdleConnTimeout,
+				TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
+				ExpectContinueTimeout: defaultExpectContinueTimeout,
+			}
 		}
 	}
 
 	return NodeClientConfig{
 		ClusterName:       clusterName,
 		ConcurrentPollers: concurrentPollers,
-		DirectNodeClient:  NewClient(&http.Client{Transport: transport}, 0),
-		InClusterClient:   NewClient(&http.Client{Transport: transport}, 0),
+		DirectNodeClient:  NewClient(&http.Client{Transport: transport, Timeout: defaultHTTPTimeout}, 0),
+		InClusterClient:   NewClient(&http.Client{Transport: transport, Timeout: defaultHTTPTimeout}, 0),
 		ProxyConfig: NodeClientProxyConfig{
 			ForceKubeProxy: forceKubeProxy,
 			LocalProxy:     localProxy,
