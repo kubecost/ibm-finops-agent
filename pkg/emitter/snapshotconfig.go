@@ -172,7 +172,7 @@ func (ksc *KubernetesSnapshotConfig) Append(config *KubernetesSnapshotConfig) {
 	ksc.ResourceQuotas = ksc.ResourceQuotas || config.ResourceQuotas
 }
 
-// Now is used with the `SnapshotConfig` as an implementation for determine the current time.
+// Now is used with the `SnapshotConfig` as an implementation to determine the current time.
 type Now = func() time.Time
 
 // defaultNow is the default `Now` implementation used to provide `time.Now().UTC()` from the
