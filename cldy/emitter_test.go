@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ibm/finops-agent/cldy"
@@ -202,6 +203,56 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(mockUpload.data)).To(Equal(1))
 		})
+		It("should handle concurrent Emit() calls without data races", func() {
+			tempDir, err := os.MkdirTemp("", "")
+			Expect(err).NotTo(HaveOccurred())
+			defer safeRemove(tempDir)
+			config := cldy.EmitterConfig{
+				UploaderConfig: cldy.UploaderConfig{
+					ScratchDir: tempDir,
+					ApptioConfig: cldy.ApptioConfig{
+						SecretManager: cldy.NewKeyValueSecretManager("", ""),
+					},
+				},
+				EmissionInterval: 0, // Emit every call
+			}
+			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
+			actualEmitter := cldyEmitter.(*cldy.Emitter)
+
+			mockUpload := mockUploader{data: []string{}}
+
+			data, err := buildTestData()
+			Expect(err).NotTo(HaveOccurred())
+			err = cldyEmitter.Init(data)
+			Expect(err).NotTo(HaveOccurred())
+			actualEmitter.Uploader = &mockUpload
+
+			// Spawn 10 concurrent goroutines calling Emit()
+			var wg sync.WaitGroup
+			numGoroutines := 10
+			errors := make([]error, numGoroutines)
+
+			for i := 0; i < numGoroutines; i++ {
+				wg.Add(1)
+				go func(idx int) {
+					defer wg.Done()
+					errors[idx] = cldyEmitter.Emit(context.TODO(), data)
+				}(i)
+			}
+
+			wg.Wait()
+
+			// Verify no errors occurred
+			for _, err := range errors {
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			// Verify at least 1 emission succeeded (others may downsample)
+			mockUpload.mu.Lock()
+			uploadCount := len(mockUpload.data)
+			mockUpload.mu.Unlock()
+			Expect(uploadCount).To(BeNumerically(">=", 1))
+		})
 		It("should clean old scratch samples on exceeded disk", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
@@ -290,6 +341,7 @@ var _ = Describe("Emitter", func() {
 })
 
 type mockUploader struct {
+	mu        sync.Mutex
 	data      []string
 	clusterID string
 }
@@ -299,10 +351,15 @@ func (m *mockUploader) SetClusterID(id string) {
 }
 
 func (m *mockUploader) AddSample(sample string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.data = append(m.data, sample)
 }
 
-func (m *mockUploader) RemoveSample(sample string) {}
+func (m *mockUploader) RemoveSample(sample string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+}
 
 // ensure replicaSets with zero replicas are not emitted
 func checkForDeadReplicaSets(path string) error {
