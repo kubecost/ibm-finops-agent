@@ -269,7 +269,7 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
 	if !IsAvailableDiskSpace(uint64(len(data)), ce.ScratchPath) {
-		err := ce.ClearOldScratchSamples()
+		err := ce.clearOldScratchSamplesLocked()
 		if err != nil {
 			return err
 		}
@@ -306,10 +306,16 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	return ce.writeAgentFile()
 }
 
+// ClearOldScratchSamples is the public entry point. Acquires mu.
 func (ce *Emitter) ClearOldScratchSamples() error {
 	ce.mu.Lock()
 	defer ce.mu.Unlock()
+	return ce.clearOldScratchSamplesLocked()
+}
 
+// clearOldScratchSamplesLocked contains the actual implementation.
+// Assumes caller holds ce.mu.
+func (ce *Emitter) clearOldScratchSamplesLocked() error {
 	log.Infof("Disk space threshold met. Attempting to clear samples over 1 hour old.")
 
 	files, err := os.ReadDir(ce.ScratchPath)
