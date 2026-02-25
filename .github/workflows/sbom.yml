@@ -59,42 +59,27 @@ jobs:
           format: 'cyclonedx'
           output: 'ibm-finops-agent-source-sbom.cyclonedx.json'
 
-      - name: Display SBOM summary in PR
+      - name: Display SBOM Contents
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const sbom = JSON.parse(fs.readFileSync('ibm-finops-agent-source-sbom.spdx.json', 'utf8'));
-            
-            const packages = sbom.packages || [];
-            const packageCount = packages.length;
-            const topPackages = packages.slice(0, 10).map(p => `- ${p.name}@${p.versionInfo || 'unknown'}`).join('\n');
-            
-            const sbomContent = JSON.stringify(sbom, null, 2);
-            
-            const comment = `## 📦 SBOM Summary
-            
-            **Total Packages:** ${packageCount}
-            
-            **Top-level Packages:**
-            ${topPackages}
-            
-            <details>
-            <summary>Full SPDX SBOM</summary>
-            
-            \`\`\`json
-            ${sbomContent}
-            \`\`\`
-            
-            </details>`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
+        run: |
+          echo "## SBOM Contents (SPDX Format)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Package Count" >> $GITHUB_STEP_SUMMARY
+          PACKAGE_COUNT=$(jq '.packages | length' ibm-finops-agent-source-sbom.spdx.json)
+          echo "Total packages: $PACKAGE_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Top-level Packages" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          jq -r '.packages[] | select(.name != null) | "\(.name) - \(.versionInfo // "unknown")"' ibm-finops-agent-source-sbom.spdx.json | head -50 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>Full SPDX SBOM (click to expand)</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat ibm-finops-agent-source-sbom.spdx.json >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
@@ -127,7 +112,7 @@ jobs:
           if [[ "${{ github.event_name }}" != "pull_request" ]]; then
             echo "✅ SBOM files attached to release" >> $GITHUB_STEP_SUMMARY
           else
-            echo "✅ SBOM summary posted to PR" >> $GITHUB_STEP_SUMMARY
+            echo "✅ SBOM contents displayed in step summary above" >> $GITHUB_STEP_SUMMARY
           fi
 
 # Made with Bob
