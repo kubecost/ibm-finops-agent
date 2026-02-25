@@ -1,0 +1,133 @@
+name: Generate SBOM
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version (e.g., v1.0.0 or 1.0.0)'
+        required: false
+        type: string
+  pull_request:
+    branches:
+      - develop
+
+permissions: read-all
+
+concurrency:
+  group: sbom-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate-sbom:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.release_version }}" ]]; then
+            VERSION="${{ inputs.release_version }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="dev"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Run Trivy filesystem scan (SPDX)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          format: 'spdx-json'
+          output: 'ibm-finops-agent-source-sbom.spdx.json'
+
+      - name: Run Trivy filesystem scan (CycloneDX)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          format: 'cyclonedx'
+          output: 'ibm-finops-agent-source-sbom.cyclonedx.json'
+
+      - name: Display SBOM summary in PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const sbom = JSON.parse(fs.readFileSync('ibm-finops-agent-source-sbom.spdx.json', 'utf8'));
+            
+            const packages = sbom.packages || [];
+            const packageCount = packages.length;
+            const topPackages = packages.slice(0, 10).map(p => `- ${p.name}@${p.versionInfo || 'unknown'}`).join('\n');
+            
+            const sbomContent = JSON.stringify(sbom, null, 2);
+            
+            const comment = `## 📦 SBOM Summary
+            
+            **Total Packages:** ${packageCount}
+            
+            **Top-level Packages:**
+            ${topPackages}
+            
+            <details>
+            <summary>Full SPDX SBOM</summary>
+            
+            \`\`\`json
+            ${sbomContent}
+            \`\`\`
+            
+            </details>`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-files
+          path: |
+            ibm-finops-agent-source-sbom.spdx.json
+            ibm-finops-agent-source-sbom.cyclonedx.json
+
+      - name: Attach SBOM to release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ibm-finops-agent-source-sbom.spdx.json
+            ibm-finops-agent-source-sbom.cyclonedx.json
+          tag_name: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', env.VERSION) }}
+
+      - name: Add workflow summary
+        run: |
+          echo "## SBOM Generation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Event:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Generated Files:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ibm-finops-agent-source-sbom.spdx.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ibm-finops-agent-source-sbom.cyclonedx.json\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "✅ SBOM files attached to release" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ SBOM summary posted to PR" >> $GITHUB_STEP_SUMMARY
+          fi
+
+# Made with Bob
