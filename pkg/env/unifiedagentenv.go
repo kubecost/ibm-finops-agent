@@ -28,12 +28,13 @@ const (
 	CollectorDataSourceEnabledEnvVar = "COLLECTOR_DATA_SOURCE_ENABLED"
 
 	// Node Stats Client Configuration (can be prefixed)
-	NodeStatsForceKubeProxyEnvVar    = "FORCE_KUBE_PROXY"
-	NodeStatsLocalProxyEnvVar        = "LOCAL_PROXY"
-	NodeStatsConcurrentPollersEnvVar = "NUMBER_OF_CONCURRENT_NODE_POLLERS"
-	NodeStatsInsecureEnvVar          = "INSECURE"
-	NodeStatsCertFileEnvVar          = "CERT_FILE"
-	NodeStatsKeyFileEnvVar           = "KEY_FILE"
+	NodeStatsForceKubeProxyEnvVar              = "FORCE_KUBE_PROXY"
+	NodeStatsLocalProxyEnvVar                  = "LOCAL_PROXY"
+	NodeStatsConcurrentPollersEnvVar           = "NUMBER_OF_CONCURRENT_NODE_POLLERS"
+	NodeStatsBackgroundCollectionEnabledEnvVar = "NODE_STATS_BG_COLLECTION_ENABLED"
+	NodeStatsInsecureEnvVar                    = "INSECURE"
+	NodeStatsCertFileEnvVar                    = "CERT_FILE"
+	NodeStatsKeyFileEnvVar                     = "KEY_FILE"
 
 	// Name and ID represent the same identifier for the cluster
 	NodeStatsClusterNameEnvVar = "CLUSTER_NAME"
@@ -96,6 +97,13 @@ func IsMinuteMetricsEnabled() bool {
 // point formatting
 func IsNodeStatsForceKubeProxy() bool {
 	return getValueWithPotentialPrefixOrDefault(NodeStatsForceKubeProxyEnvVar, CloudabilityPrefix, false, cast.ToBool)
+}
+
+// IsNodeStatsBackgroundCollectionEnabled determines if the node stats client should be continually refreshed on an interval
+// to reduce latency in the snapshot process. This ensures continuous snapshotting which may result in less accurate
+// node stats capture. This should be used with clusters containing 1000+ nodes.
+func IsNodeStatsBackgroundCollectionEnabled() bool {
+	return getValueWithPotentialPrefixOrDefault(NodeStatsBackgroundCollectionEnabledEnvVar, CloudabilityPrefix, false, cast.ToBool)
 }
 
 // GetNodeStatsLocalProxy returns the fully qualified local proxy endpoint for the node stats client IFF the proxyAPI

@@ -72,11 +72,23 @@ func NewAgentDataSource(
 
 	k8sCache.Start(context.Background().Done())
 
+	var nodeStatsProvider nodes.StatSummaryClient
 	nodeClientConfig, err := nodes.NewNodeClientConfigFromEnv()
 	if err != nil {
 		log.Fatalf("error retrieving node client config: %s", err)
 	}
 	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, cfg)
+
+	// If we use a background service, we leverage the client to refresh node data on an interval
+	// otherwise, we retrieve node data _at_ snapshot time
+	if nodeClientConfig.BackgroundNodeCollection {
+		nodesProvider := nodes.NewNodeStatsSummaryProvider(nodeStatsSummaryClient)
+		nodesProvider.Start(nodeClientConfig.RefreshInterval)
+
+		nodeStatsProvider = nodesProvider
+	} else {
+		nodeStatsProvider = nodeStatsSummaryClient
+	}
 
 	var opencostCloudCostProvider models.Provider
 	var opencostSource source.OpenCostDataSource
@@ -96,7 +108,7 @@ func NewAgentDataSource(
 		opencostCloudCostProvider: opencostCloudCostProvider,
 		metrics:                   opencostSource.Metrics(),
 		clusterCache:              k8sCache,
-		nodeStatsSummaryClient:    nodeStatsSummaryClient,
+		nodeStatsSummaryClient:    nodeStatsProvider,
 		clusterMetadata:           clusterMetadata,
 	}
 }
