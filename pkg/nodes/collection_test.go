@@ -88,7 +88,7 @@ var _ = Describe("Raw node data", func() {
 	// TOOD: Add in cAdvisor tests once cAdvisor data struct is implemented
 })
 
-func setupTestNodeStatSummaryClient(tempBearerFile string, failDirect bool, failProxy bool) NodeStatsSummaryClient {
+func setupTestNodeStatSummaryClient(tempBearerFile string, failDirect bool, failProxy bool) *NodeStatsSummaryClient {
 	ncc, err := NewNodeClientConfigFromEnv()
 	Expect(err).ToNot(HaveOccurred())
 
