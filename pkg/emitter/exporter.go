@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/core"
+	"github.com/ibm/finops-agent/pkg/util"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/util/atomic"
 )
@@ -33,6 +35,7 @@ type defaultExporter struct {
 	ds               core.DataSource
 	snapshotProvider SnapshotProvider
 	emitters         []Emitter
+	cancel           *util.CancelToken
 }
 
 func NewExporter(ds core.DataSource, snapshotProvider SnapshotProvider, emitters ...Emitter) Exporter {
@@ -40,6 +43,7 @@ func NewExporter(ds core.DataSource, snapshotProvider SnapshotProvider, emitters
 		ds:               ds,
 		snapshotProvider: snapshotProvider,
 		emitters:         emitters,
+		cancel:           util.NewCancelToken(),
 	}
 }
 
@@ -54,10 +58,13 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 		return false
 	}
 
+	// To ensure that we are able to cancel a running emitter AND the export loop, use a thread-safe
+	// cancellation token that can generate a context and execute cancellations directly
+	runContext := de.cancel.NewContext(context.Background())
+
 	// spawn a new goroutine which will loop and wait the interval each iteration
 	go func() {
-		runContext, cancelRun := context.WithCancel(context.Background())
-		defer cancelRun()
+		defer de.cancel.Cancel()
 
 		// take a snapshot of the current cluster state
 		snapshot, err := de.snapshotProvider.SnapshotOf(de.ds)
@@ -79,32 +86,33 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			// Stop(), and must reset our AtomicRunState to it's initial idle state
 			case <-de.runState.OnStop():
 				de.runState.Reset()
-				cancelRun()
 				return // exit go routine
 
 			// After our interval elapses, fall through
 			case <-time.After(interval):
 			}
 
-			// Kick off a new goroutine to snapshot and emit the data, this will allow the interval to reset
-			// immediately and not wait for the snapshot and emission to complete
-			go func() {
-				// take a snapshot of the current cluster state
-				snapshot, err := de.snapshotProvider.SnapshotOf(de.ds)
-				if err != nil {
-					log.Errorf("failed to take snapshot: %v", err)
-					return
-				}
+			// take a snapshot of the current cluster state -- on failure, continue to next iteration
+			snapshot, err := de.snapshotProvider.SnapshotOf(de.ds)
+			if err != nil {
+				log.Errorf("failed to take snapshot: %v", err)
+				continue
+			}
 
-				// emit the snapshot to all registered emitters -- note that the emitters run serially,
-				// each blocking until emission is complete. This gives us a _little_ bit of flexibility
-				// in the emission process at the cost of performance. We can definitely iterate on this.
-				for _, emitter := range de.emitters {
+			var emitTasks sync.WaitGroup
+
+			// sandbox each emitter.Emit() call to it's own goroutine and trap any panics that occur, logging
+			// the error and emitter id
+			for _, emitter := range de.emitters {
+				emitTasks.Go(func() {
 					if err := emit(runContext, emitter, snapshot); err != nil {
 						log.Errorf("[%s] failed to emit snapshot: %v", emitter.ID(), err)
 					}
-				}
-			}()
+				})
+			}
+
+			// wait for all emit tasks to complete before continuing
+			emitTasks.Wait()
 		}
 	}()
 
@@ -141,6 +149,7 @@ func emit(ctx context.Context, emitter Emitter, snapshot *ClusterSnapshot) (err 
 // any emissions that are currently in progress.
 func (de *defaultExporter) Stop() {
 	de.runState.Stop()
+	de.cancel.Cancel()
 }
 
 // Emitters returns a list of the `EmitterID`s registered within the exporter.

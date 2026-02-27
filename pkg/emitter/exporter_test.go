@@ -14,6 +14,21 @@ import (
 	"github.com/opencost/opencost/pkg/cloud/models"
 )
 
+func TestDoubleStartFailure(t *testing.T) {
+	ds := newEmptyDataSource()
+	snapshotProvider := newEmptySnapshotProvider()
+	a, b, c := newCountingEmitter("emitter-a"), newCountingEmitter("emitter-b"), newCountingEmitter("emitter-c")
+
+	exporter := NewExporter(ds, snapshotProvider, a, b, c)
+	if !exporter.Start(250 * time.Millisecond) {
+		t.Fatal("Failed to start exporter")
+	}
+
+	if exporter.Start(time.Second) {
+		t.Fatal("Should not be able to start the exporter twice")
+	}
+}
+
 func TestExporterProcess(t *testing.T) {
 	ds := newEmptyDataSource()
 	snapshotProvider := newEmptySnapshotProvider()
@@ -75,7 +90,7 @@ func TestExporterProcessWithFailures(t *testing.T) {
 func TestExporterProcessWithCancellation(t *testing.T) {
 	ds := newEmptyDataSource()
 	snapshotProvider := newEmptySnapshotProvider()
-	a := newWorkSimulatingEmitter(750 * time.Millisecond)
+	a := newWorkSimulatingEmitter(time.Second)
 
 	exporter := NewExporter(ds, snapshotProvider, a)
 
@@ -83,12 +98,12 @@ func TestExporterProcessWithCancellation(t *testing.T) {
 		t.Fatal("Failed to start exporter")
 	}
 
-	time.Sleep((2 * time.Second) + (250 * time.Millisecond))
+	time.Sleep((3 * time.Second) + (250 * time.Millisecond))
 	fmt.Println("Stopping exporter...")
 	exporter.Stop()
 
 	// allow cancellation to propagate
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 
 	if !a.isCancelled.Load() {
 		t.Errorf("Expected emitter to be cancelled, but it was not.")
@@ -121,13 +136,16 @@ func (ce *countingEmitter) Emit(ctx context.Context, snapshot *ClusterSnapshot) 
 	return nil
 }
 
+var idCount atomic.Uint64
+
 type workSimulatingEmitter struct {
+	id           EmitterID
 	workDuration time.Duration
 	isCancelled  atomic.Bool
 }
 
 func (wse *workSimulatingEmitter) ID() EmitterID {
-	return EmitterID("work-simulating-emitter")
+	return wse.id
 }
 
 func (wse *workSimulatingEmitter) Init(snapshot *ClusterSnapshot) error {
@@ -195,6 +213,7 @@ func newFailingCountingEmitter(name string, failOn uint) *countingEmitter {
 
 func newWorkSimulatingEmitter(workDuration time.Duration) *workSimulatingEmitter {
 	return &workSimulatingEmitter{
+		id:           EmitterID(fmt.Sprintf("work-simulating-emitter-%d", idCount.Add(1))),
 		workDuration: workDuration,
 	}
 }
