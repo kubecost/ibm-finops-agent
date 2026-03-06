@@ -34,7 +34,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 		return NodeClientConfig{}, fmt.Errorf("cluster name is required and cannot be exclusively whitespace")
 	} else if strings.HasPrefix(trimName, "{{") {
 		return NodeClientConfig{}, fmt.Errorf("cluster name cannot be a helm value placeholder")
-	} else if utf8.ValidString(trimName){
+	} else if !utf8.ValidString(trimName){
 		return NodeClientConfig{}, fmt.Errorf("cluster name is not a valid unicode string")
 	} 
 
