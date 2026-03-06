@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -28,9 +29,14 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	backgroundNodeCollectionEnabled := env.IsNodeStatsBackgroundCollectionEnabled()
 	refreshInterval := env.GetExporterEmissionInterval()
 
-	if strings.TrimSpace(clusterName) == "" {
+	trimName := strings.TrimSpace(clusterName)
+	if trimName == "" {
 		return NodeClientConfig{}, fmt.Errorf("cluster name is required and cannot be exclusively whitespace")
-	}
+	} else if strings.HasPrefix(trimName, "{{") {
+		return NodeClientConfig{}, fmt.Errorf("cluster name cannot be a helm value placeholder")
+	} else if utf8.ValidString(trimName){
+		return NodeClientConfig{}, fmt.Errorf("cluster name is not a valid unicode string")
+	} 
 
 	if concurrentPollers <= 0 {
 		return NodeClientConfig{}, fmt.Errorf("number of concurrent pollers is either zero or misconfigured")
