@@ -182,25 +182,26 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
     steps:
-      - name: label unit tests failing
-        if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled()}}
-        uses: andymckay/labeler@1.0.4
+      - name: Check out actions code
+        uses: actions/checkout@v6
         with:
+          repository: kubecost/github-actions
+          path: ./github-actions
+          ref: main
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Label unit tests failing
+        if: ${{ always() && contains(needs.*.result, 'failure') && !cancelled() }}
+        uses: ./github-actions/labeler
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
           add-labels: "unit tests failed"
-      - uses: mondeja/remove-labels-gh-action@v2
-        if: ${{ always()  && contains(needs.*.result, 'failure') && !cancelled()}}
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          labels: |
-            unit tests passed
+          remove-labels: "unit tests passed"
+
       - name: Label unit tests passing
-        if: ${{ always()  && !contains(needs.*.result, 'failure') && !cancelled()}}
-        uses: andymckay/labeler@1.0.4
+        if: ${{ always() && !contains(needs.*.result, 'failure') && !cancelled() }}
+        uses: ./github-actions/labeler
         with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
           add-labels: "unit tests passed"
-      - uses: mondeja/remove-labels-gh-action@v2
-        if: ${{ always()  && !contains(needs.*.result, 'failure') && !cancelled()}}
-        with:
-            token: ${{ secrets.GITHUB_TOKEN }}
-            labels: |
-              unit tests failed
+          remove-labels: "unit tests failed"
