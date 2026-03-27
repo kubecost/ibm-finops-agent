@@ -68,9 +68,11 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 
 		// take a snapshot of the current cluster state
 		snapshot, err := de.snapshotProvider.SnapshotOf(de.ds)
-		if err != nil {
+		if err != nil && snapshot == nil {
 			log.Errorf("failed to take snapshot for initialization phase: %v", err)
 			return
+		} else if err != nil {
+			log.Warnf("initialization snapshot completed with partial data: %v", err)
 		}
 
 		for _, emitter := range de.emitters {
@@ -92,11 +94,13 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			case <-time.After(interval):
 			}
 
-			// take a snapshot of the current cluster state -- on failure, continue to next iteration
+			// take a snapshot of the current cluster state -- on total failure, skip to next iteration
 			snapshot, err := de.snapshotProvider.SnapshotOf(de.ds)
-			if err != nil {
+			if err != nil && snapshot == nil {
 				log.Errorf("failed to take snapshot: %v", err)
 				continue
+			} else if err != nil {
+				log.Warnf("snapshot completed with partial data: %v", err)
 			}
 
 			var emitTasks sync.WaitGroup

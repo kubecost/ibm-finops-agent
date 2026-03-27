@@ -96,9 +96,16 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 		return err
 	})
 
-	err := group.Wait()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate cluster snapshot: %w", err)
+	merr := group.Wait()
+	if err := merr.ErrorOrNil(); err != nil {
+		log.Warnf("cluster snapshot completed with errors: %v", err)
+
+		return &ClusterSnapshot{
+			ClusterInfo: clusterInfo,
+			Kubernetes:  k8sSnapshot,
+			NodeStats:   nodeStats,
+			Metrics:     metricsSnapshot,
+		}, err
 	}
 
 	return &ClusterSnapshot{
@@ -124,15 +131,18 @@ func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.Metri
 
 	metricsSummary, err := snapshotMetricsSummary(querier, now, csp.lastSnapshot, config)
 	if err != nil {
-		return nil, err
+		log.Warnf("metrics snapshot completed with errors: %v", err)
 	}
 
+	// Cache partial results so we don't re-query within the cache window.
 	// Note: (bolt) assuming we're not calling the SnapshotOf() in multiple goroutines [which there shouldn't be],
 	// Note: (bolt) there's no need to lock on cache updates. Temporary solution until we can drop prom fully.
-	csp.lastMetricsSummary = now
-	csp.metricsSummary = metricsSummary
+	if metricsSummary != nil {
+		csp.lastMetricsSummary = now
+		csp.metricsSummary = metricsSummary
+	}
 
-	return metricsSummary, nil
+	return metricsSummary, err
 }
 
 func snapshotClusterInfo(infoProvider clusters.ClusterInfoProvider) (*clusters.ClusterInfo, error) {
@@ -235,10 +245,11 @@ func snapshotMetricsSummary(querier source.MetricsQuerier, now time.Time, lastSn
 		snapshotErrors = append(snapshotErrors, errs...)
 	}
 
-	// collect errors and return all errors joined
+	// return partial data with any errors joined, so callers have visibility into failures
+	// while still receiving whatever data was successfully collected
 	var err error
 	if len(snapshotErrors) > 0 {
-		return nil, errors.Join(snapshotErrors...)
+		err = errors.Join(snapshotErrors...)
 	}
 
 	return &MetricsSummary{
@@ -269,10 +280,11 @@ func snapshotWindowedMetrics(
 		snapshot, err := snapshotMetrics(querier, *window.Start(), *window.End())
 		if err != nil {
 			errors = append(errors, fmt.Errorf("failed to generate metrics snapshot for resolution: %d minutes: %w", int(resolution.Minutes()), err))
-			continue
 		}
 
-		snapshots = append(snapshots, snapshot)
+		if snapshot != nil {
+			snapshots = append(snapshots, snapshot)
+		}
 	}
 
 	return snapshots, errors
@@ -510,10 +522,13 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	resourceQuotaStatusUsedRamLimitAvg, _ := resourceQuotaStatusUsedRamLimitAvgFuture.Await()
 	resourceQuotaStatusUsedRamLimitMax, _ := resourceQuotaStatusUsedRamLimitMaxFuture.Await()
 
+	var metricsErr error
 	if grp.HasErrors() {
-		for _, qErr := range grp.Errors() {
+		queryErrors := grp.Errors()
+		for _, qErr := range queryErrors {
 			log.Warnf("metrics query failure: %s", qErr)
 		}
+		metricsErr = fmt.Errorf("%d metrics query failures: %w", len(queryErrors), grp.Error())
 	}
 
 	return &MetricsSnapshot{
@@ -617,5 +632,5 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		ResourceQuotaStatusUsedCPULimitMax:   resourceQuotaStatusUsedCpuLimitMax,
 		ResourceQuotaStatusUsedRAMLimitAvg:   resourceQuotaStatusUsedRamLimitAvg,
 		ResourceQuotaStatusUsedRAMLimitMax:   resourceQuotaStatusUsedRamLimitMax,
-	}, nil
+	}, metricsErr
 }
