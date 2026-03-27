@@ -31,26 +31,16 @@ var _ = Describe("Endpoint formatting", func() {
 			Expect(url).To(Equal("https://10.0.0.1:10250/stats/summary"))
 		})
 
-		It("formats an IPv6 address with brackets", func() {
+		It("formats an IPv6 address with brackets per RFC 3986", func() {
 			d := directNode{ip: "fd00::1", port: 10250}
 			url := d.formatEndpoint("stats/summary")
-			// IPv6 addresses MUST be enclosed in brackets in URLs per RFC 2732
-			// This test documents the current behavior. If the URL does not
-			// contain brackets, it indicates the IPv6 formatting bug.
-			Expect(url).To(SatisfyAny(
-				Equal("https://[fd00::1]:10250/stats/summary"),
-				// Current (buggy) behavior - will match until the bug is fixed:
-				Equal("https://fd00::1:10250/stats/summary"),
-			))
+			Expect(url).To(Equal("https://[fd00::1]:10250/stats/summary"))
 		})
 
-		It("formats a full IPv6 address", func() {
+		It("formats a full IPv6 address with brackets", func() {
 			d := directNode{ip: "2001:0db8:85a3:0000:0000:8a2e:0370:7334", port: 10250}
 			url := d.formatEndpoint("stats/summary")
-			Expect(url).To(SatisfyAny(
-				Equal("https://[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:10250/stats/summary"),
-				Equal("https://2001:0db8:85a3:0000:0000:8a2e:0370:7334:10250/stats/summary"),
-			))
+			Expect(url).To(Equal("https://[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:10250/stats/summary"))
 		})
 	})
 

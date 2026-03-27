@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -92,7 +93,8 @@ type directNode struct {
 }
 
 func (d directNode) formatEndpoint(s string) string {
-	return fmt.Sprintf("https://%s:%v/%s", d.ip, d.port, s)
+	host := net.JoinHostPort(d.ip, strconv.FormatInt(d.port, 10))
+	return fmt.Sprintf("https://%s/%s", host, s)
 }
 
 // setupDirectNodeAPI retrieves node stats directly from the node api

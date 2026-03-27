@@ -511,7 +511,9 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	resourceQuotaStatusUsedRamLimitMax, _ := resourceQuotaStatusUsedRamLimitMaxFuture.Await()
 
 	if grp.HasErrors() {
-		return nil, grp.Error()
+		for _, qErr := range grp.Errors() {
+			log.Warnf("metrics query failure: %s", qErr)
+		}
 	}
 
 	return &MetricsSnapshot{
