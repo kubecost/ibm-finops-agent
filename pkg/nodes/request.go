@@ -93,8 +93,7 @@ type directNode struct {
 }
 
 func (d directNode) formatEndpoint(s string) string {
-	host := net.JoinHostPort(d.ip, strconv.FormatInt(d.port, 10))
-	return fmt.Sprintf("https://%s/%s", host, s)
+	return fmt.Sprintf("https://%s/%s", net.JoinHostPort(d.ip, strconv.FormatInt(d.port, 10)), s)
 }
 
 // setupDirectNodeAPI retrieves node stats directly from the node api
