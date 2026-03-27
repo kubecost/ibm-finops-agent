@@ -187,23 +187,11 @@ jobs:
         uses: kubecost/github-actions/labeler@main
         with:
           add-labels: "unit tests failed"
-      
-      - uses: kubecost/github-actions/remove-labels-gh-action@main
-        if: ${{ always() && contains(needs.*.result, 'failure') && !cancelled() }}
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          labels: |
-            unit tests passed
-      
+          remove-labels: "unit tests passed"
+
       - name: Label unit tests passing
         if: ${{ always() && !contains(needs.*.result, 'failure') && !cancelled() }}
         uses: kubecost/github-actions/labeler@main
         with:
           add-labels: "unit tests passed"
-      
-      - uses: kubecost/github-actions/remove-labels-gh-action@main
-        if: ${{ always() && !contains(needs.*.result, 'failure') && !cancelled() }}
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          labels: |
-            unit tests failed
+          remove-labels: "unit tests failed"
