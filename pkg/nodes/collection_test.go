@@ -60,7 +60,7 @@ var _ = Describe("Raw node data", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err).To(
 				BeUnwrappableErrorWith(
-					HaveLen(4),
+					HaveLen(5),
 					HaveEach(MatchError(ContainSubstring("error retrieving node data")))),
 			)
 			Expect(len(data)).To(BeNumerically("==", 0))
@@ -79,7 +79,7 @@ var _ = Describe("Raw node data", func() {
 			}
 
 			nodes := getReadyNodes(mockNcs.cache)
-			Expect(len(nodes)).To(BeNumerically("==", 4))
+			Expect(len(nodes)).To(BeNumerically("==", 5))
 			// Note: Nodes.jsonl isn't in any order
 			Expect(nodes[0].ObjectMeta.Name).Should(Equal("nodename4"))
 		})
