@@ -40,15 +40,6 @@ jobs:
           fetch-depth: 0
           path: ./opencost
 
-    #   - name: Attempt to check out matching branch name, or target branch name of OC
-    #     run: |
-    #         pushd ./opencost
-    #         echo "Attempting to check out matching branch ${{ github.head_ref }} in OC. If that fails, check out ${{ github.base_ref }}"
-    #         set -x
-    #         git checkout "${{ github.head_ref }}" || git checkout "${{ github.base_ref }}" || true
-    #         set +x
-    #         popd
-
       # Saves us from having to redownload all modules
       - name: Go Mod cache
         uses: actions/cache@v4
@@ -180,18 +171,24 @@ jobs:
   set-labels:
     needs: [build-and-test, e2e-test]
     runs-on: ubuntu-latest
-    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
+    # Run this job even if tests fail (to label the PR accordingly)
+    # Skip only if workflow was manually cancelled or not a PR
+    if: always() && !cancelled() && github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
     steps:
-      - name: Label unit tests failing
-        if: ${{ always() && contains(needs.*.result, 'failure') && !cancelled() }}
-        uses: kubecost/github-actions/labeler@main
-        with:
-          add-labels: "unit tests failed"
-          remove-labels: "unit tests passed"
-
-      - name: Label unit tests passing
-        if: ${{ always() && !contains(needs.*.result, 'failure') && !cancelled() }}
-        uses: kubecost/github-actions/labeler@main
-        with:
-          add-labels: "unit tests passed"
-          remove-labels: "unit tests failed"
+      - name: Label based on test results
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            gh pr edit "$PR_NUMBER" --repo "$REPO" \
+              --add-label "unit tests failed" \
+              --remove-label "unit tests passed"
+          else
+            gh pr edit "$PR_NUMBER" --repo "$REPO" \
+              --add-label "unit tests passed" \
+              --remove-label "unit tests failed"
+          fi
