@@ -72,7 +72,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("UPLOAD_RETRY_COUNT", 5)
 	viper.SetDefault("OUTBOUND_PROXY_INSECURE", false)
 	viper.SetDefault("UPLOAD_REGION", "us")
-	viper.SetDefault("SCRATCH_DIR", "/tmp")
+	viper.SetDefault("SCRATCH_DIR", "/opt/finops-agent")
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
 	viper.SetDefault("EMISSION_INTERVAL", "3m")
