@@ -1,0 +1,20 @@
+# LocalStack configuration for e2e testing
+# Using a dummy auth token for local testing
+extraEnvVars:
+  - name: LOCALSTACK_AUTH_TOKEN
+    value: "test-token"
+  - name: DEBUG
+    value: "1"
+
+# Service configuration
+service:
+  type: NodePort
+  
+# Resource limits for e2e testing
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
