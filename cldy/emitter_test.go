@@ -259,7 +259,7 @@ var _ = Describe("Emitter", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(config.ParseMetricData).To(BeFalse())
-			Expect(config.UploaderConfig.ScratchDir).To(Equal("/tmp"))
+			Expect(config.UploaderConfig.ScratchDir).To(Equal("/opt/finops-agent"))
 			Expect(config.UploaderConfig.ApptioConfig.Region).To(Equal("us"))
 		})
 		It("should load and parse custom outbound config", func() {
