@@ -1,24 +1,10 @@
-# LocalStack configuration for e2e testing
-# Using a dummy auth token for local testing
+# Use the Open Source / Community image specifically
+image:
+  repository: localstack/localstack
+  tag: "latest" # or a specific version like "3.0"
+
 extraEnvVars:
-  - name: LOCALSTACK_AUTH_TOKEN
-    value: "test-token"
-
-# Service configuration
-service:
-  type: NodePort
-  
-# Startup probe configuration to give more time for initialization
-startupProbe:
-  initialDelaySeconds: 10
-  periodSeconds: 5
-  failureThreshold: 30
-
-# Resource limits for e2e testing
-resources:
-  limits:
-    cpu: 1000m
-    memory: 1Gi
-  requests:
-    cpu: 500m
-    memory: 512Mi
+  - name: SKIP_SSL_CERT_DOWNLOAD
+    value: "1"
+  - name: ACTIVATE_PRO
+    value: "false"
