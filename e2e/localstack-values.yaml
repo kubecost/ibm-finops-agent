@@ -3,13 +3,17 @@
 extraEnvVars:
   - name: LOCALSTACK_AUTH_TOKEN
     value: "test-token"
-  - name: DEBUG
-    value: "1"
 
 # Service configuration
 service:
   type: NodePort
   
+# Startup probe configuration to give more time for initialization
+startupProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  failureThreshold: 30
+
 # Resource limits for e2e testing
 resources:
   limits:
