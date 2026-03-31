@@ -182,26 +182,28 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' }}
     steps:
-      - name: Check out actions code
-        uses: actions/checkout@v6
-        with:
-          repository: kubecost/github-actions
-          path: ./github-actions
-          ref: main
-          token: ${{ secrets.GH_PAT }}
-
       - name: Label unit tests failing
         if: ${{ always() && contains(needs.*.result, 'failure') && !cancelled() }}
-        uses: ./github-actions/labeler
+        uses: kubecost/github-actions/labeler@main
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
           add-labels: "unit tests failed"
-          remove-labels: "unit tests passed"
-
+      
+      - uses: kubecost/github-actions/remove-labels-gh-action@main
+        if: ${{ always() && contains(needs.*.result, 'failure') && !cancelled() }}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          labels: |
+            unit tests passed
+      
       - name: Label unit tests passing
         if: ${{ always() && !contains(needs.*.result, 'failure') && !cancelled() }}
-        uses: ./github-actions/labeler
+        uses: kubecost/github-actions/labeler@main
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
           add-labels: "unit tests passed"
-          remove-labels: "unit tests failed"
+      
+      - uses: kubecost/github-actions/remove-labels-gh-action@main
+        if: ${{ always() && !contains(needs.*.result, 'failure') && !cancelled() }}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          labels: |
+            unit tests failed
