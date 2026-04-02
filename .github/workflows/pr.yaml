@@ -134,7 +134,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        k8s-version: ['v1.33.0', 'v1.32.0', 'v1.31.0', 'v1.30.0']
+        k8s-version: ['v1.34.0', 'v1.33.0', 'v1.32.0', 'v1.31.0']
     
     steps:
       - name: Install Go
