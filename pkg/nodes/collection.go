@@ -27,8 +27,8 @@ type NodeStatsSummaryClient struct {
 	bearerTokenFile string
 }
 
-func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig, inClusterConfig *rest.Config) NodeStatsSummaryClient {
-	return NodeStatsSummaryClient{
+func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig, inClusterConfig *rest.Config) *NodeStatsSummaryClient {
+	return &NodeStatsSummaryClient{
 		config:          config,
 		cache:           cache,
 		endpoint:        "stats/summary",
@@ -48,7 +48,7 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConf
 
 // GetNodeData creates a number of goroutines that attempt to access a specified endpoint and return the
 // corresponding stats data in slice of interfaces which can be converted into a stricter format.
-func (nssc NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
+func (nssc *NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	var nodes []*v1.Node
 	var statsList []*stats.Summary
 
@@ -220,7 +220,7 @@ func nodeResponseToStatSummary(resp []byte) (*stats.Summary, error) {
 }
 
 // getBearerToken reads the service account token
-func (nssc NodeStatsSummaryClient) getBearerToken() (string, error) {
+func (nssc *NodeStatsSummaryClient) getBearerToken() (string, error) {
 	token, err := os.ReadFile(nssc.bearerTokenFile)
 	if err != nil {
 		return "", fmt.Errorf("could not read bearer token from file")

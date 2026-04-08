@@ -36,7 +36,7 @@ func initLogging() {
 func main() {
 	initLogging()
 
-	log.Infof("Starting IBM Finops Agent version: %s", version.Version)
+	log.Infof("Starting IBM Finops Agent version %s", version.FriendlyVersion())
 
 	// Shared application utilities (http router, diagnostics, etc...)
 	router := httprouter.New()
@@ -127,6 +127,7 @@ func main() {
 		clusterInfo := dataSource.ClusterMetadata().GetClusterInfo()
 		if clusterInfo != nil {
 			cldyConfig.ClusterVersion = version.FormatVersionInfo(clusterInfo.Version)
+			cldyConfig.ClusterVersionGit = clusterInfo.Version.GitVersion
 			cldyConfig.ClusterVersionMajor = clusterInfo.Version.Major
 			cldyConfig.ClusterVersionMinor = clusterInfo.Version.Minor
 		}

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -24,10 +26,17 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	keyFile := env.GetNodeStatsKeyFile()
 	forceKubeProxy := env.IsNodeStatsForceKubeProxy()
 	localProxy := env.GetNodeStatsLocalProxy()
+	backgroundNodeCollectionEnabled := env.IsNodeStatsBackgroundCollectionEnabled()
+	refreshInterval := env.GetExporterEmissionInterval()
 
-	if strings.TrimSpace(clusterName) == "" {
+	trimName := strings.TrimSpace(clusterName)
+	if trimName == "" {
 		return NodeClientConfig{}, fmt.Errorf("cluster name is required and cannot be exclusively whitespace")
-	}
+	} else if strings.HasPrefix(trimName, "{{") {
+		return NodeClientConfig{}, fmt.Errorf("cluster name cannot be a helm value placeholder")
+	} else if !utf8.ValidString(trimName){
+		return NodeClientConfig{}, fmt.Errorf("cluster name is not a valid unicode string")
+	} 
 
 	if concurrentPollers <= 0 {
 		return NodeClientConfig{}, fmt.Errorf("number of concurrent pollers is either zero or misconfigured")
@@ -35,11 +44,9 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 
 	var transport *http.Transport
 	if insecure {
-		transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		}
+		transport = transportWithTLSConfig(&tls.Config{
+			InsecureSkipVerify: true,
+		})
 	} else {
 		pemData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 		if err != nil {
@@ -63,24 +70,26 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 				RootCAs:      caCertPool,
 			}
 
-			transport = &http.Transport{TLSClientConfig: tlsConfig}
+			transport = transportWithTLSConfig(tlsConfig)
 		} else {
 			tlsConfig = &tls.Config{
 				RootCAs: caCertPool,
 			}
-			transport = &http.Transport{TLSClientConfig: tlsConfig}
+			transport = transportWithTLSConfig(tlsConfig)
 		}
 	}
 
 	return NodeClientConfig{
 		ClusterName:       clusterName,
 		ConcurrentPollers: concurrentPollers,
-		DirectNodeClient:  NewClient(&http.Client{Transport: transport}, 0),
-		InClusterClient:   NewClient(&http.Client{Transport: transport}, 0),
+		DirectNodeClient:  NewClient(newHttpClient(transport), 0),
+		InClusterClient:   NewClient(newHttpClient(transport), 0),
 		ProxyConfig: NodeClientProxyConfig{
 			ForceKubeProxy: forceKubeProxy,
 			LocalProxy:     localProxy,
 		},
+		BackgroundNodeCollection: backgroundNodeCollectionEnabled,
+		RefreshInterval:          refreshInterval,
 	}, nil
 }
 
@@ -94,13 +103,15 @@ func (nac NodeClientProxyConfig) IsLocalProxy() bool {
 }
 
 type NodeClientConfig struct {
-	ClusterName       string
-	ConcurrentPollers int
-	DirectNodeClient  Client
-	InClusterClient   Client
-	CertFile          string
-	KeyFile           string
-	ProxyConfig       NodeClientProxyConfig
+	ClusterName              string
+	ConcurrentPollers        int
+	DirectNodeClient         Client
+	InClusterClient          Client
+	CertFile                 string
+	KeyFile                  string
+	ProxyConfig              NodeClientProxyConfig
+	BackgroundNodeCollection bool
+	RefreshInterval          time.Duration
 }
 
 // connectionOptions returns the connection methods that are allowed for this node based on config

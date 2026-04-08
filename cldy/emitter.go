@@ -55,6 +55,7 @@ type EmitterConfig struct {
 	EmissionInterval            time.Duration
 	KubernetesResourcesRequired []string
 	ClusterVersion              string
+	ClusterVersionGit           string
 	ClusterVersionMajor         string
 	ClusterVersionMinor         string
 }
@@ -71,7 +72,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("UPLOAD_RETRY_COUNT", 5)
 	viper.SetDefault("OUTBOUND_PROXY_INSECURE", false)
 	viper.SetDefault("UPLOAD_REGION", "us")
-	viper.SetDefault("SCRATCH_DIR", "/tmp")
+	viper.SetDefault("SCRATCH_DIR", "/opt/finops-agent")
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
 	viper.SetDefault("EMISSION_INTERVAL", "3m")
@@ -453,6 +454,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values["cluster_name"] = ce.config.ClusterName
 	values["cluster_version"] = ce.config.ClusterVersion
 	// for backwards compatibility with the metrics-agent
+	values["cluster_version_git"] = ce.config.ClusterVersionGit
 	values["cluster_version_major"] = ce.config.ClusterVersionMajor
 	values["cluster_version_minor"] = ce.config.ClusterVersionMinor
 	if ce.config.ProxyURL != nil {

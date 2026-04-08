@@ -24,16 +24,17 @@ const (
 	OpenCostDataSourceEnabledEnvVar = "OPENCOST_SOURCE_ENABLED"
 
 	// Snapshot Configuration
-	MinuteMetricsEnabledEnvVar = "MINUTE_METRICS_ENABLED"
-	PromlessEnvVar             = "PROMLESS"
+	MinuteMetricsEnabledEnvVar       = "MINUTE_METRICS_ENABLED"
+	CollectorDataSourceEnabledEnvVar = "COLLECTOR_DATA_SOURCE_ENABLED"
 
 	// Node Stats Client Configuration (can be prefixed)
-	NodeStatsForceKubeProxyEnvVar    = "FORCE_KUBE_PROXY"
-	NodeStatsLocalProxyEnvVar        = "LOCAL_PROXY"
-	NodeStatsConcurrentPollersEnvVar = "NUMBER_OF_CONCURRENT_NODE_POLLERS"
-	NodeStatsInsecureEnvVar          = "INSECURE"
-	NodeStatsCertFileEnvVar          = "CERT_FILE"
-	NodeStatsKeyFileEnvVar           = "KEY_FILE"
+	NodeStatsForceKubeProxyEnvVar              = "FORCE_KUBE_PROXY"
+	NodeStatsLocalProxyEnvVar                  = "LOCAL_PROXY"
+	NodeStatsConcurrentPollersEnvVar           = "NUMBER_OF_CONCURRENT_NODE_POLLERS"
+	NodeStatsBackgroundCollectionEnabledEnvVar = "NODE_STATS_BG_COLLECTION_ENABLED"
+	NodeStatsInsecureEnvVar                    = "INSECURE"
+	NodeStatsCertFileEnvVar                    = "CERT_FILE"
+	NodeStatsKeyFileEnvVar                     = "KEY_FILE"
 
 	// Name and ID represent the same identifier for the cluster
 	NodeStatsClusterNameEnvVar = "CLUSTER_NAME"
@@ -81,10 +82,10 @@ func IsPProfEnabled() bool {
 	return env.GetBool(PProfEnabledEnvVar, false)
 }
 
-// IsPromless returns true if the agent should run without a dependency on Prometheus. This
-// is the default mode of operation.
-func IsPromless() bool {
-	return env.GetBool(PromlessEnvVar, true)
+// IsCollectorDataSourceEnabeled returns the environment variable which enables a source.OpencostDatasource
+// which does not use uses Prometheus
+func IsCollectorDataSourceEnabled() bool {
+	return env.GetBool(CollectorDataSourceEnabledEnvVar, true)
 }
 
 // IsMinuteMetricsEnabled returns true if the 10m resolution metrics snapshot
@@ -97,6 +98,13 @@ func IsMinuteMetricsEnabled() bool {
 // point formatting
 func IsNodeStatsForceKubeProxy() bool {
 	return getValueWithPotentialPrefixOrDefault(NodeStatsForceKubeProxyEnvVar, CloudabilityPrefix, false, cast.ToBool)
+}
+
+// IsNodeStatsBackgroundCollectionEnabled determines if the node stats client should be continually refreshed on an interval
+// to reduce latency in the snapshot process. This ensures continuous snapshotting which may result in less accurate
+// node stats capture. This should be used with clusters containing 1000+ nodes.
+func IsNodeStatsBackgroundCollectionEnabled() bool {
+	return getValueWithPotentialPrefixOrDefault(NodeStatsBackgroundCollectionEnabledEnvVar, CloudabilityPrefix, false, cast.ToBool)
 }
 
 // GetNodeStatsLocalProxy returns the fully qualified local proxy endpoint for the node stats client IFF the proxyAPI

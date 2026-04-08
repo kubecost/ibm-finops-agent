@@ -253,9 +253,13 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 			fmt.Errorf("error in creating http request token string parameter for frontdoor service: %w", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
+	request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("error in creating http request for frontdoor service: %w", err)
+	}
+	// Make body reusable for retries
+	request.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
 	}
 
 	request.Header.Add("Content-Type", "application/json")
@@ -357,9 +361,13 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 			fmt.Errorf("error in marshaling http request parameters to cloudability: %w", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
+	request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("error in creating http request to cloudability: %w", err)
+	}
+	// Make body reusable for retries
+	request.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
 	}
 
 	request.Header.Add("Content-Type", "application/json")
