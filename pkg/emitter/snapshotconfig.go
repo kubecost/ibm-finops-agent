@@ -1,6 +1,7 @@
 package emitter
 
 import (
+	"os"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/env"
@@ -181,6 +182,15 @@ func defaultNow() time.Time {
 	return time.Now().UTC()
 }
 
+// getScratchDir returns the scratch directory path from the SCRATCH_DIR environment variable,
+// or the default path if not set.
+func getScratchDir() string {
+	if dir := os.Getenv("SCRATCH_DIR"); dir != "" {
+		return dir
+	}
+	return "/opt/finops-agent"
+}
+
 // SnapshotConfig holds the configuration for general snapshotting options.
 type SnapshotConfig struct {
 	// UseMetricsCache indicates whether or not to use a cache for metrics query results.
@@ -193,6 +203,9 @@ type SnapshotConfig struct {
 
 	// KubernetesSnapshotConfig holds the configuration for Kubernetes resources to snapshot.
 	KubernetesSnapshot *KubernetesSnapshotConfig
+
+	// ScratchDir is the directory path where snapshot state will be persisted.
+	ScratchDir string
 
 	// Now is the func used to determine the current time.
 	Now Now
@@ -215,6 +228,7 @@ func NewSnapshotConfigFromEnv() *SnapshotConfig {
 	return &SnapshotConfig{
 		UseMetricsCache:        !env.IsCollectorDataSourceEnabled(),
 		MinutelyMetricsEnabled: env.IsMinuteMetricsEnabled(),
+		ScratchDir:             getScratchDir(),
 		Now:                    defaultNow,
 	}
 }
@@ -225,6 +239,7 @@ func DefaultSnapshotConfig() *SnapshotConfig {
 		UseMetricsCache:        false,
 		MinutelyMetricsEnabled: false,
 		KubernetesSnapshot:     NewKubernetesSnapshotConfig().EnableAll(),
+		ScratchDir:             "/opt/finops-agent",
 		Now:                    defaultNow,
 	}
 }

@@ -113,6 +113,11 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 
 			// wait for all emit tasks to complete before continuing
 			emitTasks.Wait()
+
+			// persist snapshot state after successful export to maintain window continuity across restarts
+			if err := de.snapshotProvider.PersistState(); err != nil {
+				log.Warnf("failed to persist snapshot state: %v", err)
+			}
 		}
 	}()
 

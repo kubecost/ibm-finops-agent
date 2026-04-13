@@ -172,6 +172,10 @@ func (e *emptySnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterSnapshot
 	return &ClusterSnapshot{}, nil
 }
 
+func (e *emptySnapshotProvider) PersistState() error {
+	return nil
+}
+
 type emptyDataSource struct{}
 
 func (e *emptyDataSource) OpenCostSource() source.OpenCostDataSource {
