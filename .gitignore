@@ -38,3 +38,6 @@ temp/
 tmp/
 data/
 env/
+
+# Bob Shell session metadata
+.bob/
