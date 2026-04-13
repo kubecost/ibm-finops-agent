@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/util"
 	"github.com/opencost/opencost/core/pkg/log"
-	"github.com/opencost/opencost/core/pkg/util/atomic"
+	opencostatomic "github.com/opencost/opencost/core/pkg/util/atomic"
 )
 
 // Exporter is an interface that defines a data emission management system and facilitates the
@@ -31,7 +32,7 @@ type Exporter interface {
 // defaultExporter is the default implementation of the Exporter interface. It's a straight-forward
 // snapshot and emission loop that runs on a specified interval.
 type defaultExporter struct {
-	runState         atomic.AtomicRunState
+	runState         opencostatomic.AtomicRunState
 	ds               core.DataSource
 	snapshotProvider SnapshotProvider
 	emitters         []Emitter
@@ -110,7 +111,7 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			for _, emitter := range de.emitters {
 				emitTasks.Go(func() {
 					if err := emit(runContext, emitter, snapshot); err != nil {
-						emitErrors++
+						atomic.AddUint32(&emitErrors, 1)
 						log.Errorf("[%s] failed to emit snapshot: %v", emitter.ID(), err)
 					}
 				})
@@ -119,7 +120,7 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			// wait for all emit tasks to complete before continuing
 			emitTasks.Wait()
 
-			if clusterCache != nil && len(snapshot.Kubernetes.ShortLivedPods) > 0 && emitErrors == 0 {
+			if clusterCache != nil && len(snapshot.Kubernetes.ShortLivedPods) > 0 && atomic.LoadUint32(&emitErrors) == 0 {
 				clusterCache.AcknowledgeShortLivedPods()
 			}
 		}
