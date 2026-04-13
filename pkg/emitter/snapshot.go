@@ -28,9 +28,14 @@ var (
 	)
 )
 
+// queryFuture is an interface that matches the Await method signature
+type queryFuture[T any] interface {
+	Await() ([]*T, error)
+}
+
 // awaitWithLog awaits a QueryGroupFuture and logs any errors, incrementing the failure counter
 // Returns the result slice
-func awaitWithLog[T any](name string, future *source.QueryGroupFuture[T], failedQueries *[]string) []*T {
+func awaitWithLog[T any](name string, future queryFuture[T], failedQueries *[]string) []*T {
 	result, err := future.Await()
 	if err != nil {
 		log.Warnf("metric query failed for %s: %v", name, err)
