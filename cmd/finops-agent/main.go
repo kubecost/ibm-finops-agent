@@ -15,6 +15,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/http"
+	"github.com/ibm/finops-agent/pkg/logexporter"
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
@@ -37,6 +38,8 @@ func main() {
 	initLogging()
 
 	log.Infof("Starting IBM Finops Agent version %s", version.FriendlyVersion())
+
+	logExporter := logexporter.InitializeLogExporter()
 
 	// Shared application utilities (http router, diagnostics, etc...)
 	router := httprouter.New()
@@ -72,6 +75,14 @@ func main() {
 		err := server.Shutdown(context.Background())
 		if err != nil {
 			log.Errorf("Error shutting down HTTP server: %s", err)
+		}
+	}()
+
+	defer func() {
+		if logExporter != nil {
+			if err := logExporter.Stop(); err != nil {
+				log.Errorf("Error stopping log exporter: %s", err)
+			}
 		}
 	}()
 

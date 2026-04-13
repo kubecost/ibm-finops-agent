@@ -46,6 +46,14 @@ const (
 	// ParseMetricDataEnvVar env var for sanitizing k8s resources
 	ParseMetricDataEnvVar = "PARSE_METRIC_DATA"
 
+	// Log Export Configuration
+	LogExportEnabledEnvVar      = "LOG_EXPORT_ENABLED"
+	LogExportIntervalEnvVar     = "LOG_EXPORT_INTERVAL"
+	LogExportBufferSizeEnvVar   = "LOG_EXPORT_BUFFER_SIZE"
+	LogExportPathPrefixEnvVar   = "LOG_EXPORT_PATH_PREFIX"
+	LogExportDirPathEnvVar      = "LOG_EXPORT_DIR_PATH"
+	LogExportSyncIntervalEnvVar = "LOG_EXPORT_SYNC_INTERVAL"
+
 	// Prefixes for
 	CloudabilityPrefix = "CLOUDABILITY_"
 )
@@ -150,6 +158,36 @@ func GetInformerReSyncInterval() time.Duration {
 // GetSanitizeData returns bool that further sanitizes k8s resources if true
 func GetSanitizeData() bool {
 	return getValueWithPotentialPrefixOrDefault(ParseMetricDataEnvVar, CloudabilityPrefix, false, cast.ToBool)
+}
+
+// IsLogExportEnabled returns true if log export to federated storage is enabled
+func IsLogExportEnabled() bool {
+	return env.GetBool(LogExportEnabledEnvVar, false)
+}
+
+// GetLogExportInterval returns the configured interval for log uploads
+func GetLogExportInterval() time.Duration {
+	return env.GetDuration(LogExportIntervalEnvVar, 5*time.Minute)
+}
+
+// GetLogExportBufferSize returns the maximum buffer size in bytes before forced upload
+func GetLogExportBufferSize() int64 {
+	return env.GetInt64(LogExportBufferSizeEnvVar, 5*1024*1024) // Default 5MB
+}
+
+// GetLogExportPathPrefix returns the path prefix for log files in bucket storage
+func GetLogExportPathPrefix() string {
+	return env.Get(LogExportPathPrefixEnvVar, "logs")
+}
+
+// GetLogExportDirPath returns the directory path where log files will be stored
+func GetLogExportDirPath() string {
+	return env.Get(LogExportDirPathEnvVar, "/opt/finops-agent/logs")
+}
+
+// GetLogExportSyncInterval returns how often to sync log file to disk (default 5s). Stop() always syncs on shutdown.
+func GetLogExportSyncInterval() time.Duration {
+	return env.GetDuration(LogExportSyncIntervalEnvVar, 5*time.Second)
 }
 
 // getValueWithPotentialPrefixOrDefault attempts to read the environment variable raw and then with the specified prefix,

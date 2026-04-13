@@ -52,3 +52,23 @@ test-k8s-1.31.0:
 
 test-k8s-1.30.0:
 	$(call TEST_KUBERNETES,v1.30.0)
+
+# Multi-architecture image build targets
+.PHONY: build-multiarch
+build-multiarch: ## Build multi-architecture Docker image (amd64, arm64)
+	@./build-multiarch.sh
+
+.PHONY: build-multiarch-push
+build-multiarch-push: ## Build and push multi-architecture Docker image
+	@./build-multiarch.sh --push
+
+.PHONY: help
+help: ## Display this help message
+	@echo "IBM FinOps Agent - Available Make Targets:"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-25s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Multi-arch build examples:"
+	@echo "  make build-multiarch                    # Build locally"
+	@echo "  make build-multiarch-push              # Build and push to registry"
+	@echo "  VERSION=v1.0.0 make build-multiarch    # Build with specific version"
