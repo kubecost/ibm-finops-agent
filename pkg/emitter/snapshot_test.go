@@ -55,14 +55,15 @@ func TestAwaitWithLog_Error(t *testing.T) {
 
 	queryName := "testFailedQuery"
 	
-	// Create a future that returns an error
+	// Create a future that returns an error and a nil result.
+	// awaitWithLog returns whatever Await() returns, even when err != nil.
 	future := newMockFuture[source.PVActiveMinutesResult](nil, errors.New("test error: query failed"))
 
 	result := awaitWithLog(queryName, future)
 
-	// Verify result is nil (error case)
+	// Verify the returned result matches this mock setup (nil result with error).
 	if result != nil {
-		t.Errorf("Expected nil result on error, got %v", result)
+		t.Errorf("Expected nil result from mock future configured with nil result and error, got %v", result)
 	}
 
 	// Verify counter was incremented
