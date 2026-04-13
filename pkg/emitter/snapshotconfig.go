@@ -183,9 +183,12 @@ func defaultNow() time.Time {
 }
 
 // getScratchDir returns the scratch directory path from the SCRATCH_DIR environment variable,
-// or the default path if not set.
+// falling back to CLOUDABILITY_SCRATCH_DIR, or the default path if neither is set.
 func getScratchDir() string {
 	if dir := os.Getenv("SCRATCH_DIR"); dir != "" {
+		return dir
+	}
+	if dir := os.Getenv("CLOUDABILITY_SCRATCH_DIR"); dir != "" {
 		return dir
 	}
 	return "/opt/finops-agent"
