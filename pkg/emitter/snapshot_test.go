@@ -26,23 +26,16 @@ func newMockFuture[T any](result []*T, err error) *mockQueryGroupFuture[T] {
 func TestAwaitWithLog_Success(t *testing.T) {
 	// Reset the counter before test
 	metricQueryFailures.Reset()
-
-	var failedQueries []string
 	
 	// Create a successful future with mock data
 	mockResult := []*source.PVActiveMinutesResult{{}}
 	future := newMockFuture(mockResult, nil)
 
-	result := awaitWithLog("testQuery", future, &failedQueries)
+	result := awaitWithLog("testQuery", future)
 
 	// Verify result is returned
 	if len(result) != 1 {
 		t.Errorf("Expected 1 result, got %d", len(result))
-	}
-
-	// Verify no failed queries recorded
-	if len(failedQueries) != 0 {
-		t.Errorf("Expected 0 failed queries, got %d: %v", len(failedQueries), failedQueries)
 	}
 
 	// Verify counter was not incremented
@@ -56,25 +49,16 @@ func TestAwaitWithLog_Error(t *testing.T) {
 	// Reset the counter before test
 	metricQueryFailures.Reset()
 
-	var failedQueries []string
 	queryName := "testFailedQuery"
 	
 	// Create a future that returns an error
 	future := newMockFuture[source.PVActiveMinutesResult](nil, errors.New("test error: query failed"))
 
-	result := awaitWithLog(queryName, future, &failedQueries)
+	result := awaitWithLog(queryName, future)
 
 	// Verify result is nil (error case)
 	if result != nil {
 		t.Errorf("Expected nil result on error, got %v", result)
-	}
-
-	// Verify failed query was recorded
-	if len(failedQueries) != 1 {
-		t.Fatalf("Expected 1 failed query, got %d: %v", len(failedQueries), failedQueries)
-	}
-	if failedQueries[0] != queryName {
-		t.Errorf("Expected failed query name '%s', got '%s'", queryName, failedQueries[0])
 	}
 
 	// Verify counter was incremented
@@ -87,36 +71,17 @@ func TestAwaitWithLog_Error(t *testing.T) {
 func TestAwaitWithLog_MultipleErrors(t *testing.T) {
 	// Reset the counter before test
 	metricQueryFailures.Reset()
-
-	var failedQueries []string
 	
 	// Create multiple futures that return errors
 	queries := []string{"query1", "query2", "query3"}
 	
 	for _, queryName := range queries {
 		future := newMockFuture[source.PVActiveMinutesResult](nil, errors.New("test error"))
-		awaitWithLog(queryName, future, &failedQueries)
+		awaitWithLog(queryName, future)
 	}
 
-	// Verify all failed queries were recorded
-	if len(failedQueries) != 3 {
-		t.Errorf("Expected 3 failed queries, got %d: %v", len(failedQueries), failedQueries)
-	}
-
-	// Verify each query name is in the list
+	// Verify counter was incremented for each query
 	for _, queryName := range queries {
-		found := false
-		for _, fq := range failedQueries {
-			if fq == queryName {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected to find '%s' in failed queries: %v", queryName, failedQueries)
-		}
-
-		// Verify counter was incremented for each query
 		count := testutil.ToFloat64(metricQueryFailures.WithLabelValues(queryName))
 		if count != 1 {
 			t.Errorf("Expected counter for '%s' to be 1, got %f", queryName, count)
@@ -127,28 +92,18 @@ func TestAwaitWithLog_MultipleErrors(t *testing.T) {
 func TestAwaitWithLog_MixedSuccessAndFailure(t *testing.T) {
 	// Reset the counter before test
 	metricQueryFailures.Reset()
-
-	var failedQueries []string
 	
 	// Successful query
 	successFuture := newMockFuture([]*source.PVActiveMinutesResult{{}}, nil)
-	awaitWithLog("successQuery", successFuture, &failedQueries)
+	awaitWithLog("successQuery", successFuture)
 
 	// Failed query
 	failFuture := newMockFuture[source.PVActiveMinutesResult](nil, errors.New("test error"))
-	awaitWithLog("failQuery", failFuture, &failedQueries)
+	awaitWithLog("failQuery", failFuture)
 
 	// Another successful query
 	successFuture2 := newMockFuture([]*source.PVActiveMinutesResult{{}}, nil)
-	awaitWithLog("successQuery2", successFuture2, &failedQueries)
-
-	// Verify only the failed query was recorded
-	if len(failedQueries) != 1 {
-		t.Errorf("Expected 1 failed query, got %d: %v", len(failedQueries), failedQueries)
-	}
-	if failedQueries[0] != "failQuery" {
-		t.Errorf("Expected failed query 'failQuery', got '%s'", failedQueries[0])
-	}
+	awaitWithLog("successQuery2", successFuture2)
 
 	// Verify counters
 	if count := testutil.ToFloat64(metricQueryFailures.WithLabelValues("successQuery")); count != 0 {
@@ -168,9 +123,8 @@ func TestMetricQueryFailuresCounter(t *testing.T) {
 	metricQueryFailures.Reset()
 	
 	// Trigger a failure to ensure the metric is registered and incremented
-	var failedQueries []string
 	future := newMockFuture[source.PVActiveMinutesResult](nil, errors.New("test error"))
-	awaitWithLog("testMetricCounter", future, &failedQueries)
+	awaitWithLog("testMetricCounter", future)
 	
 	// Verify the counter was incremented
 	count := testutil.ToFloat64(metricQueryFailures.WithLabelValues("testMetricCounter"))

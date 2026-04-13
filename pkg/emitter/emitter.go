@@ -50,7 +50,6 @@ type MetricsSummary struct {
 // MetricsSnapshot contains the metrics results from opencost data source queries.
 type MetricsSnapshot struct {
 	Window                               opencost.Window
-	FailedQueries                        []string // names of queries that returned errors
 	PVActiveMinutes                      []*source.PVActiveMinutesResult
 	PVUsedAverage                        []*source.PVUsedAvgResult
 	PVUsedMax                            []*source.PVUsedMaxResult
