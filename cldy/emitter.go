@@ -72,7 +72,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("UPLOAD_RETRY_COUNT", 5)
 	viper.SetDefault("OUTBOUND_PROXY_INSECURE", false)
 	viper.SetDefault("UPLOAD_REGION", "us")
-	viper.SetDefault("SCRATCH_DIR", "/tmp")
+	viper.SetDefault("SCRATCH_DIR", "/opt/finops-agent")
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
 	viper.SetDefault("EMISSION_INTERVAL", "3m")
@@ -263,7 +263,7 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 	return nil
 }
 
-func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
+func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) (rerr error) {
 	if !IsAvailableDiskSpace(uint64(len(data)), ce.ScratchPath) {
 		err := ce.ClearOldScratchSamples()
 		if err != nil {
@@ -285,6 +285,8 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 	if err != nil {
 		return err
 	}
+	defer safeClose(file.Close, &rerr)
+
 	_, err = file.Write(data)
 	return err
 }
