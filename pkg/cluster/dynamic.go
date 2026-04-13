@@ -339,11 +339,18 @@ func (dcc *DynamicClusterCache) GetAllPods() []*corev1.Pod {
 }
 
 func (dcc *DynamicClusterCache) GetAllShortLivedPods() []*corev1.Pod {
+	dcc.slpMux.RLock()
+	defer dcc.slpMux.RUnlock()
+
+	pods := make([]*corev1.Pod, len(dcc.shortLivedPods))
+	copy(pods, dcc.shortLivedPods)
+	return pods
+}
+
+func (dcc *DynamicClusterCache) AcknowledgeShortLivedPods() {
 	dcc.slpMux.Lock()
 	defer dcc.slpMux.Unlock()
-	shortLivedPods := dcc.shortLivedPods
 	dcc.shortLivedPods = []*corev1.Pod{}
-	return shortLivedPods
 }
 
 func (dcc *DynamicClusterCache) GetAllServices() []*corev1.Service {

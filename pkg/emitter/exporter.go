@@ -99,13 +99,18 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 				continue
 			}
 
-			var emitTasks sync.WaitGroup
+			var (
+				emitTasks    sync.WaitGroup
+				emitErrors   uint32
+				clusterCache = de.ds.Cluster()
+			)
 
 			// sandbox each emitter.Emit() call to it's own goroutine and trap any panics that occur, logging
 			// the error and emitter id
 			for _, emitter := range de.emitters {
 				emitTasks.Go(func() {
 					if err := emit(runContext, emitter, snapshot); err != nil {
+						emitErrors++
 						log.Errorf("[%s] failed to emit snapshot: %v", emitter.ID(), err)
 					}
 				})
@@ -113,6 +118,10 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 
 			// wait for all emit tasks to complete before continuing
 			emitTasks.Wait()
+
+			if clusterCache != nil && len(snapshot.Kubernetes.ShortLivedPods) > 0 && emitErrors == 0 {
+				clusterCache.AcknowledgeShortLivedPods()
+			}
 		}
 	}()
 

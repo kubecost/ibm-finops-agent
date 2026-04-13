@@ -7,11 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ibm/finops-agent/internal/mocks"
 	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/pkg/cloud/models"
+	corev1 "k8s.io/api/core/v1"
 )
 
 func TestDoubleStartFailure(t *testing.T) {
@@ -110,6 +112,44 @@ func TestExporterProcessWithCancellation(t *testing.T) {
 	}
 }
 
+func TestExporterAcknowledgesShortLivedPodsAfterSuccessfulEmission(t *testing.T) {
+	ds := newMockDataSource()
+	ds.clusterCache.Pods = []*corev1.Pod{{}}
+	snapshotProvider := newShortLivedPodSnapshotProvider()
+	emitter := newCountingEmitter("emitter-a")
+
+	exporter := NewExporter(ds, snapshotProvider, emitter)
+	if !exporter.Start(250 * time.Millisecond) {
+		t.Fatal("Failed to start exporter")
+	}
+
+	time.Sleep(400 * time.Millisecond)
+	exporter.Stop()
+
+	if ds.clusterCache.Calls["AcknowledgeShortLivedPods"] == 0 {
+		t.Fatalf("expected short-lived pods to be acknowledged after successful emission")
+	}
+}
+
+func TestExporterDoesNotAcknowledgeShortLivedPodsWhenEmitterFails(t *testing.T) {
+	ds := newMockDataSource()
+	ds.clusterCache.Pods = []*corev1.Pod{{}}
+	snapshotProvider := newShortLivedPodSnapshotProvider()
+	emitter := newFailingCountingEmitter("emitter-a", 1)
+
+	exporter := NewExporter(ds, snapshotProvider, emitter)
+	if !exporter.Start(250 * time.Millisecond) {
+		t.Fatal("Failed to start exporter")
+	}
+
+	time.Sleep(400 * time.Millisecond)
+	exporter.Stop()
+
+	if got := ds.clusterCache.Calls["AcknowledgeShortLivedPods"]; got != 0 {
+		t.Fatalf("expected short-lived pods to remain unacknowledged on emitter failure, got %d acknowledgements", got)
+	}
+}
+
 //--------------------------------------------------------------------------
 //  helpers
 //--------------------------------------------------------------------------
@@ -174,6 +214,10 @@ func (e *emptySnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterSnapshot
 
 type emptyDataSource struct{}
 
+type mockDataSource struct {
+	clusterCache *mocks.MockClusterCache
+}
+
 func (e *emptyDataSource) OpenCostSource() source.OpenCostDataSource {
 	return nil
 }
@@ -195,6 +239,30 @@ func (e *emptyDataSource) StatsSummary() nodes.StatSummaryClient {
 }
 
 func (e *emptyDataSource) ClusterMetadata() cluster.Metadata {
+	return nil
+}
+
+func (m *mockDataSource) OpenCostSource() source.OpenCostDataSource {
+	return nil
+}
+
+func (m *mockDataSource) OpenCostCloudCostProvider() models.Provider {
+	return nil
+}
+
+func (m *mockDataSource) Metrics() source.MetricsQuerier {
+	return nil
+}
+
+func (m *mockDataSource) Cluster() cluster.ClusterCache {
+	return m.clusterCache
+}
+
+func (m *mockDataSource) StatsSummary() nodes.StatSummaryClient {
+	return nil
+}
+
+func (m *mockDataSource) ClusterMetadata() cluster.Metadata {
 	return nil
 }
 
@@ -224,4 +292,24 @@ func newEmptyDataSource() *emptyDataSource {
 
 func newEmptySnapshotProvider() *emptySnapshotProvider {
 	return &emptySnapshotProvider{}
+}
+
+func newMockDataSource() *mockDataSource {
+	return &mockDataSource{
+		clusterCache: mocks.NewMockClusterCache(),
+	}
+}
+
+func newShortLivedPodSnapshotProvider() SnapshotProvider {
+	return &shortLivedPodSnapshotProvider{}
+}
+
+type shortLivedPodSnapshotProvider struct{}
+
+func (s *shortLivedPodSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterSnapshot, error) {
+	return &ClusterSnapshot{
+		Kubernetes: &KubernetesSnapshot{
+			ShortLivedPods: []*corev1.Pod{{}},
+		},
+	}, nil
 }
