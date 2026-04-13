@@ -126,7 +126,7 @@ func TestExporterAcknowledgesShortLivedPodsAfterSuccessfulEmission(t *testing.T)
 	time.Sleep(400 * time.Millisecond)
 	exporter.Stop()
 
-	if ds.clusterCache.Calls["AcknowledgeShortLivedPods"] == 0 {
+	if ds.clusterCache.GetCalls("AcknowledgeShortLivedPods") == 0 {
 		t.Fatalf("expected short-lived pods to be acknowledged after successful emission")
 	}
 }
@@ -145,7 +145,7 @@ func TestExporterDoesNotAcknowledgeShortLivedPodsWhenEmitterFails(t *testing.T) 
 	time.Sleep(400 * time.Millisecond)
 	exporter.Stop()
 
-	if got := ds.clusterCache.Calls["AcknowledgeShortLivedPods"]; got != 0 {
+	if got := ds.clusterCache.GetCalls("AcknowledgeShortLivedPods"); got != 0 {
 		t.Fatalf("expected short-lived pods to remain unacknowledged on emitter failure, got %d acknowledgements", got)
 	}
 }

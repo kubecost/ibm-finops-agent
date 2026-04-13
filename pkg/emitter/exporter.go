@@ -120,7 +120,7 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			// wait for all emit tasks to complete before continuing
 			emitTasks.Wait()
 
-			if clusterCache != nil && len(snapshot.Kubernetes.ShortLivedPods) > 0 && atomic.LoadUint32(&emitErrors) == 0 {
+			if clusterCache != nil && snapshot.Kubernetes != nil && len(snapshot.Kubernetes.ShortLivedPods) > 0 && atomic.LoadUint32(&emitErrors) == 0 {
 				clusterCache.AcknowledgeShortLivedPods()
 			}
 		}
