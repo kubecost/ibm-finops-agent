@@ -12,7 +12,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
-// mockQueryGroupFuture is a simple mock that implements the QueryGroupFuture interface
+// mockQueryGroupFuture is a simple mock of the future contract used by awaitWithLog.
+// It only guarantees an Await() ([]*T, error) method.
 type mockQueryGroupFuture[T any] struct {
 	result []*T
 	err    error
