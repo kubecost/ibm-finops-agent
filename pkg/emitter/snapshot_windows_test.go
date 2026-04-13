@@ -18,10 +18,10 @@ func TestSnapshotWindowsForZeroLastSnapshot(t *testing.T) {
 	start := windows[0].Start()
 	end := windows[0].End()
 	if !start.Equal(time.Date(2025, 1, 15, 9, 0, 0, 0, time.UTC)) {
-		t.Errorf("Unexpected window start: %s", *start)
+		t.Errorf("Unexpected window start: %v", *start)
 	}
 	if !end.Equal(time.Date(2025, 1, 15, 9, 10, 0, 0, time.UTC)) {
-		t.Errorf("Unexpected window end: %s", *end)
+		t.Errorf("Unexpected window end: %v", *end)
 	}
 }
 
@@ -47,19 +47,19 @@ func TestSnapshotWindowsForBoundaryCrossing(t *testing.T) {
 	s0 := windows[0].Start()
 	e0 := windows[0].End()
 	if !s0.Equal(time.Date(2025, 1, 15, 9, 0, 0, 0, time.UTC)) {
-		t.Errorf("Window[0] unexpected start: %s", *s0)
+		t.Errorf("Window[0] unexpected start: %v", *s0)
 	}
 	if !e0.Equal(time.Date(2025, 1, 15, 9, 10, 0, 0, time.UTC)) {
-		t.Errorf("Window[0] unexpected end: %s", *e0)
+		t.Errorf("Window[0] unexpected end: %v", *e0)
 	}
 
 	s1 := windows[1].Start()
 	e1 := windows[1].End()
 	if !s1.Equal(time.Date(2025, 1, 15, 9, 10, 0, 0, time.UTC)) {
-		t.Errorf("Window[1] unexpected start: %s", *s1)
+		t.Errorf("Window[1] unexpected start: %v", *s1)
 	}
 	if !e1.Equal(time.Date(2025, 1, 15, 9, 20, 0, 0, time.UTC)) {
-		t.Errorf("Window[1] unexpected end: %s", *e1)
+		t.Errorf("Window[1] unexpected end: %v", *e1)
 	}
 }
 

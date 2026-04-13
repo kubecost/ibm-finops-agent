@@ -12,6 +12,42 @@ import (
 	"github.com/ibm/finops-agent/pkg/core"
 )
 
+// waitForUint32 polls counter until it reaches at least target, or the timeout expires.
+func waitForUint32(counter *atomic.Uint32, target uint32, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if counter.Load() >= target {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return counter.Load() >= target
+}
+
+// waitForInt32 polls counter until it reaches at least target, or the timeout expires.
+func waitForInt32(counter *int32, target int32, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt32(counter) >= target {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return atomic.LoadInt32(counter) >= target
+}
+
+// waitForBool polls flag until it becomes true, or the timeout expires.
+func waitForBool(flag *atomic.Bool, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if flag.Load() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return flag.Load()
+}
+
 // ---------------------------------------------------------------------------
 // Integration: Full exporter lifecycle with real snapshot provider
 // ---------------------------------------------------------------------------
@@ -28,14 +64,11 @@ func TestExporterWithRealSnapshotProvider(t *testing.T) {
 		t.Fatal("Failed to start exporter")
 	}
 
-	// Wait for 3 emission intervals
-	time.Sleep(750 * time.Millisecond)
-	exporter.Stop()
-
-	count := emitter.count.Load()
-	if count < 3 {
-		t.Errorf("Expected at least 3 emissions, got %d", count)
+	if !waitForUint32(&emitter.count, 3, 5*time.Second) {
+		exporter.Stop()
+		t.Fatalf("Expected at least 3 emissions, got %d", emitter.count.Load())
 	}
+	exporter.Stop()
 }
 
 // ---------------------------------------------------------------------------
@@ -58,8 +91,12 @@ func TestExporterHandlesSnapshotFailure(t *testing.T) {
 		t.Fatal("Failed to start exporter")
 	}
 
-	// Wait for several emission cycles
-	time.Sleep(550 * time.Millisecond)
+	// Wait until we've had enough snapshot calls to observe both successes and failures.
+	// With failEvery=2, we need at least 3 calls to guarantee at least 1 failure and 2 successes.
+	if !waitForInt32(&callCount, 3, 5*time.Second) {
+		exporter.Stop()
+		t.Fatalf("Expected at least 3 snapshot calls, got %d", atomic.LoadInt32(&callCount))
+	}
 	exporter.Stop()
 
 	// Not all snapshots succeed, so emission count should be less than total cycles
@@ -89,10 +126,7 @@ func TestExporterInitializesEmitters(t *testing.T) {
 		t.Fatal("Failed to start exporter")
 	}
 
-	// Give the goroutine time to initialize
-	time.Sleep(100 * time.Millisecond)
-
-	if !emitter.initialized.Load() {
+	if !waitForBool(&emitter.initialized, 5*time.Second) {
 		t.Error("Expected emitter.Init() to be called during start")
 	}
 
@@ -112,13 +146,11 @@ func TestExporterInitFailureDoesNotPreventLoop(t *testing.T) {
 		t.Fatal("Failed to start exporter")
 	}
 
-	time.Sleep(350 * time.Millisecond)
-	exporter.Stop()
-
-	// The good emitter should still receive emissions
-	if goodEmitter.count.Load() < 2 {
-		t.Errorf("Good emitter should have received emissions, got %d", goodEmitter.count.Load())
+	if !waitForUint32(&goodEmitter.count, 2, 5*time.Second) {
+		exporter.Stop()
+		t.Fatalf("Good emitter should have received at least 2 emissions, got %d", goodEmitter.count.Load())
 	}
+	exporter.Stop()
 }
 
 // ---------------------------------------------------------------------------
@@ -138,13 +170,11 @@ func TestExporterRecoverFromEmitterPanic(t *testing.T) {
 		t.Fatal("Failed to start exporter")
 	}
 
-	time.Sleep(350 * time.Millisecond)
-	exporter.Stop()
-
-	// The good emitter should still be receiving emissions despite the panicking emitter
-	if goodEmitter.count.Load() < 2 {
-		t.Errorf("Good emitter should still receive emissions, got %d", goodEmitter.count.Load())
+	if !waitForUint32(&goodEmitter.count, 2, 5*time.Second) {
+		exporter.Stop()
+		t.Fatalf("Good emitter should still receive emissions, got %d", goodEmitter.count.Load())
 	}
+	exporter.Stop()
 }
 
 // ---------------------------------------------------------------------------
@@ -189,28 +219,22 @@ func TestExporterRestartAfterStop(t *testing.T) {
 	if !exporter.Start(100 * time.Millisecond) {
 		t.Fatal("Failed to start exporter (first time)")
 	}
-	time.Sleep(350 * time.Millisecond)
+	if !waitForUint32(&emitter.count, 2, 5*time.Second) {
+		exporter.Stop()
+		t.Fatalf("Expected at least 2 emissions in first run, got %d", emitter.count.Load())
+	}
 	exporter.Stop()
 	firstRunCount := emitter.count.Load()
-
-	if firstRunCount < 2 {
-		t.Fatalf("Expected at least 2 emissions in first run, got %d", firstRunCount)
-	}
-
-	// Wait for full reset
-	time.Sleep(200 * time.Millisecond)
 
 	// Second run
 	if !exporter.Start(100 * time.Millisecond) {
 		t.Fatal("Failed to start exporter (second time)")
 	}
-	time.Sleep(350 * time.Millisecond)
-	exporter.Stop()
-
-	secondRunCount := emitter.count.Load() - firstRunCount
-	if secondRunCount < 2 {
-		t.Errorf("Expected at least 2 new emissions in second run, got %d", secondRunCount)
+	if !waitForUint32(&emitter.count, firstRunCount+2, 5*time.Second) {
+		exporter.Stop()
+		t.Fatalf("Expected at least 2 new emissions in second run, got %d", emitter.count.Load()-firstRunCount)
 	}
+	exporter.Stop()
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +263,13 @@ func TestMultipleEmittersReceiveSameSnapshot(t *testing.T) {
 		t.Fatal("Failed to start exporter")
 	}
 
-	time.Sleep(250 * time.Millisecond)
+	// Wait until all emitters have received at least 1 emission
+	for i, tracker := range trackers {
+		if !waitForUint32(&tracker.count, 1, 5*time.Second) {
+			exporter.Stop()
+			t.Fatalf("Emitter %d received 0 emissions within timeout", i)
+		}
+	}
 	exporter.Stop()
 
 	// All emitters should have received at least 1 emission
@@ -279,18 +309,15 @@ func TestSlowEmitterDoesNotBlockFastEmitter(t *testing.T) {
 		t.Fatal("Failed to start exporter")
 	}
 
-	time.Sleep(550 * time.Millisecond)
+	if !waitForUint32(&slow.count, 3, 5*time.Second) {
+		exporter.Stop()
+		t.Fatalf("Slow emitter should have at least 3 emissions, got %d", slow.count.Load())
+	}
 	exporter.Stop()
 
-	// Both should have the same count since emitters run concurrently per emission
-	slowCount := slow.count.Load()
 	fastCount := fast.count.Load()
-
 	if fastCount < 3 {
 		t.Errorf("Fast emitter should have at least 3 emissions, got %d", fastCount)
-	}
-	if slowCount < 3 {
-		t.Errorf("Slow emitter should have at least 3 emissions, got %d", slowCount)
 	}
 }
 

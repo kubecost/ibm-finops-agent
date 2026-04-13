@@ -32,13 +32,14 @@ var _ = Describe("NodeStatsSummaryProvider integration", func() {
 		Expect(data).To(HaveLen(1))
 		Expect(data[0].Node.NodeName).To(Equal("node-call-1"))
 
-		// Wait for background refresh
-		time.Sleep(250 * time.Millisecond)
+		// Poll until background refresh has fired at least once more
+		Eventually(func() int32 {
+			return atomic.LoadInt32(&callCount)
+		}, "2s", "50ms").Should(BeNumerically(">=", 2))
 
 		data, err = provider.GetNodeData()
 		Expect(err).ToNot(HaveOccurred())
 		Expect(data).To(HaveLen(1))
-		Expect(atomic.LoadInt32(&callCount)).To(BeNumerically(">=", 2))
 
 		provider.Stop()
 
@@ -66,7 +67,10 @@ var _ = Describe("NodeStatsSummaryProvider integration", func() {
 		started := provider.Start(50 * time.Millisecond)
 		Expect(started).To(BeTrue())
 
-		time.Sleep(150 * time.Millisecond)
+		// Poll until the failing call has been attempted, then verify cached data survived
+		Eventually(func() int32 {
+			return atomic.LoadInt32(&callCount)
+		}, "2s", "50ms").Should(BeNumerically(">=", 2))
 
 		data, err := provider.GetNodeData()
 		Expect(err).ToNot(HaveOccurred())

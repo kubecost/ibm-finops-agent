@@ -3,6 +3,7 @@ package emitter
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -28,8 +29,9 @@ type SnapshotProvider interface {
 var metricsSummaryCacheDuration time.Duration = 5 * time.Minute
 
 // ConcurrentSnapshotProvider is a struct that implements the `SnapshotProvider` interface and executes the
-// snapshot generation process concurrently.
+// snapshot generation process concurrently. It is safe for use from multiple goroutines.
 type ConcurrentSnapshotProvider struct {
+	mu                 sync.Mutex
 	config             *SnapshotConfig
 	metricsSummary     *MetricsSummary
 	lastSnapshot       time.Time
@@ -61,7 +63,9 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 
 	// we _always_ want to set the last snapshot time upon completion, success or failure
 	defer func() {
+		csp.mu.Lock()
 		csp.lastSnapshot = now
+		csp.mu.Unlock()
 	}()
 
 	// Cluster Info Snapshot
@@ -119,28 +123,35 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 // temporary caching of metrics summary every 5 minutes to avoid overloading the prometheus data source until
 // prometheus can be replaced.
 func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.MetricsQuerier, now time.Time, config *SnapshotConfig) (*MetricsSummary, error) {
+	csp.mu.Lock()
+	lastSnapshot := csp.lastSnapshot
+
 	if !config.UseMetricsCache {
-		return snapshotMetricsSummary(querier, now, csp.lastSnapshot, config)
+		csp.mu.Unlock()
+		return snapshotMetricsSummary(querier, now, lastSnapshot, config)
 	}
 
 	// FIXME: (bolt) use a metrics summary cache duration of 5 minutes while we're using a prometheus data source.
 	// FIXME: (bolt) this should be fine to run on a much faster frequency with a non-promethues metrics querier.
 	if !csp.lastMetricsSummary.IsZero() && time.Since(csp.lastMetricsSummary) < metricsSummaryCacheDuration {
-		return csp.metricsSummary, nil
+		cached := csp.metricsSummary
+		csp.mu.Unlock()
+		return cached, nil
 	}
+	csp.mu.Unlock()
 
-	metricsSummary, err := snapshotMetricsSummary(querier, now, csp.lastSnapshot, config)
+	metricsSummary, err := snapshotMetricsSummary(querier, now, lastSnapshot, config)
 	if err != nil {
 		log.Warnf("metrics snapshot completed with errors: %v", err)
 	}
 
 	// Cache partial results so we don't re-query within the cache window.
-	// Note: (bolt) assuming we're not calling the SnapshotOf() in multiple goroutines [which there shouldn't be],
-	// Note: (bolt) there's no need to lock on cache updates. Temporary solution until we can drop prom fully.
+	csp.mu.Lock()
 	if metricsSummary != nil {
 		csp.lastMetricsSummary = now
 		csp.metricsSummary = metricsSummary
 	}
+	csp.mu.Unlock()
 
 	return metricsSummary, err
 }
