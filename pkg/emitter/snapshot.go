@@ -526,7 +526,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	if grp.HasErrors() {
 		queryErrors := grp.Errors()
 		for _, qErr := range queryErrors {
-			log.Warnf("metrics query failure: %s", qErr)
+			log.Warnf("metrics query failure: %v", qErr)
 		}
 		metricsErr = fmt.Errorf("%d metrics query failures: %w", len(queryErrors), grp.Error())
 	}
