@@ -70,7 +70,7 @@ setup_env(){
 
 setup_localstack(){
    # Localstack bucket setup
-  helm install localstack localstack/localstack -n ibm-finops-agent
+  helm install localstack localstack/localstack -n ibm-finops-agent -f e2e/localstack-values.yaml
   sleep 15
 
   LOCALSTACK_POD=$(kubectl get pods -n ibm-finops-agent -l "app.kubernetes.io/name=localstack" -o jsonpath="{.items[0].metadata.name}")
