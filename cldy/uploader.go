@@ -326,10 +326,10 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 		),
 	)
 	tw, err := os.Create(path)
-	defer safeClose(tw.Close, &rerr)
 	if err != nil {
 		return "", err
 	}
+	defer safeClose(tw.Close, &rerr)
 	err = cu.createTGZ(tw, files...)
 	if err != nil && !errors.Is(err, ErrDiskSpaceExceeded) {
 		return "", err
