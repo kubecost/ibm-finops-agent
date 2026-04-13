@@ -263,7 +263,7 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 	return nil
 }
 
-func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) error {
+func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) (rerr error) {
 	if !IsAvailableDiskSpace(uint64(len(data)), ce.ScratchPath) {
 		err := ce.ClearOldScratchSamples()
 		if err != nil {
@@ -285,6 +285,8 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 	if err != nil {
 		return err
 	}
+	defer safeClose(file.Close, &rerr)
+
 	_, err = file.Write(data)
 	return err
 }
