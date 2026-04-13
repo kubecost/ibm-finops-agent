@@ -62,8 +62,18 @@ func newTestNode(name, ip string, port int32) *v1.Node {
 func hostPort(url string) (string, int32) {
 	addr := strings.TrimPrefix(url, "https://")
 	addr = strings.TrimPrefix(addr, "http://")
-	host, portStr, _ := net.SplitHostPort(addr)
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		panic(fmt.Sprintf("hostPort: failed to split host and port from %q: %v", url, err))
+	}
+	if host == "" || portStr == "" {
+		panic(fmt.Sprintf("hostPort: invalid host/port extracted from %q", url))
+	}
+
 	var port int32
-	fmt.Sscanf(portStr, "%d", &port)
+	n, err := fmt.Sscanf(portStr, "%d", &port)
+	if err != nil || n != 1 {
+		panic(fmt.Sprintf("hostPort: failed to parse port %q from %q: %v", portStr, url, err))
+	}
 	return host, port
 }
