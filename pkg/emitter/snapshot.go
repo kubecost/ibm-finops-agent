@@ -539,6 +539,11 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	resourceQuotaStatusUsedRamLimitAvg := awaitWithLog("resourceQuotaStatusUsedRamLimitAvg", resourceQuotaStatusUsedRamLimitAvgFuture)
 	resourceQuotaStatusUsedRamLimitMax := awaitWithLog("resourceQuotaStatusUsedRamLimitMax", resourceQuotaStatusUsedRamLimitMaxFuture)
 
+	// Phase 1: Observability only - we log and count failures via awaitWithLog above,
+	// but still fail-fast if any query errors. This maintains existing behavior while
+	// providing visibility into which specific queries are failing.
+	// Phase 2: Could change this to allow partial results by checking failure counts
+	// and deciding whether to return the snapshot with some missing data.
 	if grp.HasErrors() {
 		return nil, grp.Error()
 	}
