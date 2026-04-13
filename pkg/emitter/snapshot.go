@@ -34,6 +34,8 @@ type SnapshotProvider interface {
 // FIXME: (bolt) this should be fine to run on a much faster frequency with a non-promethues metrics querier.
 var metricsSummaryCacheDuration time.Duration = 5 * time.Minute
 
+const snapshotStateFilename = "snapshot-state.json"
+
 // SnapshotState represents the persisted state of the snapshot provider to maintain
 // continuity across restarts.
 type SnapshotState struct {
@@ -78,7 +80,7 @@ func (csp *ConcurrentSnapshotProvider) persistState() error {
 		return fmt.Errorf("scratch directory not configured")
 	}
 
-	stateFile := filepath.Join(csp.config.ScratchDir, "snapshot-state.json")
+	stateFile := filepath.Join(csp.config.ScratchDir, snapshotStateFilename)
 	state := SnapshotState{
 		LastSnapshot: csp.lastSnapshot,
 	}
@@ -107,7 +109,7 @@ func (csp *ConcurrentSnapshotProvider) recoverState() {
 		return
 	}
 
-	stateFile := filepath.Join(csp.config.ScratchDir, "snapshot-state.json")
+	stateFile := filepath.Join(csp.config.ScratchDir, snapshotStateFilename)
 	data, err := os.ReadFile(stateFile)
 	if err != nil {
 		if os.IsNotExist(err) {
