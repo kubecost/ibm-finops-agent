@@ -438,7 +438,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	// Track failed queries for observability
 	var failedQueries []string
 
-	pvActiveMinutes := awaitWithLog("PVActiveMinutes", pvActiveMinutesFuture, &failedQueries)
+	pvActiveMinutes := awaitWithLog("pvActiveMinutes", pvActiveMinutesFuture, &failedQueries)
 	pvUsedAverage := awaitWithLog("pvUsedAverage", pvUsedAverageFuture, &failedQueries)
 	pvUsedMax := awaitWithLog("pvUsedMax", pvUsedMaxFuture, &failedQueries)
 	localStorageActiveMinutes := awaitWithLog("localStorageActiveMinutes", localStorageActiveMinutesFuture, &failedQueries)
