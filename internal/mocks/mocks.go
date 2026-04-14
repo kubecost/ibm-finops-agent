@@ -92,6 +92,602 @@ type MockOpenCostDataSource struct {
 	ClusterInfoProvider *MockClusterInfoProvider
 }
 
+func (mocds *MockOpenCostDataSource) QueryLocalStorageActiveMinutes(start, end time.Time) *source.Future[source.LocalStorageActiveMinutesResult] {
+	return mocds.MetricsQuerier.QueryLocalStorageActiveMinutes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryLocalStorageCost(start, end time.Time) *source.Future[source.LocalStorageCostResult] {
+	return mocds.MetricsQuerier.QueryLocalStorageCost(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryLocalStorageUsedCost(start, end time.Time) *source.Future[source.LocalStorageUsedCostResult] {
+	return mocds.MetricsQuerier.QueryLocalStorageUsedCost(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryLocalStorageUsedAvg(start, end time.Time) *source.Future[source.LocalStorageUsedAvgResult] {
+	return mocds.MetricsQuerier.QueryLocalStorageUsedAvg(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryLocalStorageUsedMax(start, end time.Time) *source.Future[source.LocalStorageUsedMaxResult] {
+	return mocds.MetricsQuerier.QueryLocalStorageUsedMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryLocalStorageBytes(start, end time.Time) *source.Future[source.LocalStorageBytesResult] {
+	return mocds.MetricsQuerier.QueryLocalStorageBytes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeInfo(start, end time.Time) *source.Future[source.NodeInfoResult] {
+	return mocds.MetricsQuerier.QueryNodeInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeUptime(start, end time.Time) *source.Future[source.NodeUptimeResult] {
+	return mocds.MetricsQuerier.QueryNodeUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeActiveMinutes(start, end time.Time) *source.Future[source.NodeActiveMinutesResult] {
+	return mocds.MetricsQuerier.QueryNodeActiveMinutes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeCPUCoresCapacity(start, end time.Time) *source.Future[source.NodeCPUCoresCapacityResult] {
+	return mocds.MetricsQuerier.QueryNodeCPUCoresCapacity(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeCPUCoresAllocatable(start, end time.Time) *source.Future[source.NodeCPUCoresAllocatableResult] {
+	return mocds.MetricsQuerier.QueryNodeCPUCoresAllocatable(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeRAMBytesCapacity(start, end time.Time) *source.Future[source.NodeRAMBytesCapacityResult] {
+	return mocds.MetricsQuerier.QueryNodeRAMBytesCapacity(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeRAMBytesAllocatable(start, end time.Time) *source.Future[source.NodeRAMBytesAllocatableResult] {
+	return mocds.MetricsQuerier.QueryNodeRAMBytesAllocatable(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeGPUCount(start, end time.Time) *source.Future[source.NodeGPUCountResult] {
+	return mocds.MetricsQuerier.QueryNodeGPUCount(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeCPUModeTotal(start, end time.Time) *source.Future[source.NodeCPUModeTotalResult] {
+	return mocds.MetricsQuerier.QueryNodeCPUModeTotal(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeIsSpot(start, end time.Time) *source.Future[source.NodeIsSpotResult] {
+	return mocds.MetricsQuerier.QueryNodeIsSpot(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeRAMSystemPercent(start, end time.Time) *source.Future[source.NodeRAMSystemPercentResult] {
+	return mocds.MetricsQuerier.QueryNodeRAMSystemPercent(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeRAMUserPercent(start, end time.Time) *source.Future[source.NodeRAMUserPercentResult] {
+	return mocds.MetricsQuerier.QueryNodeRAMUserPercent(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeResourceCapacities(start, end time.Time) *source.Future[source.NodeResourceCapacitiesResult] {
+	return mocds.MetricsQuerier.QueryNodeResourceCapacities(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeResourcesAllocatable(start, end time.Time) *source.Future[source.NodeResourcesAllocatableResult] {
+	return mocds.MetricsQuerier.QueryNodeResourcesAllocatable(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryLBActiveMinutes(start, end time.Time) *source.Future[source.LBActiveMinutesResult] {
+	return mocds.MetricsQuerier.QueryLBActiveMinutes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryLBPricePerHr(start, end time.Time) *source.Future[source.LBPricePerHrResult] {
+	return mocds.MetricsQuerier.QueryLBPricePerHr(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryClusterInfo(start, end time.Time) *source.Future[source.ClusterInfoResult] {
+	return mocds.MetricsQuerier.QueryClusterInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryClusterUptime(start, end time.Time) *source.Future[source.ClusterUptimeResult] {
+	return mocds.MetricsQuerier.QueryClusterUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryClusterManagementDuration(start, end time.Time) *source.Future[source.ClusterManagementDurationResult] {
+	return mocds.MetricsQuerier.QueryClusterManagementDuration(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryClusterManagementPricePerHr(start, end time.Time) *source.Future[source.ClusterManagementPricePerHrResult] {
+	return mocds.MetricsQuerier.QueryClusterManagementPricePerHr(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPods(start, end time.Time) *source.Future[source.PodsResult] {
+	return mocds.MetricsQuerier.QueryPods(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodsUID(start, end time.Time) *source.Future[source.PodsUIDResult] {
+	return mocds.MetricsQuerier.QueryPodsUID(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodInfo(start, end time.Time) *source.Future[source.PodInfoResult] {
+	return mocds.MetricsQuerier.QueryPodInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodUptime(start, end time.Time) *source.Future[source.PodUptimeResult] {
+	return mocds.MetricsQuerier.QueryPodUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodOwners(start, end time.Time) *source.Future[source.PodOwnersResult] {
+	return mocds.MetricsQuerier.QueryPodOwners(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodPVCVolumes(start, end time.Time) *source.Future[source.PodPVCVolumesResult] {
+	return mocds.MetricsQuerier.QueryPodPVCVolumes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodNetworkEgressBytes(start, end time.Time) *source.Future[source.PodNetworkEgressBytesResult] {
+	return mocds.MetricsQuerier.QueryPodNetworkEgressBytes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodNetworkIngressBytes(start, end time.Time) *source.Future[source.PodNetworkIngressBytesResult] {
+	return mocds.MetricsQuerier.QueryPodNetworkIngressBytes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryContainerUptime(start, end time.Time) *source.Future[source.ContainerUptimeResult] {
+	return mocds.MetricsQuerier.QueryContainerUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryContainerResourceRequests(start, end time.Time) *source.Future[source.ContainerResourceRequestsResult] {
+	return mocds.MetricsQuerier.QueryContainerResourceRequests(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryContainerResourceLimits(start, end time.Time) *source.Future[source.ContainerResourceLimitsResult] {
+	return mocds.MetricsQuerier.QueryContainerResourceLimits(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryRAMBytesAllocated(start, end time.Time) *source.Future[source.RAMBytesAllocatedResult] {
+	return mocds.MetricsQuerier.QueryRAMBytesAllocated(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryRAMRequests(start, end time.Time) *source.Future[source.RAMRequestsResult] {
+	return mocds.MetricsQuerier.QueryRAMRequests(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryRAMLimits(start, end time.Time) *source.Future[source.RAMLimitsResult] {
+	return mocds.MetricsQuerier.QueryRAMLimits(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryRAMUsageAvg(start, end time.Time) *source.Future[source.RAMUsageAvgResult] {
+	return mocds.MetricsQuerier.QueryRAMUsageAvg(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryRAMUsageMax(start, end time.Time) *source.Future[source.RAMUsageMaxResult] {
+	return mocds.MetricsQuerier.QueryRAMUsageMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeRAMPricePerGiBHr(start, end time.Time) *source.Future[source.NodeRAMPricePerGiBHrResult] {
+	return mocds.MetricsQuerier.QueryNodeRAMPricePerGiBHr(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryCPUCoresAllocated(start, end time.Time) *source.Future[source.CPUCoresAllocatedResult] {
+	return mocds.MetricsQuerier.QueryCPUCoresAllocated(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryCPURequests(start, end time.Time) *source.Future[source.CPURequestsResult] {
+	return mocds.MetricsQuerier.QueryCPURequests(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryCPULimits(start, end time.Time) *source.Future[source.CPULimitsResult] {
+	return mocds.MetricsQuerier.QueryCPULimits(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryCPUUsageAvg(start, end time.Time) *source.Future[source.CPUUsageAvgResult] {
+	return mocds.MetricsQuerier.QueryCPUUsageAvg(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryCPUUsageMax(start, end time.Time) *source.Future[source.CPUUsageMaxResult] {
+	return mocds.MetricsQuerier.QueryCPUUsageMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeCPUPricePerHr(start, end time.Time) *source.Future[source.NodeCPUPricePerHrResult] {
+	return mocds.MetricsQuerier.QueryNodeCPUPricePerHr(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryGPUsAllocated(start, end time.Time) *source.Future[source.GPUsAllocatedResult] {
+	return mocds.MetricsQuerier.QueryGPUsAllocated(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryGPUsRequested(start, end time.Time) *source.Future[source.GPUsRequestedResult] {
+	return mocds.MetricsQuerier.QueryGPUsRequested(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryGPUsUsageAvg(start, end time.Time) *source.Future[source.GPUsUsageAvgResult] {
+	return mocds.MetricsQuerier.QueryGPUsUsageAvg(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryGPUsUsageMax(start, end time.Time) *source.Future[source.GPUsUsageMaxResult] {
+	return mocds.MetricsQuerier.QueryGPUsUsageMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeGPUPricePerHr(start, end time.Time) *source.Future[source.NodeGPUPricePerHrResult] {
+	return mocds.MetricsQuerier.QueryNodeGPUPricePerHr(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryGPUInfo(start, end time.Time) *source.Future[source.GPUInfoResult] {
+	return mocds.MetricsQuerier.QueryGPUInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryIsGPUShared(start, end time.Time) *source.Future[source.IsGPUSharedResult] {
+	return mocds.MetricsQuerier.QueryIsGPUShared(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDCGMDeviceInfo(start, end time.Time) *source.Future[source.DCGMDeviceInfoResult] {
+	return mocds.MetricsQuerier.QueryDCGMDeviceInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDCGMDeviceUptime(start, end time.Time) *source.Future[source.DCGMDeviceUptimeResult] {
+	return mocds.MetricsQuerier.QueryDCGMDeviceUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDCGMContainerUsageAvg(start, end time.Time) *source.Future[source.DCGMContainerUsageAvgResult] {
+	return mocds.MetricsQuerier.QueryDCGMContainerUsageAvg(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDCGMContainerUsageMax(start, end time.Time) *source.Future[source.DCGMContainerUsageMaxResult] {
+	return mocds.MetricsQuerier.QueryDCGMContainerUsageMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodPVCAllocation(start, end time.Time) *source.Future[source.PodPVCAllocationResult] {
+	return mocds.MetricsQuerier.QueryPodPVCAllocation(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPVCBytesRequested(start, end time.Time) *source.Future[source.PVCBytesRequestedResult] {
+	return mocds.MetricsQuerier.QueryPVCBytesRequested(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPVCInfo(start, end time.Time) *source.Future[source.PVCInfoResult] {
+	return mocds.MetricsQuerier.QueryPVCInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPVCUptime(start, end time.Time) *source.Future[source.PVCUptimeResult] {
+	return mocds.MetricsQuerier.QueryPVCUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPVBytes(start, end time.Time) *source.Future[source.PVBytesResult] {
+	return mocds.MetricsQuerier.QueryPVBytes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPVPricePerGiBHour(start, end time.Time) *source.Future[source.PVPricePerGiBHourResult] {
+	return mocds.MetricsQuerier.QueryPVPricePerGiBHour(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPVInfo(start, end time.Time) *source.Future[source.PVInfoResult] {
+	return mocds.MetricsQuerier.QueryPVInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPVUptime(start, end time.Time) *source.Future[source.PVUptimeResult] {
+	return mocds.MetricsQuerier.QueryPVUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPVActiveMinutes(start, end time.Time) *source.Future[source.PVActiveMinutesResult] {
+	return mocds.MetricsQuerier.QueryPVActiveMinutes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPVUsedAverage(start, end time.Time) *source.Future[source.PVUsedAverageResult] {
+	return mocds.MetricsQuerier.QueryPVUsedAverage(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPVUsedMax(start, end time.Time) *source.Future[source.PVUsedMaxResult] {
+	return mocds.MetricsQuerier.QueryPVUsedMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDeploymentInfo(start, end time.Time) *source.Future[source.DeploymentInfoResult] {
+	return mocds.MetricsQuerier.QueryDeploymentInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDeploymentUptime(start, end time.Time) *source.Future[source.DeploymentUptimeResult] {
+	return mocds.MetricsQuerier.QueryDeploymentUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDeploymentLabels(start, end time.Time) *source.Future[source.DeploymentLabelsResult] {
+	return mocds.MetricsQuerier.QueryDeploymentLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDeploymentAnnotations(start, end time.Time) *source.Future[source.DeploymentAnnotationsResult] {
+	return mocds.MetricsQuerier.QueryDeploymentAnnotations(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDeploymentMatchLabels(start, end time.Time) *source.Future[source.DeploymentMatchLabelsResult] {
+	return mocds.MetricsQuerier.QueryDeploymentMatchLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryStatefulSetInfo(start, end time.Time) *source.Future[source.StatefulSetInfoResult] {
+	return mocds.MetricsQuerier.QueryStatefulSetInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryStatefulSetUptime(start, end time.Time) *source.Future[source.StatefulSetUptimeResult] {
+	return mocds.MetricsQuerier.QueryStatefulSetUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryStatefulSetLabels(start, end time.Time) *source.Future[source.StatefulSetLabelsResult] {
+	return mocds.MetricsQuerier.QueryStatefulSetLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryStatefulSetAnnotations(start, end time.Time) *source.Future[source.StatefulSetAnnotationsResult] {
+	return mocds.MetricsQuerier.QueryStatefulSetAnnotations(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryStatefulSetMatchLabels(start, end time.Time) *source.Future[source.StatefulSetMatchLabelsResult] {
+	return mocds.MetricsQuerier.QueryStatefulSetMatchLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDaemonSetInfo(start, end time.Time) *source.Future[source.DaemonSetInfoResult] {
+	return mocds.MetricsQuerier.QueryDaemonSetInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDaemonSetUptime(start, end time.Time) *source.Future[source.DaemonSetUptimeResult] {
+	return mocds.MetricsQuerier.QueryDaemonSetUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDaemonSetLabels(start, end time.Time) *source.Future[source.DaemonSetLabelsResult] {
+	return mocds.MetricsQuerier.QueryDaemonSetLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDaemonSetAnnotations(start, end time.Time) *source.Future[source.DaemonSetAnnotationsResult] {
+	return mocds.MetricsQuerier.QueryDaemonSetAnnotations(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryJobInfo(start, end time.Time) *source.Future[source.JobInfoResult] {
+	return mocds.MetricsQuerier.QueryJobInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryJobUptime(start, end time.Time) *source.Future[source.JobUptimeResult] {
+	return mocds.MetricsQuerier.QueryJobUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryJobLabels(start, end time.Time) *source.Future[source.JobLabelsResult] {
+	return mocds.MetricsQuerier.QueryJobLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryJobAnnotations(start, end time.Time) *source.Future[source.JobAnnotationsResult] {
+	return mocds.MetricsQuerier.QueryJobAnnotations(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryCronJobInfo(start, end time.Time) *source.Future[source.CronJobInfoResult] {
+	return mocds.MetricsQuerier.QueryCronJobInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryCronJobUptime(start, end time.Time) *source.Future[source.CronJobUptimeResult] {
+	return mocds.MetricsQuerier.QueryCronJobUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryCronJobLabels(start, end time.Time) *source.Future[source.CronJobLabelsResult] {
+	return mocds.MetricsQuerier.QueryCronJobLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryCronJobAnnotations(start, end time.Time) *source.Future[source.CronJobAnnotationsResult] {
+	return mocds.MetricsQuerier.QueryCronJobAnnotations(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryReplicaSetInfo(start, end time.Time) *source.Future[source.ReplicaSetInfoResult] {
+	return mocds.MetricsQuerier.QueryReplicaSetInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryReplicaSetUptime(start, end time.Time) *source.Future[source.ReplicaSetUptimeResult] {
+	return mocds.MetricsQuerier.QueryReplicaSetUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryReplicaSetLabels(start, end time.Time) *source.Future[source.ReplicaSetLabelsResult] {
+	return mocds.MetricsQuerier.QueryReplicaSetLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryReplicaSetAnnotations(start, end time.Time) *source.Future[source.ReplicaSetAnnotationsResult] {
+	return mocds.MetricsQuerier.QueryReplicaSetAnnotations(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryReplicaSetOwners(start, end time.Time) *source.Future[source.ReplicaSetOwnersResult] {
+	return mocds.MetricsQuerier.QueryReplicaSetOwners(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNamespaceInfo(start, end time.Time) *source.Future[source.NamespaceInfoResult] {
+	return mocds.MetricsQuerier.QueryNamespaceInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNamespaceUptime(start, end time.Time) *source.Future[source.NamespaceUptimeResult] {
+	return mocds.MetricsQuerier.QueryNamespaceUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryServiceInfo(start, end time.Time) *source.Future[source.ServiceInfoResult] {
+	return mocds.MetricsQuerier.QueryServiceInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryServiceUptime(start, end time.Time) *source.Future[source.ServiceUptimeResult] {
+	return mocds.MetricsQuerier.QueryServiceUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryServiceSelectorLabels(start, end time.Time) *source.Future[source.ServiceSelectorLabelsResult] {
+	return mocds.MetricsQuerier.QueryServiceSelectorLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetZoneGiB(start, end time.Time) *source.Future[source.NetZoneGiBResult] {
+	return mocds.MetricsQuerier.QueryNetZoneGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetZonePricePerGiB(start, end time.Time) *source.Future[source.NetZonePricePerGiBResult] {
+	return mocds.MetricsQuerier.QueryNetZonePricePerGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetRegionGiB(start, end time.Time) *source.Future[source.NetRegionGiBResult] {
+	return mocds.MetricsQuerier.QueryNetRegionGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetRegionPricePerGiB(start, end time.Time) *source.Future[source.NetRegionPricePerGiBResult] {
+	return mocds.MetricsQuerier.QueryNetRegionPricePerGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetInternetGiB(start, end time.Time) *source.Future[source.NetInternetGiBResult] {
+	return mocds.MetricsQuerier.QueryNetInternetGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetInternetPricePerGiB(start, end time.Time) *source.Future[source.NetInternetPricePerGiBResult] {
+	return mocds.MetricsQuerier.QueryNetInternetPricePerGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetInternetServiceGiB(start, end time.Time) *source.Future[source.NetInternetServiceGiBResult] {
+	return mocds.MetricsQuerier.QueryNetInternetServiceGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetNatGatewayPricePerGiB(start, end time.Time) *source.Future[source.NetNatGatewayPricePerGiBResult] {
+	return mocds.MetricsQuerier.QueryNetNatGatewayPricePerGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetNatGatewayGiB(start, end time.Time) *source.Future[source.NetNatGatewayGiBResult] {
+	return mocds.MetricsQuerier.QueryNetNatGatewayGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetTransferBytes(start, end time.Time) *source.Future[source.NetTransferBytesResult] {
+	return mocds.MetricsQuerier.QueryNetTransferBytes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetZoneIngressGiB(start, end time.Time) *source.Future[source.NetZoneIngressGiBResult] {
+	return mocds.MetricsQuerier.QueryNetZoneIngressGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetRegionIngressGiB(start, end time.Time) *source.Future[source.NetRegionIngressGiBResult] {
+	return mocds.MetricsQuerier.QueryNetRegionIngressGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetInternetIngressGiB(start, end time.Time) *source.Future[source.NetInternetIngressGiBResult] {
+	return mocds.MetricsQuerier.QueryNetInternetIngressGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetInternetServiceIngressGiB(start, end time.Time) *source.Future[source.NetInternetServiceIngressGiBResult] {
+	return mocds.MetricsQuerier.QueryNetInternetServiceIngressGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetNatGatewayIngressPricePerGiB(start, end time.Time) *source.Future[source.NetNatGatewayIngressPricePerGiBResult] {
+	return mocds.MetricsQuerier.QueryNetNatGatewayIngressPricePerGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetNatGatewayIngressGiB(start, end time.Time) *source.Future[source.NetNatGatewayIngressGiBResult] {
+	return mocds.MetricsQuerier.QueryNetNatGatewayIngressGiB(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNetReceiveBytes(start, end time.Time) *source.Future[source.NetReceiveBytesResult] {
+	return mocds.MetricsQuerier.QueryNetReceiveBytes(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNamespaceAnnotations(start, end time.Time) *source.Future[source.NamespaceAnnotationsResult] {
+	return mocds.MetricsQuerier.QueryNamespaceAnnotations(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodAnnotations(start, end time.Time) *source.Future[source.PodAnnotationsResult] {
+	return mocds.MetricsQuerier.QueryPodAnnotations(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNodeLabels(start, end time.Time) *source.Future[source.NodeLabelsResult] {
+	return mocds.MetricsQuerier.QueryNodeLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryNamespaceLabels(start, end time.Time) *source.Future[source.NamespaceLabelsResult] {
+	return mocds.MetricsQuerier.QueryNamespaceLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodLabels(start, end time.Time) *source.Future[source.PodLabelsResult] {
+	return mocds.MetricsQuerier.QueryPodLabels(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodsWithDaemonSetOwner(start, end time.Time) *source.Future[source.PodsWithDaemonSetOwnerResult] {
+	return mocds.MetricsQuerier.QueryPodsWithDaemonSetOwner(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodsWithJobOwner(start, end time.Time) *source.Future[source.PodsWithJobOwnerResult] {
+	return mocds.MetricsQuerier.QueryPodsWithJobOwner(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryPodsWithReplicaSetOwner(start, end time.Time) *source.Future[source.PodsWithReplicaSetOwnerResult] {
+	return mocds.MetricsQuerier.QueryPodsWithReplicaSetOwner(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryReplicaSetsWithoutOwners(start, end time.Time) *source.Future[source.ReplicaSetsWithoutOwnersResult] {
+	return mocds.MetricsQuerier.QueryReplicaSetsWithoutOwners(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryReplicaSetsWithRollout(start, end time.Time) *source.Future[source.ReplicaSetsWithRolloutResult] {
+	return mocds.MetricsQuerier.QueryReplicaSetsWithRollout(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaInfo(start, end time.Time) *source.Future[source.ResourceQuotaInfoResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaInfo(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaUptime(start, end time.Time) *source.Future[source.ResourceQuotaUptimeResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaUptime(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaSpecCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestAverageResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaSpecCPURequestAverage(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaSpecCPURequestMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestMaxResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaSpecCPURequestMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaSpecRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestAverageResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaSpecRAMRequestAverage(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaSpecRAMRequestMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestMaxResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaSpecRAMRequestMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaSpecCPULimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitAverageResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaSpecCPULimitAverage(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaSpecCPULimitMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitMaxResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaSpecCPULimitMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaSpecRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitAverageResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaSpecRAMLimitAverage(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaSpecRAMLimitMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitMaxResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaSpecRAMLimitMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaStatusUsedCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestAverageResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaStatusUsedCPURequestAverage(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaStatusUsedCPURequestMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestMaxResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaStatusUsedCPURequestMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaStatusUsedRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestAverageResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaStatusUsedRAMRequestAverage(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaStatusUsedRAMRequestMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestMaxResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaStatusUsedRAMRequestMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaStatusUsedCPULimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitAverageResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaStatusUsedCPULimitAverage(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaStatusUsedCPULimitMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitMaxResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaStatusUsedCPULimitMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaStatusUsedRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitAverageResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaStatusUsedRAMLimitAverage(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryResourceQuotaStatusUsedRAMLimitMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitMaxResult] {
+	return mocds.MetricsQuerier.QueryResourceQuotaStatusUsedRAMLimitMax(start, end)
+}
+
+func (mocds *MockOpenCostDataSource) QueryDataCoverage(limitDays int) (time.Time, time.Time, error) {
+	return mocds.MetricsQuerier.QueryDataCoverage(limitDays)
+}
+
 func NewMockOpenCostDataSource() *MockOpenCostDataSource {
 	return &MockOpenCostDataSource{
 		MetricsQuerier:      NewMockMetricsQuerier(),
@@ -154,6 +750,7 @@ type MockClusterCache struct {
 	PersistentVolumeClaims []*v1.PersistentVolumeClaim
 	StorageClasses         []*stv1.StorageClass
 	Jobs                   []*batchv1.Job
+	CronJobs               []*batchv1.CronJob
 	PodDisruptionBudgets   []*policyv1.PodDisruptionBudget
 	ReplicationControllers []*v1.ReplicationController
 	ResourceQuotas         []*v1.ResourceQuota
@@ -259,6 +856,12 @@ func (m *MockClusterCache) GetAllStorageClasses() []*stv1.StorageClass {
 func (m *MockClusterCache) GetAllJobs() []*batchv1.Job {
 	m.recordCall("GetAllJobs")
 	return m.Jobs
+}
+
+// GetAllCronJobs implements ClusterCache interface
+func (m *MockClusterCache) GetAllCronJobs() []*batchv1.CronJob {
+	m.recordCall("GetAllCronJobs")
+	return m.CronJobs
 }
 
 // GetAllPodDisruptionBudgets implements ClusterCache interface
@@ -416,7 +1019,6 @@ func (m *MockMetricsQuerier) QueryClusterInfo(start, end time.Time) *source.Futu
 	m.recordCall("QueryClusterInfo")
 	return newEmptyResult(source.DecodeClusterInfoResult)
 }
-
 
 func (m *MockMetricsQuerier) QueryClusterUptime(start, end time.Time) *source.Future[source.UptimeResult] {
 	m.recordCall("QueryClusterUptime")
@@ -733,9 +1335,9 @@ func (m *MockMetricsQuerier) QueryServiceLabels(start, end time.Time) *source.Fu
 	return newEmptyResult(source.DecodeServiceLabelsResult)
 }
 
-func (m *MockMetricsQuerier) QueryDeploymentLabels(start, end time.Time) *source.Future[source.DeploymentLabelsResult] {
+func (m *MockMetricsQuerier) QueryDeploymentLabels(start, end time.Time) *source.Future[source.LabelsResult] {
 	m.recordCall("QueryDeploymentLabels")
-	return newEmptyResult(source.DecodeDeploymentLabelsResult)
+	return newEmptyResult(source.DecodeLabelsResult)
 }
 
 func (m *MockMetricsQuerier) QueryStatefulSetLabels(start, end time.Time) *source.Future[source.LabelsResult] {
@@ -851,6 +1453,206 @@ func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimitAverage(start, 
 func (m *MockMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimitMax(start, end time.Time) *source.Future[source.ResourceResult] {
 	m.recordCall("QueryResourceQuotaStatusUsedRAMLimitMax")
 	return newEmptyResult(source.DecodeResourceResult)
+}
+
+func (m *MockMetricsQuerier) QueryDeploymentInfo(start, end time.Time) *source.Future[source.DeploymentInfoResult] {
+	m.recordCall("QueryDeploymentInfo")
+	return newEmptyResult(source.DecodeDeploymentInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryDeploymentUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryDeploymentUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryDeploymentAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	m.recordCall("QueryDeploymentAnnotations")
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *MockMetricsQuerier) QueryDeploymentMatchLabels(start, end time.Time) *source.Future[source.DeploymentLabelsResult] {
+	m.recordCall("QueryDeploymentMatchLabels")
+	return newEmptyResult(source.DecodeDeploymentLabelsResult)
+}
+
+func (m *MockMetricsQuerier) QueryStatefulSetInfo(start, end time.Time) *source.Future[source.StatefulSetInfoResult] {
+	m.recordCall("QueryStatefulSetInfo")
+	return newEmptyResult(source.DecodeStatefulSetInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryStatefulSetUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryStatefulSetUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryStatefulSetAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	m.recordCall("QueryStatefulSetAnnotations")
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *MockMetricsQuerier) QueryStatefulSetMatchLabels(start, end time.Time) *source.Future[source.StatefulSetLabelsResult] {
+	m.recordCall("QueryStatefulSetMatchLabels")
+	return newEmptyResult(source.DecodeStatefulSetLabelsResult)
+}
+
+func (m *MockMetricsQuerier) QueryDaemonSetInfo(start, end time.Time) *source.Future[source.DaemonSetInfoResult] {
+	m.recordCall("QueryDaemonSetInfo")
+	return newEmptyResult(source.DecodeDaemonSetInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryDaemonSetUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryDaemonSetUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryDaemonSetAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	m.recordCall("QueryDaemonSetAnnotations")
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *MockMetricsQuerier) QueryJobInfo(start, end time.Time) *source.Future[source.JobInfoResult] {
+	m.recordCall("QueryJobInfo")
+	return newEmptyResult(source.DecodeJobInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryJobUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryJobUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryJobAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	m.recordCall("QueryJobAnnotations")
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *MockMetricsQuerier) QueryCronJobInfo(start, end time.Time) *source.Future[source.CronJobInfoResult] {
+	m.recordCall("QueryCronJobInfo")
+	return newEmptyResult(source.DecodeCronJobInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryCronJobUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryCronJobUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryCronJobLabels(start, end time.Time) *source.Future[source.LabelsResult] {
+	m.recordCall("QueryCronJobLabels")
+	return newEmptyResult(source.DecodeLabelsResult)
+}
+
+func (m *MockMetricsQuerier) QueryCronJobAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	m.recordCall("QueryCronJobAnnotations")
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *MockMetricsQuerier) QueryReplicaSetInfo(start, end time.Time) *source.Future[source.ReplicaSetInfoResult] {
+	m.recordCall("QueryReplicaSetInfo")
+	return newEmptyResult(source.DecodeReplicaSetInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryReplicaSetUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryReplicaSetUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryReplicaSetLabels(start, end time.Time) *source.Future[source.LabelsResult] {
+	m.recordCall("QueryReplicaSetLabels")
+	return newEmptyResult(source.DecodeLabelsResult)
+}
+
+func (m *MockMetricsQuerier) QueryReplicaSetAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	m.recordCall("QueryReplicaSetAnnotations")
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *MockMetricsQuerier) QueryReplicaSetOwners(start, end time.Time) *source.Future[source.OwnerResult] {
+	m.recordCall("QueryReplicaSetOwners")
+	return newEmptyResult(source.DecodeOwnerResult)
+}
+
+func (m *MockMetricsQuerier) QueryNamespaceInfo(start, end time.Time) *source.Future[source.NamespaceInfoResult] {
+	m.recordCall("QueryNamespaceInfo")
+	return newEmptyResult(source.DecodeNamespaceInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryServiceInfo(start, end time.Time) *source.Future[source.ServiceInfoResult] {
+	m.recordCall("QueryServiceInfo")
+	return newEmptyResult(source.DecodeServiceInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryServiceUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryServiceUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryNodeInfo(start, end time.Time) *source.Future[source.NodeInfoResult] {
+	m.recordCall("QueryNodeInfo")
+	return newEmptyResult(source.DecodeNodeInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryNodeUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryNodeUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryNodeResourceCapacities(start, end time.Time) *source.Future[source.ResourceResult] {
+	m.recordCall("QueryNodeResourceCapacities")
+	return newEmptyResult(source.DecodeResourceResult)
+}
+
+func (m *MockMetricsQuerier) QueryNodeResourcesAllocatable(start, end time.Time) *source.Future[source.ResourceResult] {
+	m.recordCall("QueryNodeResourcesAllocatable")
+	return newEmptyResult(source.DecodeResourceResult)
+}
+
+func (m *MockMetricsQuerier) QueryPodsWithDaemonSetOwner(start, end time.Time) *source.Future[source.PodsWithDaemonSetOwnerResult] {
+	m.recordCall("QueryPodsWithDaemonSetOwner")
+	return newEmptyResult(source.DecodePodsWithDaemonSetOwnerResult)
+}
+
+func (m *MockMetricsQuerier) QueryPodsWithJobOwner(start, end time.Time) *source.Future[source.PodsWithJobOwnerResult] {
+	m.recordCall("QueryPodsWithJobOwner")
+	return newEmptyResult(source.DecodePodsWithJobOwnerResult)
+}
+
+func (m *MockMetricsQuerier) QueryResourceQuotaInfo(start, end time.Time) *source.Future[source.ResourceQuotaInfoResult] {
+	m.recordCall("QueryResourceQuotaInfo")
+	return newEmptyResult(source.DecodeResourceQuotaInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryServiceSelectorLabels(start, end time.Time) *source.Future[source.ServiceLabelsResult] {
+	m.recordCall("QueryServiceSelectorLabels")
+	return newEmptyResult(source.DecodeServiceLabelsResult)
+}
+
+func (m *MockMetricsQuerier) QueryPVCUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryPVCUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryPVUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	m.recordCall("QueryPVUptime")
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryDCGMDeviceInfo(start, end time.Time) *source.Future[source.DCGMDeviceInfoResult] {
+	m.recordCall("QueryDCGMDeviceInfo")
+	return newEmptyResult(source.DecodeDCGMDeviceInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryDCGMDeviceUptime(start, end time.Time) *source.Future[source.DCGMDeviceUptimeResult] {
+	m.recordCall("QueryDCGMDeviceUptime")
+	return newEmptyResult(source.DecodeDCGMDeviceUptimeResult)
+}
+
+func (m *MockMetricsQuerier) QueryDCGMContainerUsageAvg(start, end time.Time) *source.Future[source.DCGMDeviceContainerUsageResult] {
+	m.recordCall("QueryDCGMContainerUsageAvg")
+	return newEmptyResult(source.DecodeDCGMDeviceContainerUsageResult)
+}
+
+func (m *MockMetricsQuerier) QueryDCGMContainerUsageMax(start, end time.Time) *source.Future[source.DCGMDeviceContainerUsageResult] {
+	m.recordCall("QueryDCGMContainerUsageMax")
+	return newEmptyResult(source.DecodeDCGMDeviceContainerUsageResult)
 }
 
 func (m *MockMetricsQuerier) QueryDataCoverage(_ int) (time.Time, time.Time, error) {
