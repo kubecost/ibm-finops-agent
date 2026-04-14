@@ -30,6 +30,7 @@ type KubernetesSnapshot struct {
 	PersistentVolumeClaims []*v1.PersistentVolumeClaim
 	StorageClasses         []*stv1.StorageClass
 	Jobs                   []*batchv1.Job
+	CronJobs               []*batchv1.CronJob
 	PodDisruptionBudgets   []*policyv1.PodDisruptionBudget
 	ReplicationControllers []*v1.ReplicationController
 	ResourceQuotas         []*v1.ResourceQuota
