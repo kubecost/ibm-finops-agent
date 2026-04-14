@@ -389,20 +389,20 @@ func (m *NoOpMetricsQuerier) QueryServiceLabels(start, end time.Time) *source.Fu
 	return newEmptyResult(source.DecodeServiceLabelsResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryDeploymentLabels(start, end time.Time) *source.Future[source.DeploymentLabelsResult] {
-	return newEmptyResult(source.DecodeDeploymentLabelsResult)
+func (m *NoOpMetricsQuerier) QueryDeploymentLabels(start, end time.Time) *source.Future[source.LabelsResult] {
+	return newEmptyResult(source.DecodeLabelsResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryStatefulSetLabels(start, end time.Time) *source.Future[source.StatefulSetLabelsResult] {
-	return newEmptyResult(source.DecodeStatefulSetLabelsResult)
+func (m *NoOpMetricsQuerier) QueryStatefulSetLabels(start, end time.Time) *source.Future[source.LabelsResult] {
+	return newEmptyResult(source.DecodeLabelsResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryDaemonSetLabels(start, end time.Time) *source.Future[source.DaemonSetLabelsResult] {
-	return newEmptyResult(source.DecodeDaemonSetLabelsResult)
+func (m *NoOpMetricsQuerier) QueryDaemonSetLabels(start, end time.Time) *source.Future[source.LabelsResult] {
+	return newEmptyResult(source.DecodeLabelsResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryJobLabels(start, end time.Time) *source.Future[source.JobLabelsResult] {
-	return newEmptyResult(source.DecodeJobLabelsResult)
+func (m *NoOpMetricsQuerier) QueryJobLabels(start, end time.Time) *source.Future[source.LabelsResult] {
+	return newEmptyResult(source.DecodeLabelsResult)
 }
 
 func (m *NoOpMetricsQuerier) QueryPodsWithReplicaSetOwner(start, end time.Time) *source.Future[source.PodsWithReplicaSetOwnerResult] {
@@ -421,68 +421,268 @@ func (m *NoOpMetricsQuerier) QueryResourceQuotaUptime(start, end time.Time) *sou
 	return newEmptyResult(source.DecodeUptimeResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestAvgResult] {
-	return newEmptyResult(source.DecodeResourceQuotaSpecCPURequestAvgResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPURequestAverage(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPURequestMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPURequestMaxResult] {
-	return newEmptyResult(source.DecodeResourceQuotaSpecCPURequestMaxResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPURequestMax(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestAvgResult] {
-	return newEmptyResult(source.DecodeResourceQuotaSpecRAMRequestAvgResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMRequestMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMRequestMaxResult] {
-	return newEmptyResult(source.DecodeResourceQuotaSpecRAMRequestMaxResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMRequestMax(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPULimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitAvgResult] {
-	return newEmptyResult(source.DecodeResourceQuotaSpecCPULimitAvgResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPULimitAverage(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPULimitMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecCPULimitMaxResult] {
-	return newEmptyResult(source.DecodeResourceQuotaSpecCPULimitMaxResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecCPULimitMax(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitAvgResult] {
-	return newEmptyResult(source.DecodeResourceQuotaSpecRAMLimitAvgResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMLimitMax(start, end time.Time) *source.Future[source.ResourceQuotaSpecRAMLimitMaxResult] {
-	return newEmptyResult(source.DecodeResourceQuotaSpecRAMLimitMaxResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaSpecRAMLimitMax(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPURequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestAvgResult] {
-	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPURequestAvgResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPURequestAverage(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPURequestMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPURequestMaxResult] {
-	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPURequestMaxResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPURequestMax(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestAvgResult] {
-	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMRequestAvgResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMRequestAverage(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMRequestMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMRequestMaxResult] {
-	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMRequestMaxResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMRequestMax(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPULimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitAvgResult] {
-	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPULimitAvgResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPULimitAverage(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPULimitMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedCPULimitMaxResult] {
-	return newEmptyResult(source.DecodeResourceQuotaStatusUsedCPULimitMaxResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedCPULimitMax(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitAvgResult] {
-	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMLimitAvgResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimitAverage(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
 }
 
-func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimitMax(start, end time.Time) *source.Future[source.ResourceQuotaStatusUsedRAMLimitMaxResult] {
-	return newEmptyResult(source.DecodeResourceQuotaStatusUsedRAMLimitMaxResult)
+func (m *NoOpMetricsQuerier) QueryResourceQuotaStatusUsedRAMLimitMax(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryNodeInfo(start, end time.Time) *source.Future[source.NodeInfoResult] {
+	return newEmptyResult(source.DecodeNodeInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryNodeUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryNodeResourceCapacities(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryNodeResourcesAllocatable(start, end time.Time) *source.Future[source.ResourceResult] {
+	return newEmptyResult(source.DecodeResourceResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryClusterInfo(start, end time.Time) *source.Future[source.ClusterInfoResult] {
+	return newEmptyResult(source.DecodeClusterInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPodInfo(start, end time.Time) *source.Future[source.PodInfoResult] {
+	return newEmptyResult(source.DecodePodInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPodUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPodOwners(start, end time.Time) *source.Future[source.OwnerResult] {
+	return newEmptyResult(source.DecodeOwnerResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPodPVCVolumes(start, end time.Time) *source.Future[source.PodPVCVolumeResult] {
+	return newEmptyResult(source.DecodePodPVCVolumeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPodNetworkEgressBytes(start, end time.Time) *source.Future[source.PodNetworkBytesResult] {
+	return newEmptyResult(source.DecodePodNetworkBytesResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPodNetworkIngressBytes(start, end time.Time) *source.Future[source.PodNetworkBytesResult] {
+	return newEmptyResult(source.DecodePodNetworkBytesResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryContainerUptime(start, end time.Time) *source.Future[source.ContainerUptimeResult] {
+	return newEmptyResult(source.DecodeContainerUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryContainerResourceRequests(start, end time.Time) *source.Future[source.ContainerResourceResult] {
+	return newEmptyResult(source.DecodeContainerResourceResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryContainerResourceLimits(start, end time.Time) *source.Future[source.ContainerResourceResult] {
+	return newEmptyResult(source.DecodeContainerResourceResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDCGMDeviceInfo(start, end time.Time) *source.Future[source.DCGMDeviceInfoResult] {
+	return newEmptyResult(source.DecodeDCGMDeviceInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDCGMDeviceUptime(start, end time.Time) *source.Future[source.DCGMDeviceUptimeResult] {
+	return newEmptyResult(source.DecodeDCGMDeviceUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDCGMContainerUsageAvg(start, end time.Time) *source.Future[source.DCGMDeviceContainerUsageResult] {
+	return newEmptyResult(source.DecodeDCGMDeviceContainerUsageResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDCGMContainerUsageMax(start, end time.Time) *source.Future[source.DCGMDeviceContainerUsageResult] {
+	return newEmptyResult(source.DecodeDCGMDeviceContainerUsageResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPVCUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPVUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDeploymentInfo(start, end time.Time) *source.Future[source.DeploymentInfoResult] {
+	return newEmptyResult(source.DecodeDeploymentInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDeploymentUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDeploymentAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDeploymentMatchLabels(start, end time.Time) *source.Future[source.DeploymentLabelsResult] {
+	return newEmptyResult(source.DecodeDeploymentLabelsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryStatefulSetInfo(start, end time.Time) *source.Future[source.StatefulSetInfoResult] {
+	return newEmptyResult(source.DecodeStatefulSetInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryStatefulSetUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryStatefulSetAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryStatefulSetMatchLabels(start, end time.Time) *source.Future[source.StatefulSetLabelsResult] {
+	return newEmptyResult(source.DecodeStatefulSetLabelsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDaemonSetInfo(start, end time.Time) *source.Future[source.DaemonSetInfoResult] {
+	return newEmptyResult(source.DecodeDaemonSetInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDaemonSetUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryDaemonSetAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryJobInfo(start, end time.Time) *source.Future[source.JobInfoResult] {
+	return newEmptyResult(source.DecodeJobInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryJobUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryJobAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryCronJobInfo(start, end time.Time) *source.Future[source.CronJobInfoResult] {
+	return newEmptyResult(source.DecodeCronJobInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryCronJobUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryCronJobLabels(start, end time.Time) *source.Future[source.LabelsResult] {
+	return newEmptyResult(source.DecodeLabelsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryCronJobAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryReplicaSetInfo(start, end time.Time) *source.Future[source.ReplicaSetInfoResult] {
+	return newEmptyResult(source.DecodeReplicaSetInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryReplicaSetUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryReplicaSetLabels(start, end time.Time) *source.Future[source.LabelsResult] {
+	return newEmptyResult(source.DecodeLabelsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryReplicaSetAnnotations(start, end time.Time) *source.Future[source.AnnotationsResult] {
+	return newEmptyResult(source.DecodeAnnotationsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryReplicaSetOwners(start, end time.Time) *source.Future[source.OwnerResult] {
+	return newEmptyResult(source.DecodeOwnerResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryNamespaceInfo(start, end time.Time) *source.Future[source.NamespaceInfoResult] {
+	return newEmptyResult(source.DecodeNamespaceInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryServiceInfo(start, end time.Time) *source.Future[source.ServiceInfoResult] {
+	return newEmptyResult(source.DecodeServiceInfoResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryServiceUptime(start, end time.Time) *source.Future[source.UptimeResult] {
+	return newEmptyResult(source.DecodeUptimeResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryServiceSelectorLabels(start, end time.Time) *source.Future[source.ServiceLabelsResult] {
+	return newEmptyResult(source.DecodeServiceLabelsResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPodsWithDaemonSetOwner(start, end time.Time) *source.Future[source.PodsWithDaemonSetOwnerResult] {
+	return newEmptyResult(source.DecodePodsWithDaemonSetOwnerResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPodsWithJobOwner(start, end time.Time) *source.Future[source.PodsWithJobOwnerResult] {
+	return newEmptyResult(source.DecodePodsWithJobOwnerResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryResourceQuotaInfo(start, end time.Time) *source.Future[source.ResourceQuotaInfoResult] {
+	return newEmptyResult(source.DecodeResourceQuotaInfoResult)
 }
 
 func (m *NoOpMetricsQuerier) QueryDataCoverage(_ int) (time.Time, time.Time, error) {

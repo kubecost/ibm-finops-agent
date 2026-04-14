@@ -384,7 +384,6 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	nodeLabelsFuture := source.WithGroup(grp, mq.QueryNodeLabels(start, end))
 	namespaceLabelsFuture := source.WithGroup(grp, mq.QueryNamespaceLabels(start, end))
 	podLabelsFuture := source.WithGroup(grp, mq.QueryPodLabels(start, end))
-	serviceLabelsFuture := source.WithGroup(grp, mq.QueryServiceLabels(start, end))
 	deploymentLabelsFuture := source.WithGroup(grp, mq.QueryDeploymentLabels(start, end))
 	statefulSetLabelsFuture := source.WithGroup(grp, mq.QueryStatefulSetLabels(start, end))
 	daemonSetLabelsFuture := source.WithGroup(grp, mq.QueryDaemonSetLabels(start, end))
@@ -409,6 +408,56 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	resourceQuotaStatusUsedCpuLimitMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedCPULimitMax(start, end))
 	resourceQuotaStatusUsedRamLimitAvgFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedRAMLimitAverage(start, end))
 	resourceQuotaStatusUsedRamLimitMaxFuture := source.WithGroup(grp, mq.QueryResourceQuotaStatusUsedRAMLimitMax(start, end))
+	nodeInfoFuture := source.WithGroup(grp, mq.QueryNodeInfo(start, end))
+	nodeUptimeFuture := source.WithGroup(grp, mq.QueryNodeUptime(start, end))
+	nodeResourceCapacitiesFuture := source.WithGroup(grp, mq.QueryNodeResourceCapacities(start, end))
+	nodeResourcesAllocatableFuture := source.WithGroup(grp, mq.QueryNodeResourcesAllocatable(start, end))
+	clusterInfoFuture := source.WithGroup(grp, mq.QueryClusterInfo(start, end))
+	podInfoFuture := source.WithGroup(grp, mq.QueryPodInfo(start, end))
+	podUptimeFuture := source.WithGroup(grp, mq.QueryPodUptime(start, end))
+	podOwnersFuture := source.WithGroup(grp, mq.QueryPodOwners(start, end))
+	podPVCVolumesFuture := source.WithGroup(grp, mq.QueryPodPVCVolumes(start, end))
+	podNetworkEgressBytesFuture := source.WithGroup(grp, mq.QueryPodNetworkEgressBytes(start, end))
+	podNetworkIngressBytesFuture := source.WithGroup(grp, mq.QueryPodNetworkIngressBytes(start, end))
+	containerUptimeFuture := source.WithGroup(grp, mq.QueryContainerUptime(start, end))
+	containerResourceRequestsFuture := source.WithGroup(grp, mq.QueryContainerResourceRequests(start, end))
+	containerResourceLimitsFuture := source.WithGroup(grp, mq.QueryContainerResourceLimits(start, end))
+	dcgmDeviceInfoFuture := source.WithGroup(grp, mq.QueryDCGMDeviceInfo(start, end))
+	dcgmDeviceUptimeFuture := source.WithGroup(grp, mq.QueryDCGMDeviceUptime(start, end))
+	dcgmContainerUsageAvgFuture := source.WithGroup(grp, mq.QueryDCGMContainerUsageAvg(start, end))
+	dcgmContainerUsageMaxFuture := source.WithGroup(grp, mq.QueryDCGMContainerUsageMax(start, end))
+	pvcUptimeFuture := source.WithGroup(grp, mq.QueryPVCUptime(start, end))
+	pvUptimeFuture := source.WithGroup(grp, mq.QueryPVUptime(start, end))
+	deploymentInfoFuture := source.WithGroup(grp, mq.QueryDeploymentInfo(start, end))
+	deploymentUptimeFuture := source.WithGroup(grp, mq.QueryDeploymentUptime(start, end))
+	deploymentAnnotationsFuture := source.WithGroup(grp, mq.QueryDeploymentAnnotations(start, end))
+	deploymentMatchLabelsFuture := source.WithGroup(grp, mq.QueryDeploymentMatchLabels(start, end))
+	statefulSetInfoFuture := source.WithGroup(grp, mq.QueryStatefulSetInfo(start, end))
+	statefulSetUptimeFuture := source.WithGroup(grp, mq.QueryStatefulSetUptime(start, end))
+	statefulSetAnnotationsFuture := source.WithGroup(grp, mq.QueryStatefulSetAnnotations(start, end))
+	statefulSetMatchLabelsFuture := source.WithGroup(grp, mq.QueryStatefulSetMatchLabels(start, end))
+	daemonSetInfoFuture := source.WithGroup(grp, mq.QueryDaemonSetInfo(start, end))
+	daemonSetUptimeFuture := source.WithGroup(grp, mq.QueryDaemonSetUptime(start, end))
+	daemonSetAnnotationsFuture := source.WithGroup(grp, mq.QueryDaemonSetAnnotations(start, end))
+	jobInfoFuture := source.WithGroup(grp, mq.QueryJobInfo(start, end))
+	jobUptimeFuture := source.WithGroup(grp, mq.QueryJobUptime(start, end))
+	jobAnnotationsFuture := source.WithGroup(grp, mq.QueryJobAnnotations(start, end))
+	cronJobInfoFuture := source.WithGroup(grp, mq.QueryCronJobInfo(start, end))
+	cronJobUptimeFuture := source.WithGroup(grp, mq.QueryCronJobUptime(start, end))
+	cronJobLabelsFuture := source.WithGroup(grp, mq.QueryCronJobLabels(start, end))
+	cronJobAnnotationsFuture := source.WithGroup(grp, mq.QueryCronJobAnnotations(start, end))
+	replicaSetInfoFuture := source.WithGroup(grp, mq.QueryReplicaSetInfo(start, end))
+	replicaSetUptimeFuture := source.WithGroup(grp, mq.QueryReplicaSetUptime(start, end))
+	replicaSetLabelsFuture := source.WithGroup(grp, mq.QueryReplicaSetLabels(start, end))
+	replicaSetAnnotationsFuture := source.WithGroup(grp, mq.QueryReplicaSetAnnotations(start, end))
+	replicaSetOwnersFuture := source.WithGroup(grp, mq.QueryReplicaSetOwners(start, end))
+	namespaceInfoFuture := source.WithGroup(grp, mq.QueryNamespaceInfo(start, end))
+	serviceInfoFuture := source.WithGroup(grp, mq.QueryServiceInfo(start, end))
+	serviceUptimeFuture := source.WithGroup(grp, mq.QueryServiceUptime(start, end))
+	serviceSelectorLabelsFuture := source.WithGroup(grp, mq.QueryServiceSelectorLabels(start, end))
+	podsWithDaemonSetOwnerFuture := source.WithGroup(grp, mq.QueryPodsWithDaemonSetOwner(start, end))
+	podsWithJobOwnerFuture := source.WithGroup(grp, mq.QueryPodsWithJobOwner(start, end))
+	resourceQuotaInfoFuture := source.WithGroup(grp, mq.QueryResourceQuotaInfo(start, end))
 
 	pvActiveMinutes, _ := pvActiveMinutesFuture.Await()
 	pvUsedAverage, _ := pvUsedAverageFuture.Await()
@@ -484,7 +533,6 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	nodeLabels, _ := nodeLabelsFuture.Await()
 	namespaceLabels, _ := namespaceLabelsFuture.Await()
 	podLabels, _ := podLabelsFuture.Await()
-	serviceLabels, _ := serviceLabelsFuture.Await()
 	deploymentLabels, _ := deploymentLabelsFuture.Await()
 	statefulSetLabels, _ := statefulSetLabelsFuture.Await()
 	daemonSetLabels, _ := daemonSetLabelsFuture.Await()
@@ -509,6 +557,56 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	resourceQuotaStatusUsedCpuLimitMax, _ := resourceQuotaStatusUsedCpuLimitMaxFuture.Await()
 	resourceQuotaStatusUsedRamLimitAvg, _ := resourceQuotaStatusUsedRamLimitAvgFuture.Await()
 	resourceQuotaStatusUsedRamLimitMax, _ := resourceQuotaStatusUsedRamLimitMaxFuture.Await()
+	nodeInfo, _ := nodeInfoFuture.Await()
+	nodeUptime, _ := nodeUptimeFuture.Await()
+	nodeResourceCapacities, _ := nodeResourceCapacitiesFuture.Await()
+	nodeResourcesAllocatable, _ := nodeResourcesAllocatableFuture.Await()
+	clusterInfo, _ := clusterInfoFuture.Await()
+	podInfo, _ := podInfoFuture.Await()
+	podUptime, _ := podUptimeFuture.Await()
+	podOwners, _ := podOwnersFuture.Await()
+	podPVCVolumes, _ := podPVCVolumesFuture.Await()
+	podNetworkEgressBytes, _ := podNetworkEgressBytesFuture.Await()
+	podNetworkIngressBytes, _ := podNetworkIngressBytesFuture.Await()
+	containerUptime, _ := containerUptimeFuture.Await()
+	containerResourceRequests, _ := containerResourceRequestsFuture.Await()
+	containerResourceLimits, _ := containerResourceLimitsFuture.Await()
+	dcgmDeviceInfo, _ := dcgmDeviceInfoFuture.Await()
+	dcgmDeviceUptime, _ := dcgmDeviceUptimeFuture.Await()
+	dcgmContainerUsageAvg, _ := dcgmContainerUsageAvgFuture.Await()
+	dcgmContainerUsageMax, _ := dcgmContainerUsageMaxFuture.Await()
+	pvcUptime, _ := pvcUptimeFuture.Await()
+	pvUptime, _ := pvUptimeFuture.Await()
+	deploymentInfo, _ := deploymentInfoFuture.Await()
+	deploymentUptime, _ := deploymentUptimeFuture.Await()
+	deploymentAnnotations, _ := deploymentAnnotationsFuture.Await()
+	deploymentMatchLabels, _ := deploymentMatchLabelsFuture.Await()
+	statefulSetInfo, _ := statefulSetInfoFuture.Await()
+	statefulSetUptime, _ := statefulSetUptimeFuture.Await()
+	statefulSetAnnotations, _ := statefulSetAnnotationsFuture.Await()
+	statefulSetMatchLabels, _ := statefulSetMatchLabelsFuture.Await()
+	daemonSetInfo, _ := daemonSetInfoFuture.Await()
+	daemonSetUptime, _ := daemonSetUptimeFuture.Await()
+	daemonSetAnnotations, _ := daemonSetAnnotationsFuture.Await()
+	jobInfo, _ := jobInfoFuture.Await()
+	jobUptime, _ := jobUptimeFuture.Await()
+	jobAnnotations, _ := jobAnnotationsFuture.Await()
+	cronJobInfo, _ := cronJobInfoFuture.Await()
+	cronJobUptime, _ := cronJobUptimeFuture.Await()
+	cronJobLabels, _ := cronJobLabelsFuture.Await()
+	cronJobAnnotations, _ := cronJobAnnotationsFuture.Await()
+	replicaSetInfo, _ := replicaSetInfoFuture.Await()
+	replicaSetUptime, _ := replicaSetUptimeFuture.Await()
+	replicaSetLabels, _ := replicaSetLabelsFuture.Await()
+	replicaSetAnnotations, _ := replicaSetAnnotationsFuture.Await()
+	replicaSetOwners, _ := replicaSetOwnersFuture.Await()
+	namespaceInfo, _ := namespaceInfoFuture.Await()
+	serviceInfo, _ := serviceInfoFuture.Await()
+	serviceUptime, _ := serviceUptimeFuture.Await()
+	serviceSelectorLabels, _ := serviceSelectorLabelsFuture.Await()
+	podsWithDaemonSetOwner, _ := podsWithDaemonSetOwnerFuture.Await()
+	podsWithJobOwner, _ := podsWithJobOwnerFuture.Await()
+	resourceQuotaInfo, _ := resourceQuotaInfoFuture.Await()
 
 	if grp.HasErrors() {
 		return nil, grp.Error()
@@ -590,11 +688,60 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		NodeLabels:                           nodeLabels,
 		NamespaceLabels:                      namespaceLabels,
 		PodLabels:                            podLabels,
-		ServiceLabels:                        serviceLabels,
 		DeploymentLabels:                     deploymentLabels,
 		StatefulSetLabels:                    statefulSetLabels,
 		DaemonSetLabels:                      daemonSetLabels,
 		JobLabels:                            jobLabels,
+		NodeInfo:                             nodeInfo,
+		NodeUptime:                           nodeUptime,
+		NodeResourceCapacities:               nodeResourceCapacities,
+		NodeResourcesAllocatable:             nodeResourcesAllocatable,
+		ClusterInfo:                          clusterInfo,
+		PodInfo:                              podInfo,
+		PodUptime:                            podUptime,
+		PodOwners:                            podOwners,
+		PodPVCVolumes:                        podPVCVolumes,
+		PodNetworkEgressBytes:                podNetworkEgressBytes,
+		PodNetworkIngressBytes:               podNetworkIngressBytes,
+		ContainerUptime:                      containerUptime,
+		ContainerResourceRequests:            containerResourceRequests,
+		ContainerResourceLimits:              containerResourceLimits,
+		DCGMDeviceInfo:                       dcgmDeviceInfo,
+		DCGMDeviceUptime:                     dcgmDeviceUptime,
+		DCGMContainerUsageAvg:                dcgmContainerUsageAvg,
+		DCGMContainerUsageMax:                dcgmContainerUsageMax,
+		PVCUptime:                            pvcUptime,
+		PVUptime:                             pvUptime,
+		DeploymentInfo:                       deploymentInfo,
+		DeploymentUptime:                     deploymentUptime,
+		DeploymentAnnotations:                deploymentAnnotations,
+		DeploymentMatchLabels:                deploymentMatchLabels,
+		StatefulSetInfo:                      statefulSetInfo,
+		StatefulSetUptime:                    statefulSetUptime,
+		StatefulSetAnnotations:               statefulSetAnnotations,
+		StatefulSetMatchLabels:               statefulSetMatchLabels,
+		DaemonSetInfo:                        daemonSetInfo,
+		DaemonSetUptime:                      daemonSetUptime,
+		DaemonSetAnnotations:                 daemonSetAnnotations,
+		JobInfo:                              jobInfo,
+		JobUptime:                            jobUptime,
+		JobAnnotations:                       jobAnnotations,
+		CronJobInfo:                          cronJobInfo,
+		CronJobUptime:                        cronJobUptime,
+		CronJobLabels:                        cronJobLabels,
+		CronJobAnnotations:                   cronJobAnnotations,
+		ReplicaSetInfo:                       replicaSetInfo,
+		ReplicaSetUptime:                     replicaSetUptime,
+		ReplicaSetLabels:                     replicaSetLabels,
+		ReplicaSetAnnotations:                replicaSetAnnotations,
+		ReplicaSetOwners:                     replicaSetOwners,
+		NamespaceInfo:                        namespaceInfo,
+		ServiceInfo:                          serviceInfo,
+		ServiceUptime:                        serviceUptime,
+		ServiceSelectorLabels:                serviceSelectorLabels,
+		PodsWithDaemonSetOwner:               podsWithDaemonSetOwner,
+		PodsWithJobOwner:                     podsWithJobOwner,
+		ResourceQuotaInfo:                    resourceQuotaInfo,
 		PodsWithReplicaSetOwner:              podsWithReplicaSetOwner,
 		ReplicaSetsWithoutOwners:             replicaSetsWithoutOwners,
 		ReplicaSetsWithRollout:               replicaSetsWithRollout,

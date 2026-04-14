@@ -382,6 +382,10 @@ func (dcc *DynamicClusterCache) GetAllJobs() []*batchv1.Job {
 	return AllOf[batchv1.Job](dcc)
 }
 
+func (dcc *DynamicClusterCache) GetAllCronJobs() []*batchv1.CronJob {
+	return AllOf[batchv1.CronJob](dcc)
+}
+
 func (dcc *DynamicClusterCache) GetAllPodDisruptionBudgets() []*policyv1.PodDisruptionBudget {
 	return AllOf[policyv1.PodDisruptionBudget](dcc)
 }
