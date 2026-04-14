@@ -104,6 +104,7 @@ func NewOpenCostDataSource(
 				clusterInfoProvider,
 				clusterCache,
 				nodeClient,
+				nil, // PodProxyGetter not available in this context
 			)
 			return ds, nil
 		}
