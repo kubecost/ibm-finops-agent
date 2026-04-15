@@ -55,7 +55,7 @@ func IsKubecostEmitterEnabled() bool {
 }
 
 func IsCloudyEmitterEnabled() bool {
-	// support a legacy env var
+	// Support CLOUDY prefix (legacy)
 	if !env.GetBool("CLOUDY_EMITTER_ENABLED", true) {
 		return false
 	}
@@ -64,7 +64,8 @@ func IsCloudyEmitterEnabled() bool {
 }
 
 func IsTurboEmitterEnabled() bool {
-	return env.GetBool(TurboEmitterEnabledEnvVar, true)
+	// TODO: Set to true once Turbonomic is implemented
+	return env.GetBool(TurboEmitterEnabledEnvVar, false)
 }
 
 // GetExporterEmissionInterval returns the interval at which the exporter will snapshot and emit data

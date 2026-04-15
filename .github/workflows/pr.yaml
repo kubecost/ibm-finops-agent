@@ -1,4 +1,4 @@
-name: Unit Tests and Build Docker Image
+name: E2E Tests and Build Docker Image
 
 on:
   schedule:
