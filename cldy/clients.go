@@ -467,12 +467,6 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 				log.Warnf("Error reading response body: %s", err.Error())
 			}
 			log.Warnf("Request failed with status code: %s and body: %s", resp.Status, string(body))
-			
-			// Drain body
-			_, err = io.Copy(io.Discard, resp.Body)
-			if err != nil {
-				log.Warnf("Error draining response body: %s", err.Error())
-			}
 
 			err = resp.Body.Close()
 			if err != nil {

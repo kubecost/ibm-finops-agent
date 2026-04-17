@@ -190,12 +190,15 @@ func (ce *Emitter) ID() emitter.EmitterID {
 func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	log.Infof("Initializing Cloudability emitter...")
 
-	clusterID := getClusterID(cs.Kubernetes.Namespaces)
+	clusterID, err := getClusterID(cs.Kubernetes.Namespaces)
+	if err != nil {
+		return err
+	}
 	ce.ClusterID = &clusterID
 	ce.Uploader.SetClusterID(clusterID)
 
 	ce.ScratchPath = ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
-	err := createIfNotExists(ce.ScratchPath)
+	err = createIfNotExists(ce.ScratchPath)
 	if err != nil {
 		return fmt.Errorf("failed to create %s directory: %s", ce.ScratchPath, err.Error())
 	}
@@ -524,15 +527,13 @@ func (ce *Emitter) marshalObject(object runtime.Object) ([]byte, error) {
 	return buf, nil
 }
 
-func getClusterID(namespaces []*v1.Namespace) string {
+func getClusterID(namespaces []*v1.Namespace) (string, error) {
 	for _, ns := range namespaces {
 		if ns.Name == "default" {
-			return string(ns.GetUID())
+			return string(ns.GetUID()), nil
 		}
 	}
-	// TODO: Should this throw an Errorf instead, or have a more explicit message?
-	log.Warnf("Error retrieving cluster IDs.")
-	return ""
+	return "", fmt.Errorf("could not get cluster ID for default namespace")
 }
 
 // Checks sample count and emits sample only if it equals or exceeds the emission interval
