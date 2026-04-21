@@ -33,13 +33,6 @@ jobs:
         with:
           path: ./ibm-finops-agent
 
-      - uses: actions/checkout@v4
-        with:
-          repository: 'opencost/opencost'
-          ref: 'develop'
-          fetch-depth: 0
-          path: ./opencost
-
       # Saves us from having to redownload all modules
       - name: Go Mod cache
         uses: actions/cache@v4

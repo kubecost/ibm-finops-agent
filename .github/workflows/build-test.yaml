@@ -24,14 +24,6 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head.sha || github.ref }}
           path: ./ibm-finops-agent
 
-      - name: Checkout opencost
-        uses: actions/checkout@v4
-        with:
-          repository: 'opencost/opencost'
-          ref: 'develop'
-          fetch-depth: 0
-          path: ./opencost
-
       # Creates tags for agent images 
       - name: Set image tag
         id: tag

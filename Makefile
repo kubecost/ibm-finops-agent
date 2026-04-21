@@ -57,6 +57,6 @@ test-k8s-1.30.0:
 podman-build-push:
 	podman manifest rm $(IMAGETAG) > /dev/null 2>&1 || true
 	podman manifest create $(IMAGETAG)
-	cd .. && podman build --rm --platform "linux/arm64" -f ./ibm-finops-agent/Dockerfile --manifest $(IMAGETAG) -t $(IMAGETAG)-arm64 .
-	cd .. && podman build --rm --platform "linux/amd64" -f ./ibm-finops-agent/Dockerfile --manifest $(IMAGETAG) -t $(IMAGETAG)-amd64 .
+	podman build --rm --platform "linux/arm64" -f ./ibm-finops-agent/Dockerfile --manifest $(IMAGETAG) -t $(IMAGETAG)-arm64 .
+	podman build --rm --platform "linux/amd64" -f ./ibm-finops-agent/Dockerfile --manifest $(IMAGETAG) -t $(IMAGETAG)-amd64 .
 	podman manifest push $(IMAGETAG)

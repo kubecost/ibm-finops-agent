@@ -6,17 +6,10 @@ WORKDIR /app
 ARG version=dev
 ARG commit=HEAD
 
-# Copy Opencost Pricing Configs 
-COPY ./ibm-finops-agent/opencost/configs ./opencost/configs
-
-# Copy Finops Agent Source 
-COPY ./ibm-finops-agent/go.mod ./ibm-finops-agent/go.mod
-COPY ./ibm-finops-agent/go.sum ./ibm-finops-agent/go.sum
-COPY ./ibm-finops-agent ./ibm-finops-agent
-RUN cd ./ibm-finops-agent && go mod download
+RUN go mod download
 
 # Build the binary
-RUN cd ./ibm-finops-agent/cmd/finops-agent && set -e ;\
+RUN cd ./cmd/finops-agent && set -e ;\
     go build -a -installsuffix cgo \
     -ldflags \
     "-X github.com/ibm/finops-agent/pkg/version.Version=${version} \

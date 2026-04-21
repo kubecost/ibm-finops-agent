@@ -1,6 +1,6 @@
 # ibm-finops-agent
 
-The temporary home for the unified ibm finops agent for kubecost, cloudy, and turbo products.
+The unified IBM FinOps Agent for Kubecost and Cloudability products.
 
 ### Development Setup
 
