@@ -6,7 +6,12 @@ WORKDIR /app
 ARG version=dev
 ARG commit=HEAD
 
+# Copy Go module files first for better layer caching
+COPY go.mod go.sum ./
 RUN go mod download
+
+# Copy the entire source code
+COPY . .
 
 # Build the binary
 RUN cd ./cmd/finops-agent && set -e ;\
@@ -46,7 +51,7 @@ ADD ./opencost/configs/aws.json /models/aws.json
 ADD ./opencost/configs/gcp.json /models/gcp.json
 ADD ./opencost/configs/awsreservationofferings.json /static/awsreservationofferings.json
 ADD ./opencost/configs/alibaba.json /models/alibaba.json
-COPY ./ibm-finops-agent/LICENSE /licenses/LICENSE
+COPY LICENSE /licenses/LICENSE
 
 COPY --from=build-env /go/bin/app /go/bin/app
 USER 1001

@@ -106,7 +106,7 @@ jobs:
       - name: Build and Push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./ibm-finops-agent
           file: ./ibm-finops-agent/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}

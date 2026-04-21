@@ -41,7 +41,7 @@ jobs:
         id: docker_build_agent
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./ibm-finops-agent
           file: ./ibm-finops-agent/Dockerfile
           platforms: "linux/amd64,linux/arm64"
           push: false

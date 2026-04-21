@@ -9,10 +9,10 @@ The unified IBM FinOps Agent for Kubecost and Cloudability products.
 ```bash
 #!/bin/bash
 # 
-mkdir unified-agent 
-cd unified-agent 
+mkdir unified-agent
+cd unified-agent
 git clone git@github.com:kubecost/ibm-finops-agent.git -b develop
-git clone git@github.com:opencost/opencost.git -b bolt/opencost-mods
+cd ibm-finops-agent
 ```
 
 ##### VS Code Launcher
