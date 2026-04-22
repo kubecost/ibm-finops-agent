@@ -14,6 +14,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/julienschmidt/httprouter"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -24,6 +25,7 @@ import (
 	"github.com/opencost/opencost/pkg/costmodel"
 
 	"github.com/opencost/opencost/modules/collector-source/pkg/collector"
+	"github.com/opencost/opencost/modules/collector-source/pkg/scrape/target"
 	"github.com/opencost/opencost/modules/prometheus-source/pkg/prom"
 
 	"github.com/opencost/opencost/pkg/cloud/models"
@@ -98,12 +100,20 @@ func NewOpenCostDataSource(
 				}
 			}
 
+			// Create PodProxyGetter for network cost collection
+			restConfig, err := rest.InClusterConfig()
+			if err != nil {
+				log.Warnf("Failed to get in-cluster config for PodProxyGetter: %s", err)
+			}
+			proxyGetter := target.NewPodProxyClient(restConfig)
+
 			ds := collector.NewDefaultCollectorDataSource(
 				clusterUID,
 				store,
 				clusterInfoProvider,
 				clusterCache,
 				nodeClient,
+				proxyGetter,
 			)
 			return ds, nil
 		}
