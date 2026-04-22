@@ -21,10 +21,10 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go/aws"                  //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
+	"github.com/aws/aws-sdk-go/aws/session"          //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
+	"github.com/aws/aws-sdk-go/service/s3"           //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
+	"github.com/aws/aws-sdk-go/service/s3/s3manager" //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
@@ -446,7 +446,7 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 }
 
 // Note: All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
-// Regions are all hardcoded because there is no direct formula from availability zone -> region suffix, 
+// Regions are all hardcoded because there is no direct formula from availability zone -> region suffix,
 // as well as this switch block acts as validation on the region field if changed by the user.
 func getURLsFromRegion(region string) (string, string) {
 	switch region {
