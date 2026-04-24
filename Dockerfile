@@ -6,17 +6,15 @@ WORKDIR /app
 ARG version=dev
 ARG commit=HEAD
 
-# Copy Opencost Pricing Configs 
-COPY ./ibm-finops-agent/opencost/configs ./opencost/configs
+# Copy Go module files first for better layer caching
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Copy Finops Agent Source 
-COPY ./ibm-finops-agent/go.mod ./ibm-finops-agent/go.mod
-COPY ./ibm-finops-agent/go.sum ./ibm-finops-agent/go.sum
-COPY ./ibm-finops-agent ./ibm-finops-agent
-RUN cd ./ibm-finops-agent && go mod download
+# Copy the entire source code
+COPY . .
 
 # Build the binary
-RUN cd ./ibm-finops-agent/cmd/finops-agent && set -e ;\
+RUN cd ./cmd/finops-agent && set -e ;\
     go build -a -installsuffix cgo \
     -ldflags \
     "-X github.com/ibm/finops-agent/pkg/version.Version=${version} \
@@ -53,7 +51,7 @@ ADD ./opencost/configs/aws.json /models/aws.json
 ADD ./opencost/configs/gcp.json /models/gcp.json
 ADD ./opencost/configs/awsreservationofferings.json /static/awsreservationofferings.json
 ADD ./opencost/configs/alibaba.json /models/alibaba.json
-COPY ./ibm-finops-agent/LICENSE /licenses/LICENSE
+COPY LICENSE /licenses/LICENSE
 
 COPY --from=build-env /go/bin/app /go/bin/app
 USER 1001
