@@ -123,7 +123,7 @@ get_sample_data(){
   i=0
   until [ $i -ge 5 ]
   do
-    if [[ -n $(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/) ]]; then
+    if [[ -n $(kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/) ]]; then
       echo "Scratch directory exists!"
       break
     fi
@@ -134,13 +134,13 @@ get_sample_data(){
   done
 
   # Retrieve sample name
-  FLDR=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/)
-  SMPL=$(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR})
+  FLDR=$(kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/)
+  SMPL=$(kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/${FLDR})
 
   i=0
   until [ $i -ge 5 ]
   do
-    if [[ $(kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/$FLDR | wc -l) -gt 1 ]]; then
+    if [[ $(kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/$FLDR | wc -l) -gt 1 ]]; then
       echo "Sample is populated!"
       break
     fi
@@ -152,11 +152,11 @@ get_sample_data(){
 
   echo "Copying agent sample to ${WORKINGDIR}"
   # Copy all file names into file_list.txt
-  kubectl exec -n ibm-finops-agent $POD -- ls tmp/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
+  kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
   # Copy notable files to working dir
-  kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
-  kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/namespaces.jsonl > ${WORKINGDIR}/namespaces.jsonl
-  kubectl exec -n ibm-finops-agent $POD -- cat tmp/scratch/${FLDR}/${SMPL}/pods.jsonl > ${WORKINGDIR}/pods.jsonl
+  kubectl exec -n ibm-finops-agent $POD -- cat /opt/finops-agent/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
+  kubectl exec -n ibm-finops-agent $POD -- cat /opt/finops-agent/scratch/${FLDR}/${SMPL}/namespaces.jsonl > ${WORKINGDIR}/namespaces.jsonl
+  kubectl exec -n ibm-finops-agent $POD -- cat /opt/finops-agent/scratch/${FLDR}/${SMPL}/pods.jsonl > ${WORKINGDIR}/pods.jsonl
 }
 
 run_tests() {
