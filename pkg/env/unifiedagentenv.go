@@ -27,6 +27,12 @@ const (
 	MinuteMetricsEnabledEnvVar       = "MINUTE_METRICS_ENABLED"
 	CollectorDataSourceEnabledEnvVar = "COLLECTOR_DATA_SOURCE_ENABLED"
 
+	// Go Automatic Memory Limit Management for GC Throttling. Enabling this will sample heap usage,
+	// and increase the GOMEMLIMIT automatically as heap usage grows and exceeds the current limit.
+	// If the GOMEMLIMIT is set manually, the auto-limiter starts at the set value. For more
+	// information about the GOMEMLIMIT environment variable: https://go.dev/doc/gc-guide
+	AutoMemLimitEnabledEnvVar = "AUTO_MEMLIMIT_ENABLED"
+
 	// Node Stats Client Configuration (can be prefixed)
 	NodeStatsForceKubeProxyEnvVar              = "FORCE_KUBE_PROXY"
 	NodeStatsLocalProxyEnvVar                  = "LOCAL_PROXY"
@@ -79,6 +85,21 @@ func IsOpenCostDataSourceEnabled() bool {
 
 func IsPProfEnabled() bool {
 	return env.GetBool(PProfEnabledEnvVar, false)
+}
+
+// Go Automatic Memory Limit Management for GC Throttling. Enabling this will sample heap usage,
+// and increase the GOMEMLIMIT automatically as heap usage grows and exceeds the current limit
+// and passes a few statistical criteria. Note that this limit is a _soft_ limit. For more
+// information about the GOMEMLIMIT environment variable: https://go.dev/doc/gc-guide
+//
+// The auto-memory-limiter is a run-time memory statistics collector that maintains a soft memory limit
+// designed to adjust the soft limit based on meaningful changes to overall heap allocation, leveraging
+// exponential moving average windows, confidence interval gates, breach detection, and cumulative sum
+// control chart to detect deviations from the mean.
+//
+// If the GOMEMLIMIT is set manually, the auto-limiter starts at the set value.
+func IsAutoMemLimitEnabled() bool {
+	return env.GetBool(AutoMemLimitEnabledEnvVar, false)
 }
 
 // IsCollectorDataSourceEnabeled returns the environment variable which enables a source.OpencostDatasource

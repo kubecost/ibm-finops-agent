@@ -314,8 +314,6 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	pvUsedAverageFuture := source.WithGroup(grp, mq.QueryPVUsedAverage(start, end))
 	pvUsedMaxFuture := source.WithGroup(grp, mq.QueryPVUsedMax(start, end))
 	localStorageActiveMinutesFuture := source.WithGroup(grp, mq.QueryLocalStorageActiveMinutes(start, end))
-	localStorageCostFuture := source.WithGroup(grp, mq.QueryLocalStorageCost(start, end))
-	localStorageUsedCostFuture := source.WithGroup(grp, mq.QueryLocalStorageUsedCost(start, end))
 	localStorageUsedAvgFuture := source.WithGroup(grp, mq.QueryLocalStorageUsedAvg(start, end))
 	localStorageUsedMaxFuture := source.WithGroup(grp, mq.QueryLocalStorageUsedMax(start, end))
 	localStorageBytesFuture := source.WithGroup(grp, mq.QueryLocalStorageBytes(start, end))
@@ -414,8 +412,6 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	pvUsedAverage, _ := pvUsedAverageFuture.Await()
 	pvUsedMax, _ := pvUsedMaxFuture.Await()
 	localStorageActiveMinutes, _ := localStorageActiveMinutesFuture.Await()
-	localStorageCost, _ := localStorageCostFuture.Await()
-	localStorageUsedCost, _ := localStorageUsedCostFuture.Await()
 	localStorageUsedAvg, _ := localStorageUsedAvgFuture.Await()
 	localStorageUsedMax, _ := localStorageUsedMaxFuture.Await()
 	localStorageBytes, _ := localStorageBytesFuture.Await()
@@ -520,8 +516,6 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		PVUsedAverage:                        pvUsedAverage,
 		PVUsedMax:                            pvUsedMax,
 		LocalStorageActiveMinutes:            localStorageActiveMinutes,
-		LocalStorageCost:                     localStorageCost,
-		LocalStorageUsedCost:                 localStorageUsedCost,
 		LocalStorageUsedAvg:                  localStorageUsedAvg,
 		LocalStorageUsedMax:                  localStorageUsedMax,
 		LocalStorageBytes:                    localStorageBytes,

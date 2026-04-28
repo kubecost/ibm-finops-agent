@@ -54,8 +54,6 @@ type MetricsSnapshot struct {
 	PVUsedAverage                        []*source.PVUsedAvgResult
 	PVUsedMax                            []*source.PVUsedMaxResult
 	LocalStorageActiveMinutes            []*source.LocalStorageActiveMinutesResult
-	LocalStorageCost                     []*source.LocalStorageCostResult
-	LocalStorageUsedCost                 []*source.LocalStorageUsedCostResult
 	LocalStorageUsedAvg                  []*source.LocalStorageUsedAvgResult
 	LocalStorageUsedMax                  []*source.LocalStorageUsedMaxResult
 	LocalStorageBytes                    []*source.LocalStorageBytesResult
