@@ -38,9 +38,9 @@ func initLogging() {
 func main() {
 	initLogging()
 
-	// memory limiter will track heap usage and ensure the gomemlimit is adjusted
-	// to appropriately match what's being used
-	monitor.StartMemoryLimiter()
+	if env.IsAutoMemLimitEnabled() {
+		monitor.StartMemoryLimiter()
+	}
 
 	log.Infof("Starting IBM Finops Agent version %s", version.FriendlyVersion())
 
