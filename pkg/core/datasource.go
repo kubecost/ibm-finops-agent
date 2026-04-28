@@ -9,12 +9,12 @@ import (
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
-	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/source"
 	"github.com/opencost/opencost/pkg/cloud/models"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/julienschmidt/httprouter"
 )
@@ -42,17 +42,13 @@ type DataSource interface {
 }
 
 func NewAgentDataSource(
+	kubeConfig *rest.Config,
 	kubeClientset kubernetes.Interface,
 	router *httprouter.Router,
 	diag diagnostics.DiagnosticService,
 	interval time.Duration,
 ) DataSource {
-	cfg, err := kubeconfig.LoadKubeconfig("")
-	if err != nil {
-		log.Fatalf("Failed to load Kubernetes config: %s", err.Error())
-	}
-
-	discClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+	discClient, err := discovery.NewDiscoveryClientForConfig(kubeConfig)
 	if err != nil {
 		log.Warnf("Failed to create Kubernetes discovery client: %s", err.Error())
 	}
@@ -65,7 +61,7 @@ func NewAgentDataSource(
 
 	informerCfg := cluster.LoadInformerConfig()
 	// Create Kubernetes Cluster Cache + Watchers
-	k8sCache, err := cluster.NewDynamicClusterCache(cfg, informerCfg.ResyncInterval, informerCfg.SanitizeData, interval)
+	k8sCache, err := cluster.NewDynamicClusterCache(kubeConfig, informerCfg.ResyncInterval, informerCfg.SanitizeData, interval)
 	if err != nil {
 		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
 	}
@@ -77,7 +73,7 @@ func NewAgentDataSource(
 	if err != nil {
 		log.Fatalf("error retrieving node client config: %s", err)
 	}
-	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, cfg)
+	nodeStatsSummaryClient := nodes.NewNodeStatsSummaryClient(k8sCache, nodeClientConfig, kubeConfig)
 
 	// If we use a background service, we leverage the client to refresh node data on an interval
 	// otherwise, we retrieve node data _at_ snapshot time

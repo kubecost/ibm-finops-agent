@@ -20,7 +20,9 @@ import (
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/opencost/opencost/core/pkg/util/monitor"
 	"github.com/spf13/viper"
+	"k8s.io/client-go/kubernetes"
 )
 
 func initLogging() {
@@ -35,6 +37,10 @@ func initLogging() {
 // entry point for finops-agent
 func main() {
 	initLogging()
+
+	// memory limiter will track heap usage and ensure the gomemlimit is adjusted
+	// to appropriately match what's being used
+	monitor.StartMemoryLimiter()
 
 	log.Infof("Starting IBM Finops Agent version %s", version.FriendlyVersion())
 
@@ -78,9 +84,13 @@ func main() {
 	// Initialize/Bootstrap the Agent Data Source
 	emissionInterval := env.GetExporterEmissionInterval()
 
-	// NOTE: (bolt) This just uses a fairly straight-forward kube client initialization. We should add specific proxy/auth
-	// NOTE: (bolt) requirements for the other data sources.
-	kubeClientset, err := kubeconfig.LoadKubeClient("")
+	// Initialize Kubernetes Client
+	kubeConfig, err := kubeconfig.LoadKubeconfig("")
+	if err != nil {
+		log.Fatalf("Failed to load Kubernetes configuration: %s", err.Error())
+	}
+
+	kubeClientset, err := kubernetes.NewForConfig(kubeConfig)
 	if err != nil {
 		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
 	}
@@ -90,7 +100,7 @@ func main() {
 		log.Fatalf("Failed to determine cluster UID: %s", err)
 	}
 
-	dataSource := core.NewAgentDataSource(kubeClientset, router, diag, emissionInterval)
+	dataSource := core.NewAgentDataSource(kubeConfig, kubeClientset, router, diag, emissionInterval)
 
 	// Snapshot configuration will gather specific kubernetes resource requirements
 	// from each emitter that is enabled such that we only snapshot the resources that
