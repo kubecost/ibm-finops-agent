@@ -39,7 +39,10 @@ func main() {
 	initLogging()
 
 	if env.IsAutoMemLimitEnabled() {
-		monitor.StartMemoryLimiter()
+		err := monitor.StartMemoryLimiter()
+		if err != nil {
+			log.Warnf("Auto Memory Limit was Enabled, but failed to start: %s", err)
+		}
 	}
 
 	log.Infof("Starting IBM Finops Agent version %s", version.FriendlyVersion())
