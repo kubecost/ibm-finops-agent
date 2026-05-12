@@ -43,21 +43,21 @@ func LoadInformerConfig() InformerConfig {
 
 var (
 	cacheResourceMap = map[reflect.Type]schema.GroupVersionResource{
-		reflect.TypeOf(corev1.Namespace{}):             {Version: "v1", Resource: "namespaces"},
-		reflect.TypeOf(corev1.Node{}):                  {Version: "v1", Resource: "nodes"},
-		reflect.TypeOf(corev1.Pod{}):                   {Version: "v1", Resource: "pods"},
-		reflect.TypeOf(corev1.Service{}):               {Version: "v1", Resource: "services"},
-		reflect.TypeOf(corev1.PersistentVolume{}):      {Version: "v1", Resource: "persistentvolumes"},
-		reflect.TypeOf(corev1.PersistentVolumeClaim{}): {Version: "v1", Resource: "persistentvolumeclaims"},
-		reflect.TypeOf(corev1.ReplicationController{}): {Version: "v1", Resource: "replicationcontrollers"},
-		reflect.TypeOf(appsv1.Deployment{}):            {Group: "apps", Version: "v1", Resource: "deployments"},
-		reflect.TypeOf(appsv1.DaemonSet{}):             {Group: "apps", Version: "v1", Resource: "daemonsets"},
-		reflect.TypeOf(appsv1.StatefulSet{}):           {Group: "apps", Version: "v1", Resource: "statefulsets"},
-		reflect.TypeOf(appsv1.ReplicaSet{}):            {Group: "apps", Version: "v1", Resource: "replicasets"},
-		reflect.TypeOf(stv1.StorageClass{}):            {Group: "storage.k8s.io", Version: "v1", Resource: "storageclasses"},
-		reflect.TypeOf(batchv1.Job{}):                  {Group: "batch", Version: "v1", Resource: "jobs"},
-		reflect.TypeOf(policyv1.PodDisruptionBudget{}): {Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"},
-		reflect.TypeOf(corev1.ResourceQuota{}):         {Version: "v1", Resource: "resourcequotas"},
+		reflect.TypeFor[corev1.Namespace]():             {Version: "v1", Resource: "namespaces"},
+		reflect.TypeFor[corev1.Node]():                  {Version: "v1", Resource: "nodes"},
+		reflect.TypeFor[corev1.Pod]():                   {Version: "v1", Resource: "pods"},
+		reflect.TypeFor[corev1.Service]():               {Version: "v1", Resource: "services"},
+		reflect.TypeFor[corev1.PersistentVolume]():      {Version: "v1", Resource: "persistentvolumes"},
+		reflect.TypeFor[corev1.PersistentVolumeClaim](): {Version: "v1", Resource: "persistentvolumeclaims"},
+		reflect.TypeFor[corev1.ReplicationController](): {Version: "v1", Resource: "replicationcontrollers"},
+		reflect.TypeFor[appsv1.Deployment]():            {Group: "apps", Version: "v1", Resource: "deployments"},
+		reflect.TypeFor[appsv1.DaemonSet]():             {Group: "apps", Version: "v1", Resource: "daemonsets"},
+		reflect.TypeFor[appsv1.StatefulSet]():           {Group: "apps", Version: "v1", Resource: "statefulsets"},
+		reflect.TypeFor[appsv1.ReplicaSet]():            {Group: "apps", Version: "v1", Resource: "replicasets"},
+		reflect.TypeFor[stv1.StorageClass]():            {Group: "storage.k8s.io", Version: "v1", Resource: "storageclasses"},
+		reflect.TypeFor[batchv1.Job]():                  {Group: "batch", Version: "v1", Resource: "jobs"},
+		reflect.TypeFor[policyv1.PodDisruptionBudget](): {Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"},
+		reflect.TypeFor[corev1.ResourceQuota]():         {Version: "v1", Resource: "resourcequotas"},
 	}
 	// fields to trim on specific resources if parseMetricsData is enabled
 	gvkToSanitizePaths = map[schema.GroupVersionKind][]string{
@@ -161,7 +161,7 @@ func NewDynamicClusterCache(
 
 	cache.shortLivedPods = []*corev1.Pod{}
 	// add delete event on pods informer to track short-lived pods
-	_, eventErr := cache.ForResource(cacheResourceMap[reflect.TypeOf(corev1.Pod{})]).Informer().
+	_, eventErr := cache.ForResource(cacheResourceMap[reflect.TypeFor[corev1.Pod]()]).Informer().
 		AddEventHandler(cache2.ResourceEventHandlerFuncs{
 			DeleteFunc: cache.captureShortLivedPodFunc(),
 		})
@@ -172,8 +172,8 @@ func NewDynamicClusterCache(
 	return &cache, nil
 }
 
-func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod interface{}) {
-	return func(pod interface{}) {
+func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod any) {
+	return func(pod any) {
 		unstructuredPod, ok := pod.(*unstructured.Unstructured)
 		if !ok {
 			log.Warnf("failed to cast interface to unstructured, not capturing delete event")
@@ -201,8 +201,8 @@ func (dcc *DynamicClusterCache) addShortLivedPod(pod *corev1.Pod) {
 
 // GetTransformFunc returns the correct transform to apply based on parseMetricsData flag
 // when enabled, sensitive information from k8s resources will be stripped
-func GetTransformFunc(parseMetricsData bool) func(resource interface{}) (interface{}, error) {
-	return func(resource interface{}) (interface{}, error) {
+func GetTransformFunc(parseMetricsData bool) func(resource any) (any, error) {
+	return func(resource any) (any, error) {
 		var casted *unstructured.Unstructured
 		var ok bool
 		if casted, ok = resource.(*unstructured.Unstructured); !ok {
@@ -264,19 +264,19 @@ func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersio
 			log.Warnf("an error occurred getting resources containers %v", err)
 			continue
 		}
-		containers, ok := containersUnstructured.([]interface{})
+		containers, ok := containersUnstructured.([]any)
 		if !ok {
 			log.Warnf("containers field is not a list. Not cleaning resource")
 			continue
 		}
-		for i := 0; i < len(containers); i++ {
+		for i := range containers {
 			if parseMetricsData {
 				for _, pathToContainer := range gvkToSanitizePaths[containerGVK] {
-					unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
+					unstructured.RemoveNestedField(containers[i].(map[string]any), strings.Split(pathToContainer, ".")...)
 				}
 			}
 			for _, pathToContainer := range gvkToTrimPaths[containerGVK] {
-				unstructured.RemoveNestedField(containers[i].(map[string]interface{}), strings.Split(pathToContainer, ".")...)
+				unstructured.RemoveNestedField(containers[i].(map[string]any), strings.Split(pathToContainer, ".")...)
 			}
 		}
 	}
