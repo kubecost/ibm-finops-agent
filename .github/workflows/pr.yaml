@@ -2,7 +2,7 @@ name: Unit Tests and Build Docker Image
 
 on:
   schedule:
-      - cron: '0 14 * * *'
+    - cron: "0 14 * * *"
   pull_request:
     branches:
       - develop
@@ -12,7 +12,7 @@ on:
       - develop
 
   merge_group:
-      types: [checks_requested]
+    types: [checks_requested]
 
 jobs:
   build-and-test:
@@ -21,13 +21,15 @@ jobs:
       contents: read
       packages: write
     outputs:
-      image-tag: ${{ steps.meta.outcome == 'success' && fromJSON(steps.meta.outputs.json).tags[0] || '' }}
+      image-tag:
+        ${{ steps.meta.outcome == 'success' &&
+        fromJSON(steps.meta.outputs.json).tags[0] || '' }}
 
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: "stable"
 
       - uses: actions/checkout@v4
         with:
@@ -43,7 +45,8 @@ jobs:
           # The directory is important. We cover both OC and KCM with the
           # ./kubecost/**/go.sum hash. Critically important because of the
           # "replace" in KCM's go.mod
-          key: ${{ runner.os }}-go-${{ hashFiles('./ibm-finops-agent/**/go.sum') }}
+          key:
+            ${{ runner.os }}-go-${{ hashFiles('./ibm-finops-agent/**/go.sum') }}
 
       - name: Test
         working-directory: ./ibm-finops-agent
@@ -54,6 +57,11 @@ jobs:
         working-directory: ./ibm-finops-agent
         run: |
           make ci-lint
+
+      - name: Check go fix
+        working-directory: ./ibm-finops-agent
+        run: |
+          make go-fix-check
 
       - name: get-pr-info
         shell: bash
@@ -71,10 +79,10 @@ jobs:
           name: code-coverage
           retention-days: 5
           path: |
-                coverage.out
-                pr_num.txt
-                base.txt
-                head.txt
+            coverage.out
+            pr_num.txt
+            base.txt
+            head.txt
 
       - name: Build Go binary
         working-directory: ./ibm-finops-agent
@@ -127,13 +135,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        k8s-version: ['v1.34.0', 'v1.33.0', 'v1.32.0', 'v1.31.0']
-    
+        k8s-version: ["v1.34.0", "v1.33.0", "v1.32.0", "v1.31.0"]
+
     steps:
       - name: Install Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: "stable"
 
       - uses: actions/checkout@v4
         with:
