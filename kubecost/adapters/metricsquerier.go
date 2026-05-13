@@ -209,30 +209,6 @@ func (mqa *MetricsQuerierAdapter) QueryLocalStorageActiveMinutes(start, end time
 	return source.NewFutureFrom(snapshot.LocalStorageActiveMinutes)
 }
 
-func (mqa *MetricsQuerierAdapter) QueryLocalStorageCost(start, end time.Time) *source.Future[source.LocalStorageCostResult] {
-	mqa.lock.RLock()
-	defer mqa.lock.RUnlock()
-
-	snapshot := mqa.metricsSnapshotFor(start, end)
-	if snapshot == nil {
-		return newErrorResult(source.DecodeLocalStorageCostResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
-	}
-
-	return source.NewFutureFrom(snapshot.LocalStorageCost)
-}
-
-func (mqa *MetricsQuerierAdapter) QueryLocalStorageUsedCost(start, end time.Time) *source.Future[source.LocalStorageUsedCostResult] {
-	mqa.lock.RLock()
-	defer mqa.lock.RUnlock()
-
-	snapshot := mqa.metricsSnapshotFor(start, end)
-	if snapshot == nil {
-		return newErrorResult(source.DecodeLocalStorageUsedCostResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
-	}
-
-	return source.NewFutureFrom(snapshot.LocalStorageUsedCost)
-}
-
 func (mqa *MetricsQuerierAdapter) QueryLocalStorageUsedAvg(start, end time.Time) *source.Future[source.LocalStorageUsedAvgResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()

@@ -33,13 +33,6 @@ jobs:
         with:
           path: ./ibm-finops-agent
 
-      - uses: actions/checkout@v4
-        with:
-          repository: 'opencost/opencost'
-          ref: 'develop'
-          fetch-depth: 0
-          path: ./opencost
-
       # Saves us from having to redownload all modules
       - name: Go Mod cache
         uses: actions/cache@v4
@@ -113,7 +106,7 @@ jobs:
       - name: Build and Push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./ibm-finops-agent
           file: ./ibm-finops-agent/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
