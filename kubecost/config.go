@@ -76,7 +76,7 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 	return &EmitterConfig{
 		ClusterUID:                     clusterUID,
 		ClusterName:                    coreenv.GetClusterID(),
-		AppName:                        coreenv.GetAppName(),
+		AppName:                        kcenv.GetFinOpsAgentAppName(),
 		ConfigPath:                     coreenv.GetConfigPath(),
 		CloudProviderAPIKey:            env.GetCloudProviderAPIKey(),
 		InstallNamespace:               coreenv.GetInstallNamespace(""),

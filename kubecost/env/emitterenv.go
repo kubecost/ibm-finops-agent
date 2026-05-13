@@ -8,6 +8,7 @@ import (
 )
 
 const (
+	FinOpsAgentDefault             = "finops-agent"
 	HeartbeatExportEnabledEnvVar   = "HEARTBEAT_EXPORT_ENABLED"
 	DiagnosticsExportEnabledEnvVar = "DIAGNOSTICS_EXPORT_ENABLED"
 	MinuteMetricsEnabledEnvVar     = "MINUTE_METRICS_ENABLED"
@@ -72,5 +73,9 @@ func GetExportBucketConfigFile() string {
 }
 
 func GetFinOpsAgentNamespace() string {
-	return coreenv.GetInstallNamespace("finops-agent")
+	return coreenv.GetInstallNamespace(FinOpsAgentDefault)
+}
+
+func GetFinOpsAgentAppName() string {
+	return coreenv.Get(coreenv.AppNameEnvVar, FinOpsAgentDefault)
 }

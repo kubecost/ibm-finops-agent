@@ -75,7 +75,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 
 	log.Infof("Successfully created bucket storage")
 
-	pipelineConfig := exporter.NewPipelinesExportConfig(ke.config.ClusterUID, ke.config.ClusterName)
+	pipelineConfig := exporter.NewPipelinesExportConfig(ke.config.AppName, ke.config.ClusterUID, ke.config.ClusterName)
 	if ke.config.EmitAllocationMinuteResolution {
 		pipelineConfig.AllocationPiplineResolutions = append(
 			pipelineConfig.AllocationPiplineResolutions,
