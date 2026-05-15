@@ -56,6 +56,7 @@ var (
 		reflect.TypeOf(appsv1.ReplicaSet{}):            {Group: "apps", Version: "v1", Resource: "replicasets"},
 		reflect.TypeOf(stv1.StorageClass{}):            {Group: "storage.k8s.io", Version: "v1", Resource: "storageclasses"},
 		reflect.TypeOf(batchv1.Job{}):                  {Group: "batch", Version: "v1", Resource: "jobs"},
+		reflect.TypeOf(batchv1.CronJob{}):              {Group: "batch", Version: "v1", Resource: "cronjobs"},
 		reflect.TypeOf(policyv1.PodDisruptionBudget{}): {Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"},
 		reflect.TypeOf(corev1.ResourceQuota{}):         {Version: "v1", Resource: "resourcequotas"},
 	}
