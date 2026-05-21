@@ -245,6 +245,42 @@ func (mqa *MetricsQuerierAdapter) QueryLocalStorageBytes(start, end time.Time) *
 	return source.NewFutureFrom(snapshot.LocalStorageBytes)
 }
 
+func (mqa *MetricsQuerierAdapter) QueryKMLocalStorageUsedAvg(start, end time.Time) *source.Future[source.NodeUIDValueResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeNodeUIDValueResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.KMLocalStorageUsedAvg)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryKMLocalStorageUsedMax(start, end time.Time) *source.Future[source.NodeUIDValueResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeNodeUIDValueResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.KMLocalStorageUsedMax)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryKMLocalStorageBytes(start, end time.Time) *source.Future[source.UIDValueResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeUIDValueResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.KMLocalStorageBytes)
+}
+
 func (mqa *MetricsQuerierAdapter) QueryNodeActiveMinutes(start, end time.Time) *source.Future[source.NodeActiveMinutesResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()
@@ -830,6 +866,18 @@ func (mqa *MetricsQuerierAdapter) QueryPVCInfo(start, end time.Time) *source.Fut
 	}
 
 	return source.NewFutureFrom(snapshot.PVCInfo)
+}
+
+func (mqa *MetricsQuerierAdapter) QueryKMPVCInfo(start, end time.Time) *source.Future[source.PVCInfoResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodePVCInfoResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.KMPVCInfo)
 }
 
 func (mqa *MetricsQuerierAdapter) QueryPVBytes(start, end time.Time) *source.Future[source.PVBytesResult] {

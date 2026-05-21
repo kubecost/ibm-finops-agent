@@ -317,6 +317,9 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	localStorageUsedAvgFuture := source.WithGroup(grp, mq.QueryLocalStorageUsedAvg(start, end))
 	localStorageUsedMaxFuture := source.WithGroup(grp, mq.QueryLocalStorageUsedMax(start, end))
 	localStorageBytesFuture := source.WithGroup(grp, mq.QueryLocalStorageBytes(start, end))
+	kmLocalStorageUsedAvgFuture := source.WithGroup(grp, mq.QueryKMLocalStorageUsedAvg(start, end))
+	kmLocalStorageUsedMaxFuture := source.WithGroup(grp, mq.QueryKMLocalStorageUsedMax(start, end))
+	kmLocalStorageBytesFuture := source.WithGroup(grp, mq.QueryKMLocalStorageBytes(start, end))
 	nodeActiveMinutesFuture := source.WithGroup(grp, mq.QueryNodeActiveMinutes(start, end))
 	nodeCPUCoresCapacityFuture := source.WithGroup(grp, mq.QueryNodeCPUCoresCapacity(start, end))
 	nodeCPUCoresAllocatableFuture := source.WithGroup(grp, mq.QueryNodeCPUCoresAllocatable(start, end))
@@ -356,6 +359,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	podPVCAllocationFuture := source.WithGroup(grp, mq.QueryPodPVCAllocation(start, end))
 	pvcBytesRequestedFuture := source.WithGroup(grp, mq.QueryPVCBytesRequested(start, end))
 	pvcInfoFuture := source.WithGroup(grp, mq.QueryPVCInfo(start, end))
+	kmPVCInfoFuture := source.WithGroup(grp, mq.QueryKMPVCInfo(start, end))
 	pvBytesFuture := source.WithGroup(grp, mq.QueryPVBytes(start, end))
 	pvPricePerGiBHourFuture := source.WithGroup(grp, mq.QueryPVPricePerGiBHour(start, end))
 	pvInfoFuture := source.WithGroup(grp, mq.QueryPVInfo(start, end))
@@ -464,6 +468,9 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	localStorageUsedAvg, _ := localStorageUsedAvgFuture.Await()
 	localStorageUsedMax, _ := localStorageUsedMaxFuture.Await()
 	localStorageBytes, _ := localStorageBytesFuture.Await()
+	kmLocalStorageUsedAvg, _ := kmLocalStorageUsedAvgFuture.Await()
+	kmLocalStorageUsedMax, _ := kmLocalStorageUsedMaxFuture.Await()
+	kmLocalStorageBytes, _ := kmLocalStorageBytesFuture.Await()
 	nodeActiveMinutes, _ := nodeActiveMinutesFuture.Await()
 	nodeCPUCoresCapacity, _ := nodeCPUCoresCapacityFuture.Await()
 	nodeCPUCoresAllocatable, _ := nodeCPUCoresAllocatableFuture.Await()
@@ -503,6 +510,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	podPVCAllocation, _ := podPVCAllocationFuture.Await()
 	pvcBytesRequested, _ := pvcBytesRequestedFuture.Await()
 	pvcInfo, _ := pvcInfoFuture.Await()
+	kmPVCInfo, _ := kmPVCInfoFuture.Await()
 	pvBytes, _ := pvBytesFuture.Await()
 	pvPricePerGiBHour, _ := pvPricePerGiBHourFuture.Await()
 	pvInfo, _ := pvInfoFuture.Await()
@@ -617,6 +625,9 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		LocalStorageUsedAvg:                  localStorageUsedAvg,
 		LocalStorageUsedMax:                  localStorageUsedMax,
 		LocalStorageBytes:                    localStorageBytes,
+		KMLocalStorageUsedAvg:                kmLocalStorageUsedAvg,
+		KMLocalStorageUsedMax:                kmLocalStorageUsedMax,
+		KMLocalStorageBytes:                  kmLocalStorageBytes,
 		NodeActiveMinutes:                    nodeActiveMinutes,
 		NodeCPUCoresCapacity:                 nodeCPUCoresCapacity,
 		NodeCPUCoresAllocatable:              nodeCPUCoresAllocatable,
@@ -656,6 +667,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		PodPVCAllocation:                     podPVCAllocation,
 		PVCBytesRequested:                    pvcBytesRequested,
 		PVCInfo:                              pvcInfo,
+		KMPVCInfo:                            kmPVCInfo,
 		PVBytes:                              pvBytes,
 		PVPricePerGiBHour:                    pvPricePerGiBHour,
 		PVInfo:                               pvInfo,

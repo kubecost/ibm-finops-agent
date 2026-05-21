@@ -88,6 +88,22 @@ func NewNoOpMetricsQuerier() *NoOpMetricsQuerier {
 	return &NoOpMetricsQuerier{}
 }
 
+func (m *NoOpMetricsQuerier) QueryKMLocalStorageUsedAvg(start, end time.Time) *source.Future[source.NodeUIDValueResult] {
+	return newEmptyResult(source.DecodeNodeUIDValueResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryKMLocalStorageUsedMax(start, end time.Time) *source.Future[source.NodeUIDValueResult] {
+	return newEmptyResult(source.DecodeNodeUIDValueResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryKMLocalStorageBytes(start, end time.Time) *source.Future[source.UIDValueResult] {
+	return newEmptyResult(source.DecodeUIDValueResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryKMPVCInfo(start, end time.Time) *source.Future[source.PVCInfoResult] {
+	return newEmptyResult(source.DecodePVCInfoResult)
+}
+
 // Implementation of interface methods
 func (m *NoOpMetricsQuerier) QueryPVActiveMinutes(start, end time.Time) *source.Future[source.PVActiveMinutesResult] {
 	return newEmptyResult(source.DecodePVActiveMinutesResult)

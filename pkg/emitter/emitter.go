@@ -57,6 +57,9 @@ type MetricsSnapshot struct {
 	LocalStorageActiveMinutes            []*source.LocalStorageActiveMinutesResult
 	LocalStorageUsedAvg                  []*source.LocalStorageUsedAvgResult
 	LocalStorageUsedMax                  []*source.LocalStorageUsedMaxResult
+	KMLocalStorageBytes                  []*source.UIDValueResult
+	KMLocalStorageUsedAvg                []*source.NodeUIDValueResult
+	KMLocalStorageUsedMax                []*source.NodeUIDValueResult
 	LocalStorageBytes                    []*source.LocalStorageBytesResult
 	NodeActiveMinutes                    []*source.NodeActiveMinutesResult
 	NodeCPUCoresCapacity                 []*source.NodeCPUCoresCapacityResult
@@ -97,6 +100,7 @@ type MetricsSnapshot struct {
 	PodPVCAllocation                     []*source.PodPVCAllocationResult
 	PVCBytesRequested                    []*source.PVCBytesRequestedResult
 	PVCInfo                              []*source.PVCInfoResult
+	KMPVCInfo                            []*source.PVCInfoResult
 	PVBytes                              []*source.PVBytesResult
 	PVPricePerGiBHour                    []*source.PVPricePerGiBHourResult
 	PVInfo                               []*source.PVInfoResult
