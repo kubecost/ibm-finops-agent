@@ -10,9 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger repository dispatch
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.DISPATCH_TOKEN }}
-          repository: kubecost/integration-ci-cd  # or your org/repo name
-          event-type: finops-agent-release
-          client-payload: '{"tag": "${{ github.ref_name }}"}'
+        env:
+          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+        run: |
+          echo '{"event_type":"finops-agent-release","client_payload":{"tag":"${{ github.ref_name }}"}}' \
+            | gh api repos/kubecost/integration-ci-cd/dispatches --input -
