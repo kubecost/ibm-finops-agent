@@ -22,7 +22,7 @@ RUN cd ./cmd/finops-agent && set -e ;\
     -o /go/bin/app
 
 
-FROM redhat/ubi9-minimal:latest
+FROM redhat/ubi9-micro:latest
 
 ARG commit
 ARG version
@@ -51,6 +51,7 @@ ADD ./opencost/configs/aws.json /models/aws.json
 ADD ./opencost/configs/gcp.json /models/gcp.json
 ADD ./opencost/configs/awsreservationofferings.json /static/awsreservationofferings.json
 ADD ./opencost/configs/alibaba.json /models/alibaba.json
+COPY --from=build-env /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY LICENSE /licenses/LICENSE
 
 COPY --from=build-env /go/bin/app /go/bin/app
