@@ -83,6 +83,18 @@ func (m *NoOpClusterInfoProvider) GetClusterInfo() map[string]string {
 // that returns empty results for all queries.
 type NoOpMetricsQuerier struct{}
 
+func (m *NoOpMetricsQuerier) QueryPVCBytesUsedAverage(start, end time.Time) *source.Future[source.PVCUIDValueResult] {
+	return newEmptyResult(source.DecodePVCUIDValueResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryPVCBytesUsedMax(start, end time.Time) *source.Future[source.PVCUIDValueResult] {
+	return newEmptyResult(source.DecodePVCUIDValueResult)
+}
+
+func (m *NoOpMetricsQuerier) QueryKMPVInfo(start, end time.Time) *source.Future[source.PVInfoResult] {
+	return newEmptyResult(source.DecodePVInfoResult)
+}
+
 // NewNoOpMetricsQuerier creates a new mock metrics querier
 func NewNoOpMetricsQuerier() *NoOpMetricsQuerier {
 	return &NoOpMetricsQuerier{}

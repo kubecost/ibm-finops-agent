@@ -310,6 +310,9 @@ func snapshotWindowsFor(now time.Time, lastSnapshot time.Time, resolution time.D
 func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSnapshot, error) {
 	grp := source.NewQueryGroup()
 
+	kmPVInfoFuture := source.WithGroup(grp, mq.QueryKMPVInfo(start, end))
+	pvcBytesUsedAvgFuture := source.WithGroup(grp, mq.QueryPVCBytesUsedAverage(start, end))
+	pvcBytesUsedMaxFuture := source.WithGroup(grp, mq.QueryPVCBytesUsedAverage(start, end))
 	pvActiveMinutesFuture := source.WithGroup(grp, mq.QueryPVActiveMinutes(start, end))
 	pvUsedAverageFuture := source.WithGroup(grp, mq.QueryPVUsedAverage(start, end))
 	pvUsedMaxFuture := source.WithGroup(grp, mq.QueryPVUsedMax(start, end))
@@ -461,6 +464,9 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	podsWithJobOwnerFuture := source.WithGroup(grp, mq.QueryPodsWithJobOwner(start, end))
 	resourceQuotaInfoFuture := source.WithGroup(grp, mq.QueryResourceQuotaInfo(start, end))
 
+	kmPVInfo, _ := kmPVInfoFuture.Await()
+	pvcBytesUsedAvg, _ := pvcBytesUsedAvgFuture.Await()
+	pvcBytesUsedMax, _ := pvcBytesUsedMaxFuture.Await()
 	pvActiveMinutes, _ := pvActiveMinutesFuture.Await()
 	pvUsedAverage, _ := pvUsedAverageFuture.Await()
 	pvUsedMax, _ := pvUsedMaxFuture.Await()
@@ -668,9 +674,12 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		PVCBytesRequested:                    pvcBytesRequested,
 		PVCInfo:                              pvcInfo,
 		KMPVCInfo:                            kmPVCInfo,
+		PVCBytesUsedAvg:                      pvcBytesUsedAvg,
+		PVCBytesUsedMax:                      pvcBytesUsedMax,
 		PVBytes:                              pvBytes,
 		PVPricePerGiBHour:                    pvPricePerGiBHour,
 		PVInfo:                               pvInfo,
+		KMPVInfo:                             kmPVInfo,
 		NetZoneGiB:                           netZoneGiB,
 		NetZonePricePerGiB:                   netZonePricePerGiB,
 		NetRegionGiB:                         netRegionGiB,

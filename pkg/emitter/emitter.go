@@ -99,11 +99,14 @@ type MetricsSnapshot struct {
 	IsGPUShared                          []*source.IsGPUSharedResult
 	PodPVCAllocation                     []*source.PodPVCAllocationResult
 	PVCBytesRequested                    []*source.PVCBytesRequestedResult
+	PVCBytesUsedAvg                      []*source.PVCUIDValueResult
+	PVCBytesUsedMax                      []*source.PVCUIDValueResult
 	PVCInfo                              []*source.PVCInfoResult
 	KMPVCInfo                            []*source.PVCInfoResult
 	PVBytes                              []*source.PVBytesResult
 	PVPricePerGiBHour                    []*source.PVPricePerGiBHourResult
 	PVInfo                               []*source.PVInfoResult
+	KMPVInfo                             []*source.PVInfoResult
 	NetZoneGiB                           []*source.NetZoneGiBResult
 	NetZonePricePerGiB                   []*source.NetZonePricePerGiBResult
 	NetRegionGiB                         []*source.NetRegionGiBResult
