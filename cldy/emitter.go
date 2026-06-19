@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -35,6 +36,7 @@ const uploadPath = "upload"
 const agentName = "ibm-finops-agent"
 
 type Emitter struct {
+	mu                sync.Mutex // protects mutable emission state
 	config            EmitterConfig
 	startTime         time.Time
 	lastEmission      time.Time
@@ -214,6 +216,9 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 }
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
+	ce.mu.Lock()
+	defer ce.mu.Unlock()
+
 	// Emit only after the emission interval has been met
 	if ce.shouldDownsample() {
 		return nil
@@ -265,7 +270,7 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) (rerr error) {
 	if !IsAvailableDiskSpace(uint64(len(data)), ce.ScratchPath) {
-		err := ce.ClearOldScratchSamples()
+		err := ce.clearOldScratchSamplesLocked()
 		if err != nil {
 			return err
 		}
@@ -304,7 +309,16 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	return ce.writeAgentFile()
 }
 
+// ClearOldScratchSamples is the public entry point. Acquires mu.
 func (ce *Emitter) ClearOldScratchSamples() error {
+	ce.mu.Lock()
+	defer ce.mu.Unlock()
+	return ce.clearOldScratchSamplesLocked()
+}
+
+// clearOldScratchSamplesLocked contains the actual implementation.
+// Assumes caller holds ce.mu.
+func (ce *Emitter) clearOldScratchSamplesLocked() error {
 	log.Infof("Disk space threshold met. Attempting to clear samples over 1 hour old.")
 
 	files, err := os.ReadDir(ce.ScratchPath)
