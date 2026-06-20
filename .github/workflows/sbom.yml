@@ -28,7 +28,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Determine version
         id: version
@@ -91,12 +91,16 @@ jobs:
 
       - name: Attach SBOM to release
         if: github.event_name != 'pull_request'
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            ibm-finops-agent-source-sbom.spdx.json
-            ibm-finops-agent-source-sbom.cyclonedx.json
-          tag_name: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', env.VERSION) }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', env.VERSION) }}
+        run: |
+          files=(ibm-finops-agent-source-sbom.spdx.json ibm-finops-agent-source-sbom.cyclonedx.json)
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" "${files[@]}" --clobber
+          else
+            gh release create "${TAG_NAME}" "${files[@]}"
+          fi
 
       - name: Add workflow summary
         run: |
