@@ -68,6 +68,8 @@ type EmitterConfig struct {
 	EmitAllocationMinuteResolution bool
 	EmitAssetMinuteResolution      bool
 	EmitKubeModelMinuteResolution  bool
+	EmitLegacyDateModels           bool
+	EmitKubeModel                  bool
 	KubernetesResourcesRequired    []string
 }
 
@@ -86,6 +88,8 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),
 		EmitAssetMinuteResolution:      kcenv.IsMinuteMetricsEnabled(),
 		EmitKubeModelMinuteResolution:  kcenv.IsMinuteMetricsEnabled(),
+		EmitLegacyDateModels:           coreenv.GetExportLegacyDataModel(),
+		EmitKubeModel:                  coreenv.GetExportKubeModel(),
 		// Kubecost emitter requires all kubernetes resources to be enabled
 		KubernetesResourcesRequired: slices.Clone(emitter.SnapshotAllResources),
 	}
