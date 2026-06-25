@@ -94,6 +94,8 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 			10*time.Minute,
 		)
 	}
+	pipelineConfig.Streaming = ke.config.StreamingExportEnabled
+	pipelineConfig.Compression = ke.config.StreamingExportCompressionLevel
 
 	// all pipeline export controllers
 	pipelineControllers := exporter.NewPipelineExportControllers(bucketStore, costModel, pipelineConfig)

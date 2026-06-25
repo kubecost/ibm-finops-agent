@@ -1,12 +1,15 @@
 package kubecost
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"strings"
 	"testing"
 
+	kcenv "github.com/ibm/finops-agent/kubecost/env"
 	"github.com/opencost/opencost/core/pkg/env"
+	"github.com/opencost/opencost/core/pkg/opencost/exporter"
 )
 
 func CreateTestBucketConfigFile(t *testing.T, contents string) string {
@@ -82,4 +85,76 @@ func TestValidBucketValidateConfig(t *testing.T) {
 		t.Fatalf("ValidateConfig failed: %v", err)
 	}
 	t.Logf("ValidateConfig succeeded with config")
+}
+
+func TestStreamingAndCompressionConfigs(t *testing.T) {
+	type expected struct {
+		isStreaming      bool
+		compressionLevel exporter.ExportCompressionLevel
+	}
+	type testCase struct {
+		isStreaming      string
+		compressionLevel string
+		exp              expected
+	}
+
+	cases := []testCase{
+		{
+			isStreaming:      "true",
+			compressionLevel: "",
+			exp:              expected{isStreaming: true, compressionLevel: exporter.ExportCompressionLevelNone},
+		},
+		{
+			isStreaming:      "false",
+			compressionLevel: "1",
+			exp:              expected{isStreaming: false, compressionLevel: exporter.ExportCompressionLevelNone},
+		},
+		{
+			isStreaming:      "true",
+			compressionLevel: "1",
+			exp:              expected{isStreaming: true, compressionLevel: exporter.ExportCompressionLevelBestSpeed},
+		},
+		{
+			isStreaming:      "true",
+			compressionLevel: "55",
+			exp:              expected{isStreaming: true, compressionLevel: exporter.ExportCompressionLevelBestSpeed},
+		},
+		{
+			isStreaming:      "true",
+			compressionLevel: "9",
+			exp:              expected{isStreaming: true, compressionLevel: exporter.ExportCompressionLevelBestCompression},
+		},
+		{
+			isStreaming:      "true",
+			compressionLevel: "-1",
+			exp:              expected{isStreaming: true, compressionLevel: exporter.ExportCompressionLevelDefault},
+		},
+		{
+			isStreaming:      "true",
+			compressionLevel: "-5",
+			exp:              expected{isStreaming: true, compressionLevel: exporter.ExportCompressionLevelBestSpeed},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(fmt.Sprintf("streaming and compression config stream=%s level=%s", c.isStreaming, c.compressionLevel), func(t *testing.T) {
+			tempDir := os.TempDir()
+			t.Setenv(env.ClusterIDEnvVar, "test-cluster")
+			t.Setenv(env.ConfigPathEnvVar, tempDir)
+			t.Setenv(kcenv.StreamingExportEnabledEnvVar, c.isStreaming)
+			t.Setenv(kcenv.StreamingExportCompressionLevelEnvVar, c.compressionLevel)
+
+			config := NewEmitterConfigFromEnv("cluster-uid")
+
+			if config.StreamingExportEnabled != c.exp.isStreaming {
+				t.Errorf("config.StreamingExportEnabled (%t) != expected (%t)", config.StreamingExportEnabled, c.exp.isStreaming)
+				return
+			}
+
+			if config.StreamingExportCompressionLevel != c.exp.compressionLevel {
+				t.Errorf("config.StreamingExportCompressionLevel (%d) != expected (%d)", config.StreamingExportCompressionLevel, c.exp.compressionLevel)
+				return
+			}
+		})
+	}
 }
