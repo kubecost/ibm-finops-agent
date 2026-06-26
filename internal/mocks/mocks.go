@@ -898,6 +898,41 @@ type MockMetricsQuerier struct {
 	Calls map[string]int
 }
 
+func (m *MockMetricsQuerier) QueryKMLocalStorageUsedAvg(start, end time.Time) *source.Future[source.NodeUIDValueResult] {
+	m.recordCall("QueryKMLocalStorageUsedAvg")
+	return newEmptyResult(source.DecodePVInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryKMLocalStorageUsedMax(start, end time.Time) *source.Future[source.NodeUIDValueResult] {
+	m.recordCall("QueryKMLocalStorageUsedMax")
+	return newEmptyResult(source.DecodePVInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryKMLocalStorageBytes(start, end time.Time) *source.Future[source.UIDValueResult] {
+	m.recordCall("QueryKMLocalStorageBytes")
+	return newEmptyResult(source.DecodePVInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryKMPVCInfo(start, end time.Time) *source.Future[source.PVCInfoResult] {
+	m.recordCall("QueryKMPVCInfo")
+	return newEmptyResult(source.DecodePVInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryPVCBytesUsedAverage(start, end time.Time) *source.Future[source.PVCUIDValueResult] {
+	m.recordCall("QueryPVCBytesUsedAverage")
+	return newEmptyResult(source.DecodePVInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryPVCBytesUsedMax(start, end time.Time) *source.Future[source.PVCUIDValueResult] {
+	m.recordCall("QueryPVCBytesUsedMax")
+	return newEmptyResult(source.DecodePVInfoResult)
+}
+
+func (m *MockMetricsQuerier) QueryKMPVInfo(start, end time.Time) *source.Future[source.PVInfoResult] {
+	m.recordCall("QueryKMPVInfo")
+	return newEmptyResult(source.DecodePVInfoResult)
+}
+
 // NewMockMetricsQuerier creates a new mock metrics querier
 func NewMockMetricsQuerier() *MockMetricsQuerier {
 	return &MockMetricsQuerier{
