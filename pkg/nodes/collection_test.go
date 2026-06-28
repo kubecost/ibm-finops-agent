@@ -131,6 +131,8 @@ func NewHTTPMockClient(c Client, isDirect bool, failDirect bool, failProxy bool)
 	}
 }
 
+func (m *mockHTTPClient) CloseIdleConnections() {}
+
 func (m *mockHTTPClient) Do(request *http.Request) (*http.Response, error) {
 	proxyData, _ := os.ReadFile("testdata/summary-proxynode.json")
 	directData, _ := os.ReadFile("testdata/summary-directnode.json")

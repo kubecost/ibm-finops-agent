@@ -121,6 +121,13 @@ func (nssc *NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 		err = errors.Join(errs...)
 	}
 
+	// All nodes failed. The transport may be holding stale TLS connections to replaced node
+	// IPs. Purge idle connections so the next poll dials fresh rather than reusing dead ones.
+	if len(statsList) == 0 && err != nil {
+		nssc.config.DirectNodeClient.closeIdleConnections()
+		nssc.config.InClusterClient.closeIdleConnections()
+	}
+
 	return statsList, err
 }
 

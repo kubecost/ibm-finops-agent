@@ -62,6 +62,7 @@ func (c *Client) makeRequest(method string, URL string, bearerToken string) (dat
 
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
+	CloseIdleConnections()
 }
 
 // Client defines an HTTP Client with specified retries
@@ -75,6 +76,12 @@ func NewClient(client *http.Client, retries uint) Client {
 		client:  client,
 		retries: retries,
 	}
+}
+
+// closeIdleConnections purges idle connections from the underlying HTTP client's
+// connection pool, forcing a fresh dial on the next request.
+func (c *Client) closeIdleConnections() {
+	c.client.CloseIdleConnections()
 }
 
 type connectionMethod struct {
