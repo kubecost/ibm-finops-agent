@@ -52,10 +52,9 @@ const (
 	// ParseMetricDataEnvVar env var for sanitizing k8s resources
 	ParseMetricDataEnvVar = "PARSE_METRIC_DATA"
 
-	// External labels ConfigMap configuration
-	ExternalLabelsConfigMapNameEnvVar      = "EXTERNAL_LABELS_CONFIGMAP_NAME"
-	ExternalLabelsConfigMapNamespaceEnvVar = "EXTERNAL_LABELS_CONFIGMAP_NAMESPACE"
-	ExternalLabelsConfigMapPathEnvVar      = "EXTERNAL_LABELS_CONFIGMAP_PATH"
+	// ExternalLabelsEnabledEnvVar enables auto-discovery of a ConfigMap labelled
+	// ibm.kubecost.com/external-labels="true" in the agent namespace.
+	ExternalLabelsEnabledEnvVar = "EXTERNAL_LABELS_ENABLED"
 
 	// Prefixes for
 	CloudabilityPrefix = "CLOUDABILITY_"
@@ -197,18 +196,8 @@ func getValueWithPotentialPrefixOrDefault[T any](envVariable string, prefix stri
 	return convert(envValue)
 }
 
-// GetExternalLabelsConfigMapName returns the name of the ConfigMap containing external labels.
-func GetExternalLabelsConfigMapName() string {
-	return env.Get(ExternalLabelsConfigMapNameEnvVar, "")
-}
-
-// GetExternalLabelsConfigMapNamespace returns the namespace of the ConfigMap containing external labels.
-func GetExternalLabelsConfigMapNamespace() string {
-	return env.Get(ExternalLabelsConfigMapNamespaceEnvVar, "")
-}
-
-// GetExternalLabelsConfigMapPath returns the dot-separated YAML path within the ConfigMap's
-// config.yaml key where the external labels map lives (e.g. "prometheusK8s.externalLabels").
-func GetExternalLabelsConfigMapPath() string {
-	return env.Get(ExternalLabelsConfigMapPathEnvVar, "")
+// IsExternalLabelsEnabled returns true when the agent should auto-discover and watch
+// a ConfigMap labelled ibm.kubecost.com/external-labels="true" in the agent namespace.
+func IsExternalLabelsEnabled() bool {
+	return env.GetBool(ExternalLabelsEnabledEnvVar, false)
 }
