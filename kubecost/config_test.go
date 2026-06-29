@@ -138,7 +138,7 @@ func TestStreamingAndCompressionConfigs(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(fmt.Sprintf("streaming and compression config stream=%s level=%s", c.isStreaming, c.compressionLevel), func(t *testing.T) {
-			tempDir := os.TempDir()
+			tempDir := t.TempDir()
 			t.Setenv(env.ClusterIDEnvVar, "test-cluster")
 			t.Setenv(env.ConfigPathEnvVar, tempDir)
 			t.Setenv(kcenv.StreamingExportEnabledEnvVar, c.isStreaming)
