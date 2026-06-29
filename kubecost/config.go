@@ -12,6 +12,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/emitter"
 	coreenv "github.com/opencost/opencost/core/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/opencost/opencost/core/pkg/opencost/exporter"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/env"
 )
@@ -56,19 +57,21 @@ func NewExportIntervalConfigFromEnv() *ExportIntervalConfig {
 
 // EmitterConfig is a struct that holds the configuration for the kubecost emitter.
 type EmitterConfig struct {
-	ClusterUID                     string
-	ClusterName                    string
-	AppName                        string
-	ConfigPath                     string
-	CloudProviderAPIKey            string
-	InstallNamespace               string
-	BucketConfigFile               string
-	ExportIntervals                *ExportIntervalConfig
-	QueryResolution                time.Duration
-	EmitAllocationMinuteResolution bool
-	EmitAssetMinuteResolution      bool
-	EmitKubeModelMinuteResolution  bool
-	KubernetesResourcesRequired    []string
+	ClusterUID                      string
+	ClusterName                     string
+	AppName                         string
+	ConfigPath                      string
+	CloudProviderAPIKey             string
+	InstallNamespace                string
+	BucketConfigFile                string
+	ExportIntervals                 *ExportIntervalConfig
+	QueryResolution                 time.Duration
+	EmitAllocationMinuteResolution  bool
+	EmitAssetMinuteResolution       bool
+	EmitKubeModelMinuteResolution   bool
+	KubernetesResourcesRequired     []string
+	StreamingExportEnabled          bool
+	StreamingExportCompressionLevel exporter.ExportCompressionLevel
 }
 
 // NewEmitterConfigFromEnv creates a new EmitterConfig from environment variables.
@@ -87,7 +90,9 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 		EmitAssetMinuteResolution:      kcenv.IsMinuteMetricsEnabled(),
 		EmitKubeModelMinuteResolution:  kcenv.IsMinuteMetricsEnabled(),
 		// Kubecost emitter requires all kubernetes resources to be enabled
-		KubernetesResourcesRequired: slices.Clone(emitter.SnapshotAllResources),
+		KubernetesResourcesRequired:     slices.Clone(emitter.SnapshotAllResources),
+		StreamingExportEnabled:          kcenv.IsStreamingExportEnabled(),
+		StreamingExportCompressionLevel: kcenv.GetStreamingExportCompressionLevel(),
 	}
 }
 

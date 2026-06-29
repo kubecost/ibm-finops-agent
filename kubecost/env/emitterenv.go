@@ -5,6 +5,8 @@ import (
 	"time"
 
 	coreenv "github.com/opencost/opencost/core/pkg/env"
+	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/opencost/opencost/core/pkg/opencost/exporter"
 )
 
 const (
@@ -12,12 +14,14 @@ const (
 	DiagnosticsExportEnabledEnvVar = "DIAGNOSTICS_EXPORT_ENABLED"
 	MinuteMetricsEnabledEnvVar     = "MINUTE_METRICS_ENABLED"
 
-	AllocationExportIntervalEnvVar     = "ALLOCATION_EXPORT_INTERVAL"
-	AssetExportIntervalEnvVar          = "ASSET_EXPORT_INTERVAL"
-	NetworkInsightExportIntervalEnvVar = "NETWORK_INSIGHT_EXPORT_INTERVAL"
-	KubeModelExportIntervalEnvVar      = "KUBEMODEL_EXPORT_INTERVAL"
-	HeartbeatExportIntervalEnvVar      = "HEARTBEAT_EXPORT_INTERVAL"
-	DiagnosticsExportIntervalEnvVar    = "DIAGNOSTICS_EXPORT_INTERVAL"
+	AllocationExportIntervalEnvVar        = "ALLOCATION_EXPORT_INTERVAL"
+	AssetExportIntervalEnvVar             = "ASSET_EXPORT_INTERVAL"
+	NetworkInsightExportIntervalEnvVar    = "NETWORK_INSIGHT_EXPORT_INTERVAL"
+	KubeModelExportIntervalEnvVar         = "KUBEMODEL_EXPORT_INTERVAL"
+	HeartbeatExportIntervalEnvVar         = "HEARTBEAT_EXPORT_INTERVAL"
+	DiagnosticsExportIntervalEnvVar       = "DIAGNOSTICS_EXPORT_INTERVAL"
+	StreamingExportEnabledEnvVar          = "STREAMING_EXPORT_ENABLED"
+	StreamingExportCompressionLevelEnvVar = "STREAMING_EXPORT_COMPRESSION_LEVEL"
 )
 
 // IsMinuteMetricsEnabled returns true if the 10m resolution emitter for kubecost
@@ -64,6 +68,37 @@ func GetDiagnosticsExportInterval() time.Duration {
 // IsDiagnosticsExportEnabled returns true if the diagnostics export is enabled.
 func IsDiagnosticsExportEnabled() bool {
 	return coreenv.GetBool(DiagnosticsExportEnabledEnvVar, true)
+}
+
+// IsStreamingExportEnabled returns true if the bingen pipeline exporters should use a streaming io.Writer
+// when exporting data, as opposed to encoding a []byte, then uploading.
+func IsStreamingExportEnabled() bool {
+	return coreenv.GetBool(StreamingExportEnabledEnvVar, false)
+}
+
+// GetStreamingExportCompressionLevel returns the compression level to use for streaming compressed exporter uploads. This value is
+// set via env var to a level of 0 (disabled), -1 (default compression), or within the range: 1 (best speed) -> 9 (best compression).
+// Any values outside of the valid range will default to the 1 (best speed) compression level. If the env var is not set, and streaming
+// is enabled, then compression is disabled by default.
+//
+// Note that these compression level values align with the gzip encoding API in the go standard library.
+func GetStreamingExportCompressionLevel() exporter.ExportCompressionLevel {
+	// for now, this can only be enabled if streaming is enabled, so we ensure this is the case here:
+	if !IsStreamingExportEnabled() {
+		return exporter.ExportCompressionLevelNone
+	}
+
+	// defaults to 0 (compression disabled)
+	level := exporter.ExportCompressionLevel(coreenv.GetInt(StreamingExportCompressionLevelEnvVar, 0))
+
+	// if the level provided is invalid (explicitly set, but not in the 0-9 range),
+	// the more "acceptable" default for our use-case is speed.
+	if !level.IsValid() {
+		log.Debugf("Invalid export compression level set: %d - Defaulting to 1 (BestSpeed).", level)
+		return exporter.ExportCompressionLevelBestSpeed
+	}
+
+	return level
 }
 
 // GetExportBucketConfigFile returns the file path for the export bucket
