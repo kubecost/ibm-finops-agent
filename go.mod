@@ -228,8 +228,8 @@ require (
 )
 
 replace (
-	github.com/opencost/opencost => /Users/alanrodrigues/devel/opencost
-	github.com/opencost/opencost/core => /Users/alanrodrigues/devel/opencost/core
-	github.com/opencost/opencost/modules/collector-source => /Users/alanrodrigues/devel/opencost/modules/collector-source
-	github.com/opencost/opencost/modules/prometheus-source => /Users/alanrodrigues/devel/opencost/modules/prometheus-source
+	github.com/opencost/opencost => ../opencost
+	github.com/opencost/opencost/core => ../opencost/core
+	github.com/opencost/opencost/modules/collector-source => ../opencost/modules/collector-source
+	github.com/opencost/opencost/modules/prometheus-source => ../opencost/modules/prometheus-source
 )
