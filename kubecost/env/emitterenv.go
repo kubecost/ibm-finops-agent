@@ -5,6 +5,7 @@ import (
 	"time"
 
 	coreenv "github.com/opencost/opencost/core/pkg/env"
+	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/opencost/exporter"
 )
 
@@ -93,6 +94,7 @@ func GetStreamingExportCompressionLevel() exporter.ExportCompressionLevel {
 	// if the level provided is invalid (explicitly set, but not in the 0-9 range),
 	// the more "acceptable" default for our use-case is speed.
 	if !level.IsValid() {
+		log.Debugf("Invalid export compression level set: %d - Defaulting to 1 (BestSpeed).", level)
 		return exporter.ExportCompressionLevelBestSpeed
 	}
 
