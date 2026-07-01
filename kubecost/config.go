@@ -91,8 +91,8 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),
 		EmitAssetMinuteResolution:      kcenv.IsMinuteMetricsEnabled(),
 		EmitKubeModelMinuteResolution:  kcenv.IsMinuteMetricsEnabled(),
-		EmitLegacyDateModels:           coreenv.GetExportLegacyDataModel(),
-		EmitKubeModel:                  coreenv.GetExportKubeModel(),
+		EmitLegacyDateModels:           coreenv.IsLegacyDataModelExported(),
+		EmitKubeModel:                  kcenv.IsFinOpsAgentKubeModelExported(),
 		// Kubecost emitter requires all kubernetes resources to be enabled
 		KubernetesResourcesRequired:     slices.Clone(emitter.SnapshotAllResources),
 		StreamingExportEnabled:          kcenv.IsStreamingExportEnabled(),

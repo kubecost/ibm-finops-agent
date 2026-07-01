@@ -472,6 +472,18 @@ func (mqa *MetricsQuerierAdapter) QueryClusterInfo(start, end time.Time) *source
 	return source.NewFutureFrom(snapshot.ClusterInfo)
 }
 
+func (mqa *MetricsQuerierAdapter) QueryClusterKubeModelVersion(start, end time.Time) *source.Future[source.ClusterKubeModelVersionResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeClusterKubeModelVersionResult, fmt.Errorf("invalid start/end duration: %dh", int(end.Sub(start).Hours())))
+	}
+
+	return source.NewFutureFrom(snapshot.ClusterKubeModelVersion)
+}
+
 func (mqa *MetricsQuerierAdapter) QueryClusterUptime(start, end time.Time) *source.Future[source.UptimeResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()

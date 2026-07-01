@@ -114,3 +114,10 @@ func GetFinOpsAgentNamespace() string {
 func GetFinOpsAgentAppName() string {
 	return coreenv.Get(coreenv.AppNameEnvVar, FinOpsAgentDefault)
 }
+
+// IsFinOpsAgentKubeModelExported distinct implementation from opencost changes default to true.
+// exporting KubeModel is required to support resource quotas. There is a seperate env var "FORCE_KUBEMODEL_V1"
+// which is currently defaulted to true which prevents additional data from making it through the pipeline.
+func IsFinOpsAgentKubeModelExported() bool {
+	return coreenv.GetBool(coreenv.ExportKubeModelEnvVar, true)
+}

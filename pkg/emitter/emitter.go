@@ -73,6 +73,8 @@ type MetricsSnapshot struct {
 	NodeRAMUserPercent                   []*source.NodeRAMUserPercentResult
 	LBActiveMinutes                      []*source.LBActiveMinutesResult
 	LBPricePerHr                         []*source.LBPricePerHrResult
+	ClusterInfo                          []*source.ClusterInfoResult
+	ClusterKubeModelVersion              []*source.ClusterKubeModelVersionResult
 	ClusterUptime                        []*source.UptimeResult
 	ClusterManagementDuration            []*source.ClusterManagementDurationResult
 	ClusterManagementPricePerHr          []*source.ClusterManagementPricePerHrResult
@@ -159,7 +161,6 @@ type MetricsSnapshot struct {
 	NodeUptime                           []*source.UptimeResult
 	NodeResourceCapacities               []*source.ResourceResult
 	NodeResourcesAllocatable             []*source.ResourceResult
-	ClusterInfo                          []*source.ClusterInfoResult
 	PodInfo                              []*source.PodInfoResult
 	PodUptime                            []*source.UptimeResult
 	PodOwners                            []*source.OwnerResult
