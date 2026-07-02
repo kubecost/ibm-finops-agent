@@ -52,8 +52,18 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 
 	var storageServices []StorageService
 
-	// Cloudability emitter
-	if config.EnvID != "" {
+	// Legacy metrics-collector upload path (API key / API Gateway)
+	if hasAPIKeyConfigured(config.APIKeySecretManager) {
+		metricsCollectorService, err := NewMetricsCollectorService(config.ApptioConfig)
+		if err != nil {
+			log.Errorf("Failed to create metrics-collector uploader: %v", err)
+		}
+		if metricsCollectorService != nil {
+			storageServices = append(storageServices, metricsCollectorService)
+		}
+
+		// Apptio Frontdoor upload path
+	} else if config.EnvID != "" {
 		apptioService, err := NewApptioService(config.ApptioConfig)
 		if err != nil {
 			log.Errorf("Failed to create cloudability uploader: %v", err)
