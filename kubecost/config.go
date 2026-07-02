@@ -69,6 +69,8 @@ type EmitterConfig struct {
 	EmitAllocationMinuteResolution  bool
 	EmitAssetMinuteResolution       bool
 	EmitKubeModelMinuteResolution   bool
+	EmitLegacyDateModels            bool
+	EmitKubeModel                   bool
 	KubernetesResourcesRequired     []string
 	StreamingExportEnabled          bool
 	StreamingExportCompressionLevel exporter.ExportCompressionLevel
@@ -79,7 +81,7 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 	return &EmitterConfig{
 		ClusterUID:                     clusterUID,
 		ClusterName:                    coreenv.GetClusterID(),
-		AppName:                        coreenv.GetAppName(),
+		AppName:                        kcenv.GetFinOpsAgentAppName(),
 		ConfigPath:                     coreenv.GetConfigPath(),
 		CloudProviderAPIKey:            env.GetCloudProviderAPIKey(),
 		InstallNamespace:               coreenv.GetInstallNamespace(""),
@@ -89,6 +91,8 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),
 		EmitAssetMinuteResolution:      kcenv.IsMinuteMetricsEnabled(),
 		EmitKubeModelMinuteResolution:  kcenv.IsMinuteMetricsEnabled(),
+		EmitLegacyDateModels:           coreenv.IsLegacyDataModelExported(),
+		EmitKubeModel:                  kcenv.IsFinOpsAgentKubeModelExported(),
 		// Kubecost emitter requires all kubernetes resources to be enabled
 		KubernetesResourcesRequired:     slices.Clone(emitter.SnapshotAllResources),
 		StreamingExportEnabled:          kcenv.IsStreamingExportEnabled(),

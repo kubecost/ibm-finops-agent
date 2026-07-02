@@ -1,6 +1,6 @@
 module github.com/ibm/finops-agent
 
-go 1.26.3
+go 1.26.2
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
@@ -12,10 +12,10 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
-	github.com/opencost/opencost v1.120.4
-	github.com/opencost/opencost/core v1.120.4
-	github.com/opencost/opencost/modules/collector-source v1.120.4
-	github.com/opencost/opencost/modules/prometheus-source v1.120.4
+	github.com/opencost/opencost v1.120.5-0.20260701171025-87faadd1d783
+	github.com/opencost/opencost/core v1.120.5-0.20260701171025-87faadd1d783
+	github.com/opencost/opencost/modules/collector-source v1.120.5-0.20260701171025-87faadd1d783
+	github.com/opencost/opencost/modules/prometheus-source v1.120.5-0.20260701171025-87faadd1d783
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/cors v1.11.1
 	github.com/spf13/cast v1.10.0
@@ -155,7 +155,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oklog/run v1.2.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
-	github.com/oracle/oci-go-sdk/v65 v65.109.0 // indirect
+	github.com/oracle/oci-go-sdk/v65 v65.117.1 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
@@ -172,7 +172,7 @@ require (
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/scaleway/scaleway-sdk-go v1.0.0-beta.36 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
-	github.com/sony/gobreaker v1.0.0 // indirect
+	github.com/sony/gobreaker/v2 v2.4.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
