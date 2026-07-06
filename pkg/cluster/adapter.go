@@ -144,6 +144,16 @@ func (kcc *OpenCostClusterCacheAdapter) GetAllJobs() []*clustercache.Job {
 	return jobs
 }
 
+func (kcc *OpenCostClusterCacheAdapter) GetAllCronJobs() []*clustercache.CronJob {
+	cc := kcc.clusterCache
+
+	var cronJobs []*clustercache.CronJob
+	for _, cronJob := range cc.GetAllCronJobs() {
+		cronJobs = append(cronJobs, clustercache.TransformCronJob(cronJob))
+	}
+	return cronJobs
+}
+
 func (kcc *OpenCostClusterCacheAdapter) GetAllPodDisruptionBudgets() []*clustercache.PodDisruptionBudget {
 	cc := kcc.clusterCache
 

@@ -12,6 +12,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/emitter"
 	coreenv "github.com/opencost/opencost/core/pkg/env"
 	"github.com/opencost/opencost/core/pkg/log"
+	"github.com/opencost/opencost/core/pkg/opencost/exporter"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/env"
 )
@@ -56,19 +57,23 @@ func NewExportIntervalConfigFromEnv() *ExportIntervalConfig {
 
 // EmitterConfig is a struct that holds the configuration for the kubecost emitter.
 type EmitterConfig struct {
-	ClusterUID                     string
-	ClusterName                    string
-	AppName                        string
-	ConfigPath                     string
-	CloudProviderAPIKey            string
-	InstallNamespace               string
-	BucketConfigFile               string
-	ExportIntervals                *ExportIntervalConfig
-	QueryResolution                time.Duration
-	EmitAllocationMinuteResolution bool
-	EmitAssetMinuteResolution      bool
-	EmitKubeModelMinuteResolution  bool
-	KubernetesResourcesRequired    []string
+	ClusterUID                      string
+	ClusterName                     string
+	AppName                         string
+	ConfigPath                      string
+	CloudProviderAPIKey             string
+	InstallNamespace                string
+	BucketConfigFile                string
+	ExportIntervals                 *ExportIntervalConfig
+	QueryResolution                 time.Duration
+	EmitAllocationMinuteResolution  bool
+	EmitAssetMinuteResolution       bool
+	EmitKubeModelMinuteResolution   bool
+	EmitLegacyDateModels            bool
+	EmitKubeModel                   bool
+	KubernetesResourcesRequired     []string
+	StreamingExportEnabled          bool
+	StreamingExportCompressionLevel exporter.ExportCompressionLevel
 }
 
 // NewEmitterConfigFromEnv creates a new EmitterConfig from environment variables.
@@ -76,7 +81,7 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 	return &EmitterConfig{
 		ClusterUID:                     clusterUID,
 		ClusterName:                    coreenv.GetClusterID(),
-		AppName:                        coreenv.GetAppName(),
+		AppName:                        kcenv.GetFinOpsAgentAppName(),
 		ConfigPath:                     coreenv.GetConfigPath(),
 		CloudProviderAPIKey:            env.GetCloudProviderAPIKey(),
 		InstallNamespace:               coreenv.GetInstallNamespace(""),
@@ -86,8 +91,12 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),
 		EmitAssetMinuteResolution:      kcenv.IsMinuteMetricsEnabled(),
 		EmitKubeModelMinuteResolution:  kcenv.IsMinuteMetricsEnabled(),
+		EmitLegacyDateModels:           coreenv.IsLegacyDataModelExported(),
+		EmitKubeModel:                  kcenv.IsFinOpsAgentKubeModelExported(),
 		// Kubecost emitter requires all kubernetes resources to be enabled
-		KubernetesResourcesRequired: slices.Clone(emitter.SnapshotAllResources),
+		KubernetesResourcesRequired:     slices.Clone(emitter.SnapshotAllResources),
+		StreamingExportEnabled:          kcenv.IsStreamingExportEnabled(),
+		StreamingExportCompressionLevel: kcenv.GetStreamingExportCompressionLevel(),
 	}
 }
 

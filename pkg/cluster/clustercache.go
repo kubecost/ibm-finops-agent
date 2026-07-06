@@ -60,6 +60,9 @@ type ClusterCache interface {
 	// GetAllJobs returns all the cached jobs
 	GetAllJobs() []*batchv1.Job
 
+	// GetAllCronJobs returns all the cached jobs
+	GetAllCronJobs() []*batchv1.CronJob
+
 	// GetAllPodDisruptionBudgets returns all cached pod disruption budgets
 	GetAllPodDisruptionBudgets() []*policyv1.PodDisruptionBudget
 
