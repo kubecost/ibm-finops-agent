@@ -5,8 +5,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/ibm/finops-agent/kubecost/env"
 	kcenv "github.com/ibm/finops-agent/kubecost/env"
 	agentenv "github.com/ibm/finops-agent/pkg/env"
+	"github.com/opencost/opencost/core/pkg/externallabels"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/util/watcher"
@@ -61,11 +63,12 @@ func NewOpenCostDataSource(
 	configWatchers := watcher.NewConfigMapWatchers(kubeClientset, kcenv.GetFinOpsAgentNamespace())
 	configWatchers.AddWatcher(provider.ConfigWatcherFor(cloudProvider))
 
-	// If external labels discovery is enabled, find the ConfigMap labelled
-	// ibm.kubecost.com/external-labels="true" in the agent namespace and watch it.
-	var isExternalLabelsEnabled bool
+	var externalLabelsProvider externallabels.Provider
 	if agentenv.IsExternalLabelsEnabled() {
-		isExternalLabelsEnabled = agentenv.IsExternalLabelsEnabled()
+		externalLabelsProvider, err = externallabels.NewConfigMapProvider(kubeClientset, env.GetFinOpsAgentNamespace())
+		if err != nil {
+			log.Errorf("external labels is enabled, failed to created the provider: %s", err)
+		}
 	}
 
 	configWatchers.Watch()
@@ -113,7 +116,7 @@ func NewOpenCostDataSource(
 				clusterInfoProvider,
 				clusterCache,
 				nodeClient,
-				isExternalLabelsEnabled,
+				externalLabelsProvider,
 			)
 			return ds, nil
 		}
