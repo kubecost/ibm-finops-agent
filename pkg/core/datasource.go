@@ -39,6 +39,9 @@ type DataSource interface {
 
 	// K8s Version Object
 	ClusterMetadata() cluster.Metadata
+
+	// NodeStatsProvider returns the background NodeStatsSummaryProvider if background collection is enabled, nil otherwise.
+	NodeStatsProvider() *nodes.NodeStatsSummaryProvider
 }
 
 func NewAgentDataSource(
@@ -68,7 +71,6 @@ func NewAgentDataSource(
 
 	k8sCache.Start(context.Background().Done())
 
-	var nodeStatsProvider nodes.StatSummaryClient
 	nodeClientConfig, err := nodes.NewNodeClientConfigFromEnv()
 	if err != nil {
 		log.Fatalf("error retrieving node client config: %s", err)
@@ -77,8 +79,10 @@ func NewAgentDataSource(
 
 	// If we use a background service, we leverage the client to refresh node data on an interval
 	// otherwise, we retrieve node data _at_ snapshot time
+	var nodesProvider *nodes.NodeStatsSummaryProvider
+	var nodeStatsProvider nodes.StatSummaryClient
 	if nodeClientConfig.BackgroundNodeCollection {
-		nodesProvider := nodes.NewNodeStatsSummaryProvider(nodeStatsSummaryClient)
+		nodesProvider = nodes.NewNodeStatsSummaryProvider(nodeStatsSummaryClient)
 		nodesProvider.Start(nodeClientConfig.RefreshInterval)
 
 		nodeStatsProvider = nodesProvider
@@ -105,6 +109,7 @@ func NewAgentDataSource(
 		metrics:                   opencostSource.Metrics(),
 		clusterCache:              k8sCache,
 		nodeStatsSummaryClient:    nodeStatsProvider,
+		nodeStatsProvider:         nodesProvider,
 		clusterMetadata:           clusterMetadata,
 	}
 }
@@ -124,6 +129,9 @@ type agentDataSource struct {
 
 	// Node Stats Summary Client
 	nodeStatsSummaryClient nodes.StatSummaryClient
+
+	// Background node stats provider (nil if background collection is disabled)
+	nodeStatsProvider *nodes.NodeStatsSummaryProvider
 
 	// Cluster Metadata
 	clusterMetadata cluster.Metadata
@@ -153,4 +161,8 @@ func (ads *agentDataSource) StatsSummary() nodes.StatSummaryClient {
 
 func (ads *agentDataSource) ClusterMetadata() cluster.Metadata {
 	return ads.clusterMetadata
+}
+
+func (ads *agentDataSource) NodeStatsProvider() *nodes.NodeStatsSummaryProvider {
+	return ads.nodeStatsProvider
 }

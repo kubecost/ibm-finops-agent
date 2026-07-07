@@ -46,6 +46,7 @@ type Emitter struct {
 	Uploader          Uploader
 	ClusterID         *string
 	ScratchPath       string
+	lastNodeStats     *emitter.NodeStatsSummary
 }
 
 type EmitterConfig struct {
@@ -61,6 +62,13 @@ type EmitterConfig struct {
 }
 
 const UPLOAD_FREQUENCY = 10
+
+// UploadFrequencyDuration is the upload cadence as a time.Duration.
+var UploadFrequencyDuration = time.Minute * time.Duration(UPLOAD_FREQUENCY)
+
+// MaxStaleUploadCycles is how many upload cycles may pass with no successful node-stats
+// collection before the agent considers itself wedged. Used by the /healthz staleness check.
+const MaxStaleUploadCycles = 3
 
 func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetEnvPrefix("CLOUDABILITY")
@@ -204,6 +212,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 		return err
 	}
 
+	ce.lastNodeStats = cs.NodeStats
 	err = ce.writeStatsData(cs.NodeStats)
 	if err != nil {
 		return err
@@ -225,6 +234,7 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 		return err
 	}
 
+	ce.lastNodeStats = cs.NodeStats
 	err = ce.writeStatsData(cs.NodeStats)
 	if err != nil {
 		return err
@@ -244,7 +254,7 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 
 func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 	if statsData == nil {
-		return fmt.Errorf("stats data was nil")
+		return nil
 	}
 	for _, val := range statsData.Stats {
 		data, err := json.Marshal(val)
@@ -465,6 +475,33 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values["custom_s3_region"] = ce.config.CustomS3UploadRegion
 	values["custom_azure_blob_name"] = ce.config.CustomAzureBlobContainerName
 	metrics["uptime"] = int(now.UTC().Sub(ce.startTime).Seconds())
+
+	// Node collection diagnostics
+	var nodeErrors []errorDetail
+	if ce.lastNodeStats != nil {
+		values["node_collection_failed"] = strconv.FormatBool(ce.lastNodeStats.CollectionFailed)
+		values["seconds_since_last_successful_node_collection"] = strconv.FormatInt(int64(ce.lastNodeStats.SecondsSinceLastSuccessfulNodeCollection), 10)
+
+		var nodesTotal, nodesFailed int
+		for _, r := range ce.lastNodeStats.Results {
+			nodesTotal++
+			if !r.Success {
+				nodesFailed++
+				if len(nodeErrors) < maxNodeErrors {
+					nodeErrors = append(nodeErrors, errorDetail{
+						Name:    r.NodeName,
+						Message: fmt.Sprintf("[%s] %v", r.Method, r.Error),
+						Type:    "node_error",
+					})
+				}
+			}
+		}
+		nodesReady := nodesTotal - nodesFailed
+		metrics["nodes_total"] = nodesTotal
+		metrics["nodes_ready"] = nodesReady
+		metrics["nodes_failed"] = nodesFailed
+	}
+
 	agent := agentData{
 		Name:    "cldy_agent_status",
 		Metrics: metrics,
@@ -473,6 +510,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		},
 		Ts:     now.UTC().UnixMilli() / 1000,
 		Values: values,
+		Errors: nodeErrors,
 	}
 	agentBytes, err := json.Marshal(agent)
 	if err != nil {
@@ -482,12 +520,21 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	return err
 }
 
+const maxNodeErrors = 500
+
 type agentData struct {
 	Name    string            `json:"name"`
 	Metrics map[string]int    `json:"metrics"`
 	Tags    map[string]string `json:"tags"`
 	Ts      int64             `json:"ts"`
 	Values  map[string]string `json:"values"`
+	Errors  []errorDetail     `json:"errors,omitempty"`
+}
+
+type errorDetail struct {
+	Name    string `json:"name"`
+	Message string `json:"message"`
+	Type    string `json:"type"`
 }
 
 func (ce *Emitter) getSuffix() string {

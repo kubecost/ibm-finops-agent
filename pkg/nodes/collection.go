@@ -15,8 +15,16 @@ import (
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
+// StalenessProvider is optionally implemented by a StatSummaryClient that can report
+// how long since the last successful collection.
+type StalenessProvider interface {
+	SecondsSinceLastSuccess() float64
+	HasEverSucceeded() bool
+	LastCollectionResults() []NodeCollectionResult
+}
+
 type StatSummaryClient interface {
-	GetNodeData() ([]*stats.Summary, error)
+	GetNodeData() ([]*stats.Summary, []NodeCollectionResult, error)
 }
 
 type NodeStatsSummaryClient struct {
@@ -48,7 +56,7 @@ func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConf
 
 // GetNodeData creates a number of goroutines that attempt to access a specified endpoint and return the
 // corresponding stats data in slice of interfaces which can be converted into a stricter format.
-func (nssc *NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
+func (nssc *NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, []NodeCollectionResult, error) {
 	var nodes []*v1.Node
 	var statsList []*stats.Summary
 
@@ -56,7 +64,7 @@ func (nssc *NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	if !nssc.config.ProxyConfig.IsLocalProxy() {
 		token, err := nssc.getBearerToken()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		bearerToken = token
 	}
@@ -66,8 +74,8 @@ func (nssc *NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 	var wg sync.WaitGroup
 	var m sync.Mutex
 
-	var errLock sync.Mutex
-	var errs []error
+	var resultsLock sync.Mutex
+	var results []NodeCollectionResult
 
 	// creates a max number of concurrent goroutines that are allowed
 	limiter := make(chan struct{}, nssc.config.ConcurrentPollers)
@@ -93,21 +101,39 @@ func (nssc *NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 			}
 			connectionMethods := nssc.config.connectionOptions(currentNode, nd)
 
+			methodDesc := describeConnectionMethods(connectionMethods)
 			resp, err := retrieveNodeData(nssc.endpoint, connectionMethods, bearerToken)
 			if err != nil {
-				errLock.Lock()
-				errs = append(errs, fmt.Errorf("error retrieving node data: %w", err))
-				errLock.Unlock()
+				resultsLock.Lock()
+				results = append(results, NodeCollectionResult{
+					NodeName: currentNode.Name,
+					Method:   methodDesc,
+					Success:  false,
+					Error:    fmt.Errorf("error retrieving node data: %w", err),
+				})
+				resultsLock.Unlock()
 			} else {
 				data, err := nodeResponseToStatSummary(resp)
 				if err != nil {
-					errLock.Lock()
-					errs = append(errs, fmt.Errorf("error converting node data: %w", err))
-					errLock.Unlock()
+					resultsLock.Lock()
+					results = append(results, NodeCollectionResult{
+						NodeName: currentNode.Name,
+						Method:   methodDesc,
+						Success:  false,
+						Error:    fmt.Errorf("error converting node data: %w", err),
+					})
+					resultsLock.Unlock()
 				} else {
 					m.Lock()
 					statsList = append(statsList, data)
 					m.Unlock()
+					resultsLock.Lock()
+					results = append(results, NodeCollectionResult{
+						NodeName: currentNode.Name,
+						Method:   methodDesc,
+						Success:  true,
+					})
+					resultsLock.Unlock()
 				}
 			}
 		}(*n)
@@ -115,13 +141,20 @@ func (nssc *NodeStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
 
 	wg.Wait()
 
-	// no need to lock, as the concurrent collect blocks until all complete
-	var err error = nil
+	// derive the aggregate error from results for backward compatibility
+	var errs []error
+	for _, r := range results {
+		if !r.Success && r.Error != nil {
+			errs = append(errs, r.Error)
+		}
+	}
+
+	var err error
 	if len(errs) > 0 {
 		err = errors.Join(errs...)
 	}
 
-	return statsList, err
+	return statsList, results, err
 }
 
 // Note: These functions are client-independent and can be reused within another function
@@ -146,6 +179,40 @@ func retrieveNodeData(endpoint string, connectionMethods []connectionMethod, bea
 
 	return nil, fmt.Errorf("problem getting node address: %v. "+
 		"Use DEBUG log level for individual connection method errors", endpoint)
+}
+
+// describeConnectionMethods returns a human-readable string describing the methods attempted.
+func describeConnectionMethods(methods []connectionMethod) string {
+	if len(methods) == 0 {
+		return "none"
+	}
+	names := make([]string, 0, len(methods))
+	for _, cm := range methods {
+		switch cm.API.(type) {
+		case directNode:
+			names = append(names, "direct")
+		case proxyAPI:
+			names = append(names, "proxy")
+		default:
+			names = append(names, "unknown")
+		}
+	}
+	seen := map[string]bool{}
+	var unique []string
+	for _, n := range names {
+		if !seen[n] {
+			seen[n] = true
+			unique = append(unique, n)
+		}
+	}
+	if len(unique) == 1 {
+		return unique[0]
+	}
+	result := unique[0]
+	for _, u := range unique[1:] {
+		result += "+" + u
+	}
+	return result
 }
 
 // isFargateNode detects if it is a fargate node, disallowing direct connections

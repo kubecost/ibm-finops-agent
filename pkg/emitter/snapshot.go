@@ -191,21 +191,35 @@ func snapshotResource[T any](flag bool, resourceGetter func() []T) []T {
 }
 
 func snapshotNodeStats(client nodes.StatSummaryClient) (*NodeStatsSummary, error) {
-	data, err := client.GetNodeData()
+	data, results, err := client.GetNodeData()
 	if err != nil {
 		// log each node's error as a warning, as we still may have gotten a partial response
 		for _, e := range unwrapNodeError(err) {
 			log.Warnf("%s", e)
 		}
+	}
 
-		// only return an error if the data result was empty AND err != nil
-		if len(data) == 0 {
-			return nil, fmt.Errorf("failed to generate node stats snapshot: %w", err)
-		}
+	var staleness float64
+	if sp, ok := client.(nodes.StalenessProvider); ok {
+		staleness = sp.SecondsSinceLastSuccess()
+	}
+
+	// Degrade gracefully: on total failure, return an empty (non-nil) summary with the failure flag
+	// instead of aborting the entire snapshot. This enables 5.4 (diagnostic upload on total failure).
+	if len(data) == 0 {
+		return &NodeStatsSummary{
+			Stats:            nil,
+			CollectionFailed: true,
+			Results:          results,
+			SecondsSinceLastSuccessfulNodeCollection: staleness,
+		}, nil
 	}
 
 	return &NodeStatsSummary{
-		Stats: data,
+		Stats:            data,
+		CollectionFailed: false,
+		Results:          results,
+		SecondsSinceLastSuccessfulNodeCollection: staleness,
 	}, nil
 }
 

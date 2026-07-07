@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/ibm/finops-agent/cldy"
 	"github.com/ibm/finops-agent/kubecost"
@@ -15,6 +16,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/http"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
@@ -63,10 +65,25 @@ func main() {
 
 	diag := diagnostics.NewDiagnosticService()
 
+	// Node stats health check — set after the provider is constructed.
+	// Until set, the health check reports healthy (startup grace).
+	var nodeStatsProvider *nodes.NodeStatsSummaryProvider
+
+	healthCheck := http.HealthChecker(func() bool {
+		if nodeStatsProvider == nil {
+			return true // not yet initialized, report healthy
+		}
+		if !nodeStatsProvider.HasEverSucceeded() {
+			return true // startup grace: no successful collection yet
+		}
+		restartThreshold := time.Duration(cldy.MaxStaleUploadCycles) * cldy.UploadFrequencyDuration
+		return nodeStatsProvider.SecondsSinceLastSuccess() <= restartThreshold.Seconds()
+	})
+
 	// Setup the HTTP server - ensure the goroutine starts before continuing to initialization
 	// of the data source and emitters
 	started := make(chan struct{})
-	server := http.NewHttpServer(router, 9003)
+	server := http.NewHttpServer(router, 9003, healthCheck)
 	go func() {
 		close(started)
 
@@ -104,6 +121,9 @@ func main() {
 	}
 
 	dataSource := core.NewAgentDataSource(kubeConfig, kubeClientset, router, diag, emissionInterval)
+
+	// Wire the node stats provider for the health check (auto-recovery)
+	nodeStatsProvider = dataSource.NodeStatsProvider()
 
 	// Snapshot configuration will gather specific kubernetes resource requirements
 	// from each emitter that is enabled such that we only snapshot the resources that

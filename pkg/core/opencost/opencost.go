@@ -103,7 +103,7 @@ func NewOpenCostDataSource(
 				store,
 				clusterInfoProvider,
 				clusterCache,
-				nodeClient,
+				&nodes.LegacyStatSummaryClient{Client: nodeClient},
 			)
 			return ds, nil
 		}

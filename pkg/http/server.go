@@ -11,10 +11,19 @@ import (
 	"github.com/rs/cors"
 )
 
-func Healthz(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Length", "0")
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(200)
+// HealthChecker is a function that returns true if the agent is healthy.
+type HealthChecker func() bool
+
+func healthzHandler(checker HealthChecker) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		if checker != nil && !checker() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(http.StatusOK)
+	}
 }
 
 func Version(w http.ResponseWriter, _ *http.Request) {
@@ -28,9 +37,9 @@ func Version(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func NewHttpServer(h http.Handler, port int) *http.Server {
+func NewHttpServer(h http.Handler, port int, healthCheck HealthChecker) *http.Server {
 	rootMux := http.NewServeMux()
-	rootMux.HandleFunc("/healthz", Healthz)
+	rootMux.HandleFunc("/healthz", healthzHandler(healthCheck))
 	rootMux.HandleFunc("/version", Version)
 	rootMux.Handle("/metrics", promhttp.Handler())
 	rootMux.Handle("/", h)

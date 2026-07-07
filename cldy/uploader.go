@@ -18,7 +18,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/util/json"
 )
 
-var requiredFiles = []string{"baseline-summary", "stats-summary", "statefulsets", "services", "replicationcontrollers", "replicasets", "pods", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces", "jobs", "deployments", "daemonsets", "agent-measurement"}
+var requiredFiles = []string{"statefulsets", "services", "replicationcontrollers", "replicasets", "pods", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces", "jobs", "deployments", "daemonsets", "agent-measurement"}
 
 var ErrDiskSpaceExceeded = errors.New("upload directory cleaned and disk issue persists. omitting current upload")
 

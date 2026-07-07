@@ -74,6 +74,10 @@ func (mds *MockDataSource) ClusterMetadata() cluster.Metadata {
 	return mds.CMetadata
 }
 
+func (mds *MockDataSource) NodeStatsProvider() *nodes.NodeStatsSummaryProvider {
+	return nil
+}
+
 // MockOpenCostDataSource
 type MockOpenCostDataSource struct {
 	MetricsQuerier      *source.RecordMetricsQuerier
@@ -307,9 +311,9 @@ func (m *MockStatsSummaryClient) recordCall(method string) {
 }
 
 // Implementation of interface methods
-func (m *MockStatsSummaryClient) GetNodeData() ([]*stats.Summary, error) {
+func (m *MockStatsSummaryClient) GetNodeData() ([]*stats.Summary, []nodes.NodeCollectionResult, error) {
 	m.recordCall("GetNodeData")
-	return nil, nil
+	return nil, nil, nil
 }
 
 //--------------------------------------------------------------------------

@@ -3,6 +3,8 @@ package emitter
 import (
 	"context"
 
+	"github.com/ibm/finops-agent/pkg/nodes"
+
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -38,7 +40,10 @@ type KubernetesSnapshot struct {
 
 // NodeStatsSummary contains summary data sets
 type NodeStatsSummary struct {
-	Stats []*stats.Summary
+	Stats                                    []*stats.Summary
+	CollectionFailed                         bool
+	Results                                  []nodes.NodeCollectionResult
+	SecondsSinceLastSuccessfulNodeCollection float64
 }
 
 // MetricsSummary contains the metrics results from opencost data source queries.

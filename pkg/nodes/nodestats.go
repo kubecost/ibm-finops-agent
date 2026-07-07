@@ -15,6 +15,7 @@ type NodeStatsSummaryProvider struct {
 	runState            atomic.AtomicRunState
 	statsLock           sync.RWMutex
 	stats               []*stats.Summary
+	lastResults         []NodeCollectionResult
 	lastRecordedSummary time.Time
 }
 
@@ -22,6 +23,31 @@ func NewNodeStatsSummaryProvider(client StatSummaryClient) *NodeStatsSummaryProv
 	return &NodeStatsSummaryProvider{
 		client: client,
 	}
+}
+
+// SecondsSinceLastSuccess returns how many seconds have elapsed since the last successful collection.
+// Returns 0 if no collection has ever succeeded.
+func (nssp *NodeStatsSummaryProvider) SecondsSinceLastSuccess() float64 {
+	nssp.statsLock.RLock()
+	defer nssp.statsLock.RUnlock()
+	if nssp.lastRecordedSummary.IsZero() {
+		return 0
+	}
+	return time.Since(nssp.lastRecordedSummary).Seconds()
+}
+
+// HasEverSucceeded returns true if at least one successful collection has occurred.
+func (nssp *NodeStatsSummaryProvider) HasEverSucceeded() bool {
+	nssp.statsLock.RLock()
+	defer nssp.statsLock.RUnlock()
+	return !nssp.lastRecordedSummary.IsZero()
+}
+
+// LastCollectionResults returns the per-node results from the most recent collection cycle.
+func (nssp *NodeStatsSummaryProvider) LastCollectionResults() []NodeCollectionResult {
+	nssp.statsLock.RLock()
+	defer nssp.statsLock.RUnlock()
+	return nssp.lastResults
 }
 
 // Start begins recording the results of node stats summary queries against the node kubelets on a specific interval. Note
@@ -35,7 +61,7 @@ func (nssp *NodeStatsSummaryProvider) Start(interval time.Duration) bool {
 	}
 
 	// Make an initial request for this data synchronously
-	stats, err := nssp.client.GetNodeData()
+	stats, results, err := nssp.client.GetNodeData()
 	if err != nil {
 		// log each node's error as a warning, as we still may have gotten a partial response
 		for _, e := range unwrapNodeError(err) {
@@ -43,12 +69,13 @@ func (nssp *NodeStatsSummaryProvider) Start(interval time.Duration) bool {
 		}
 	}
 
+	nssp.statsLock.Lock()
+	nssp.lastResults = results
 	if len(stats) != 0 {
-		nssp.statsLock.Lock()
 		nssp.stats = stats
 		nssp.lastRecordedSummary = time.Now().UTC()
-		nssp.statsLock.Unlock()
 	}
+	nssp.statsLock.Unlock()
 
 	go func() {
 		for {
@@ -62,7 +89,7 @@ func (nssp *NodeStatsSummaryProvider) Start(interval time.Duration) bool {
 			case <-time.After(interval):
 			}
 
-			stats, err := nssp.client.GetNodeData()
+			stats, results, err := nssp.client.GetNodeData()
 			if err != nil {
 				// log each node's error as a warning, as we still may have gotten a partial response
 				for _, e := range unwrapNodeError(err) {
@@ -72,12 +99,16 @@ func (nssp *NodeStatsSummaryProvider) Start(interval time.Duration) bool {
 				// do not overwrite previous results with a failed lookup
 				if len(stats) == 0 {
 					log.Debugf("All node stats summaries failed, not updating internal cache.")
+					nssp.statsLock.Lock()
+					nssp.lastResults = results
+					nssp.statsLock.Unlock()
 					continue
 				}
 			}
 
 			nssp.statsLock.Lock()
 			nssp.stats = stats
+			nssp.lastResults = results
 			nssp.lastRecordedSummary = time.Now().UTC()
 			nssp.statsLock.Unlock()
 		}
@@ -94,13 +125,13 @@ func (nssp *NodeStatsSummaryProvider) Stop() {
 
 // GetNodeData will return the last node stats summary data recorded. If a newer request is in-progress, it will _not_ wait
 // for that request to complete. Instead, it will return the previously recorded data.
-func (nssp *NodeStatsSummaryProvider) GetNodeData() ([]*stats.Summary, error) {
+func (nssp *NodeStatsSummaryProvider) GetNodeData() ([]*stats.Summary, []NodeCollectionResult, error) {
 	nssp.statsLock.RLock()
 	defer nssp.statsLock.RUnlock()
 
 	// no valid node stats recording has taken place
 	if nssp.lastRecordedSummary.IsZero() {
-		return nil, fmt.Errorf("no node stats summary data has been recorded")
+		return nil, nssp.lastResults, fmt.Errorf("no node stats summary data has been recorded")
 	}
 
 	// log warning if the stats summary being returned is older than 10m (this is a very reasonable data integrity threshold)
@@ -109,7 +140,7 @@ func (nssp *NodeStatsSummaryProvider) GetNodeData() ([]*stats.Summary, error) {
 		log.Warnf("Node Stats Summary being emitted is %d seconds old.", int64(sinceLastRecord.Seconds()))
 	}
 
-	return nssp.stats, nil
+	return nssp.stats, nssp.lastResults, nil
 }
 
 // if the error returned from node stats summary is a multi-error, unwrap and return the inner errors,
