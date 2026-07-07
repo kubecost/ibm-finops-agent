@@ -63,22 +63,18 @@ func NewOpenCostDataSource(
 
 	var elProvider externallabels.Provider
 	if conf.ExternalLabelsCfg != nil {
-		elProvider, err = externallabels.NewConfigMapProvider()
-		if err != nil {
-			log.Errorf("ExternalLabels: failed to create ConfigMapProvider: %s", err)
+		elProvider = externallabels.NewConfigMapProvider()
+		elNamespace := conf.ExternalLabelsCfg.Namespace
+		// If configmap is in the same namespace as the finops agent we can just use the same configmap watcher.
+		if elNamespace == "" {
+			elNamespace = kcenv.GetFinOpsAgentNamespace()
+			configWatchers.Add(conf.ExternalLabelsCfg.ConfigMapName, externallabels.ParseFunc(conf.ExternalLabelsCfg, elProvider))
 		} else {
-			elNamespace := conf.ExternalLabelsCfg.Namespace
-			// If configmap is in the same namespace as the finops agent we can just use the same configmap watcher.
-			if elNamespace == "" {
-				elNamespace = kcenv.GetFinOpsAgentNamespace()
-				configWatchers.Add(conf.ExternalLabelsCfg.ConfigMapName, externallabels.WatchFunc(conf.ExternalLabelsCfg, elProvider))
-			} else {
-				elWatchers := watcher.NewConfigMapWatchers(kubeClientset, elNamespace)
-				elWatchers.Add(conf.ExternalLabelsCfg.ConfigMapName, externallabels.WatchFunc(conf.ExternalLabelsCfg, elProvider))
-				elWatchers.Watch()
-			}
-
+			elWatchers := watcher.NewConfigMapWatchers(kubeClientset, elNamespace)
+			elWatchers.Add(conf.ExternalLabelsCfg.ConfigMapName, externallabels.ParseFunc(conf.ExternalLabelsCfg, elProvider))
+			elWatchers.Watch()
 		}
+
 	}
 
 	configWatchers.Watch()
