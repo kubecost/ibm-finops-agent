@@ -67,7 +67,6 @@ func NewOpenCostDataSource(
 		elNamespace := conf.ExternalLabelsCfg.Namespace
 		// If configmap is in the same namespace as the finops agent we can just use the same configmap watcher.
 		if elNamespace == "" {
-			elNamespace = kcenv.GetFinOpsAgentNamespace()
 			configWatchers.Add(conf.ExternalLabelsCfg.ConfigMapName, externallabels.ParseFunc(conf.ExternalLabelsCfg, elProvider))
 		} else {
 			elWatchers := watcher.NewConfigMapWatchers(kubeClientset, elNamespace)
