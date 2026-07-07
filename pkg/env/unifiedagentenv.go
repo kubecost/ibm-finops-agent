@@ -52,9 +52,14 @@ const (
 	// ParseMetricDataEnvVar env var for sanitizing k8s resources
 	ParseMetricDataEnvVar = "PARSE_METRIC_DATA"
 
-	// ExternalLabelsEnabledEnvVar enables auto-discovery of a ConfigMap labelled
-	// ibm.kubecost.com/external-labels="true" in the agent namespace.
-	ExternalLabelsEnabledEnvVar = "EXTERNAL_LABELS_ENABLED"
+	// ExternalLabels env vars configure the ConfigMap to read custom node/allocation labels from.
+	// Set EXTERNAL_LABELS_CONFIG_MAP_NAME to enable; namespace defaults to the agent's own namespace.
+	// For block-scalar ConfigMaps, set EXTERNAL_LABELS_KEY (the data key holding the YAML document)
+	// and EXTERNAL_LABELS_ROUTE prefixed with "(parse_yaml)", e.g. "(parse_yaml)metadata.externalLabels".
+	ExternalLabelsConfigMapNameEnvVar = "EXTERNAL_LABELS_CONFIG_MAP_NAME"
+	ExternalLabelsNamespaceEnvVar     = "EXTERNAL_LABELS_NAMESPACE"
+	ExternalLabelsKeyEnvVar           = "EXTERNAL_LABELS_KEY"
+	ExternalLabelsRouteEnvVar         = "EXTERNAL_LABELS_ROUTE"
 
 	// Prefixes for
 	CloudabilityPrefix = "CLOUDABILITY_"
@@ -196,8 +201,25 @@ func getValueWithPotentialPrefixOrDefault[T any](envVariable string, prefix stri
 	return convert(envValue)
 }
 
-// IsExternalLabelsEnabled returns true when the agent should auto-discover and watch
-// a ConfigMap labelled ibm.kubecost.com/external-labels="true" in the agent namespace.
-func IsExternalLabelsEnabled() bool {
-	return env.GetBool(ExternalLabelsEnabledEnvVar, false)
+// GetExternalLabelsConfigMapName returns the name of the ConfigMap that contains the external labels.
+func GetExternalLabelsConfigMapName() string {
+	return env.Get(ExternalLabelsConfigMapNameEnvVar, "")
+}
+
+// GetExternalLabelsNamespace returns the namespace of the external labels ConfigMap.
+// An empty string means the agent's own namespace should be used.
+func GetExternalLabelsNamespace() string {
+	return env.Get(ExternalLabelsNamespaceEnvVar, "")
+}
+
+// GetExternalLabelsKey returns the ConfigMap data key that holds the YAML document
+// for block-scalar ConfigMaps. Empty for traditional ConfigMaps.
+func GetExternalLabelsKey() string {
+	return env.Get(ExternalLabelsKeyEnvVar, "")
+}
+
+// GetExternalLabelsRoute returns the dot-separated path to the labels map within
+// the parsed YAML document, prefixed with "(parse_yaml)". Empty for traditional ConfigMaps.
+func GetExternalLabelsRoute() string {
+	return env.Get(ExternalLabelsRouteEnvVar, "")
 }

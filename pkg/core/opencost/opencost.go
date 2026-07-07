@@ -5,9 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/ibm/finops-agent/kubecost/env"
 	kcenv "github.com/ibm/finops-agent/kubecost/env"
-	agentenv "github.com/ibm/finops-agent/pkg/env"
 	"github.com/opencost/opencost/core/pkg/externallabels"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/storage"
@@ -63,11 +61,23 @@ func NewOpenCostDataSource(
 	configWatchers := watcher.NewConfigMapWatchers(kubeClientset, kcenv.GetFinOpsAgentNamespace())
 	configWatchers.AddWatcher(provider.ConfigWatcherFor(cloudProvider))
 
-	var externalLabelsProvider externallabels.Provider
-	if agentenv.IsExternalLabelsEnabled() {
-		externalLabelsProvider, err = externallabels.NewConfigMapProvider(kubeClientset, env.GetFinOpsAgentNamespace())
+	var elProvider externallabels.Provider
+	if conf.ExternalLabelsCfg != nil {
+		elProvider, err = externallabels.NewConfigMapProvider()
 		if err != nil {
-			log.Errorf("external labels is enabled, failed to created the provider: %s", err)
+			log.Errorf("ExternalLabels: failed to create ConfigMapProvider: %s", err)
+		} else {
+			elNamespace := conf.ExternalLabelsCfg.Namespace
+			// If configmap is in the same namespace as the finops agent we can just use the same configmap watcher.
+			if elNamespace == "" {
+				elNamespace = kcenv.GetFinOpsAgentNamespace()
+				configWatchers.Add(conf.ExternalLabelsCfg.ConfigMapName, externallabels.WatchFunc(conf.ExternalLabelsCfg, elProvider))
+			} else {
+				elWatchers := watcher.NewConfigMapWatchers(kubeClientset, elNamespace)
+				elWatchers.Add(conf.ExternalLabelsCfg.ConfigMapName, externallabels.WatchFunc(conf.ExternalLabelsCfg, elProvider))
+				elWatchers.Watch()
+			}
+
 		}
 	}
 
@@ -116,7 +126,7 @@ func NewOpenCostDataSource(
 				clusterInfoProvider,
 				clusterCache,
 				nodeClient,
-				externalLabelsProvider,
+				elProvider,
 			)
 			return ds, nil
 		}
