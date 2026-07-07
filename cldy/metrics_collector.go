@@ -40,8 +40,6 @@ const metricsCollectorUploadFileHashHeader = "x-upload-file"
 
 const metricsCollectorPresignDescription = "acquiring presigned URL from metrics-collector using API key"
 
-var validAPIKey = regexp.MustCompile(`^\w+$`)
-
 // MetricsCollectorServiceImpl uploads samples via the legacy metrics-collector API Gateway endpoint.
 type MetricsCollectorServiceImpl struct {
 	APIKey           string
@@ -62,10 +60,6 @@ func NewMetricsCollectorService(config ApptioConfig) (StorageService, error) {
 	}
 	if apiKey == "" {
 		return nil, fmt.Errorf("cloudability api key must be set to upload via metrics-collector")
-	}
-	if !validAPIKey.MatchString(apiKey) {
-		return nil, errors.New("api key format is invalid (only alphanumeric characters are allowed). " +
-			"Please ensure you are using your Containers Insights API Key from the Cloudability UI")
 	}
 
 	service := &MetricsCollectorServiceImpl{
