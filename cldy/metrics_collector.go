@@ -222,11 +222,6 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 	if err != nil {
 		return fmt.Errorf("error in opening file to upload: %w", err)
 	}
-	defer func() {
-		if closeErr := fileToUpload.Close(); closeErr != nil {
-			log.Warnf("error closing upload file: %v", closeErr)
-		}
-	}()
 
 	fi, err := fileToUpload.Stat()
 	if err != nil {
