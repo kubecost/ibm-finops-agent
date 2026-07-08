@@ -3,14 +3,12 @@ package cldy
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"os"
 	"path"
-	"regexp"
 	"strings"
 	"time"
 
