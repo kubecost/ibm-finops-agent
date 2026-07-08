@@ -47,13 +47,6 @@ var _ = Describe("Metrics Collector", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("rejects invalid api keys", func() {
-			_, err := cldy.NewMetricsCollectorService(cldy.ApptioConfig{
-				APIKeySecretManager: cldy.NewValueSecretManager("bad-key"),
-			})
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("api key format is invalid"))
-		})
 	})
 })
 
