@@ -386,7 +386,7 @@ func (cu *CldyUploader) uploadData(path string) error {
 	payload := UploadPayload{
 		ClusterUID:   cu.clusterID,
 		FileName:     fileName,
-		AgentVersion: "1.0.0", // TODO: Change to cu.agentVersion once semantic version tagging is implemented.
+		AgentVersion: cu.agentVersion,
 		UploadHash:   hash,
 		FilePath:     path,
 	}
