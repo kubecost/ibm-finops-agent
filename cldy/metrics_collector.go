@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 
@@ -37,6 +38,9 @@ const metricsCollectorUserAgentHeader = "User-Agent"
 const metricsCollectorUploadFileHashHeader = "x-upload-file"
 
 const metricsCollectorPresignDescription = "acquiring presigned URL from metrics-collector using API key"
+
+// semverRegexp matches a plain semver like "2.11.17" (no leading v).
+var semverRegexp = regexp.MustCompile(`^\d+\.\d+\.\d+`)
 
 // MetricsCollectorServiceImpl uploads samples via the legacy metrics-collector API Gateway endpoint.
 type MetricsCollectorServiceImpl struct {
@@ -110,11 +114,19 @@ func (s *MetricsCollectorServiceImpl) getUploadURL(payload UploadPayload) (strin
 		return "", fmt.Errorf("error creating metrics-collector upload request: %w", err)
 	}
 
+	// Lambda function requires "1.0.9" as minimum version, but current versioning of test images does not
+	// follow this rule. Should probably update the lambda function in the future once the metrics-agent
+	// is compeltely deprecated to avoid this case.
+	agentVersion := strings.TrimPrefix(payload.AgentVersion, "v")
+	if !semverRegexp.MatchString(agentVersion) {
+		agentVersion = "1.0.9"
+	}
+
 	request.Header.Set(contentTypeHeader, "application/json")
 	request.Header.Set(metricsCollectorAuthHeader, s.APIKey)
 	request.Header.Set(metricsCollectorAPIKeyHeader, s.APIKey)
 	request.Header.Set(metricsCollectorUserAgentHeader, s.UserAgent)
-	request.Header.Set(metricsCollectorAgentVersionHeader, payload.AgentVersion)
+	request.Header.Set(metricsCollectorAgentVersionHeader, agentVersion)
 	request.Header.Set(metricsCollectorClusterUIDHeader, payload.ClusterUID)
 	request.Header.Set(metricsCollectorUploadFileHashHeader, payload.UploadHash)
 
