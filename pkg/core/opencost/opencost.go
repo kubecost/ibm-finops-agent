@@ -5,8 +5,7 @@ import (
 	"os"
 	"time"
 
-	kcenv "github.com/ibm/finops-agent/kubecost/env"
-	"github.com/opencost/opencost/core/pkg/externallabels"
+	"github.com/opencost/opencost/core/pkg/external"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/storage"
 	"github.com/opencost/opencost/pkg/util/watcher"
@@ -58,19 +57,23 @@ func NewOpenCostDataSource(
 		log.Warnf("Failed to download public pricing data. Falling back to defaults: %s", err)
 	}
 
-	configWatchers := watcher.NewConfigMapWatchers(kubeClientset, kcenv.GetFinOpsAgentNamespace())
+	configWatchers := watcher.NewConfigMapWatchers(kubeClientset, conf.AgentNamespace)
 	configWatchers.AddWatcher(provider.ConfigWatcherFor(cloudProvider))
 
-	var elProvider externallabels.Provider
-	if conf.ExternalLabelsCfg != nil {
-		elProvider = externallabels.NewConfigMapProvider()
-		elNamespace := conf.ExternalLabelsCfg.Namespace
+	var elProvider external.LabelProvider
+	if conf.ExternalCfg != nil {
+		elProvider = external.NewNodeLabelProvider()
+		elSource, err := external.NewLabelSource(conf.ExternalCfg)
+		if err != nil {
+			log.Errorf("Failed to create an external Source: %s", err)
+		}
+		elNamespace := conf.ExternalCfg.Namespace
 		// If configmap is in the same namespace as the finops agent we can just use the same configmap watcher.
 		if elNamespace == "" {
-			configWatchers.Add(conf.ExternalLabelsCfg.ConfigMapName, externallabels.ParseFunc(conf.ExternalLabelsCfg, elProvider))
+			configWatchers.Add(conf.ExternalCfg.ConfigMapName, external.WatchFunc(elSource, elProvider))
 		} else {
 			elWatchers := watcher.NewConfigMapWatchers(kubeClientset, elNamespace)
-			elWatchers.Add(conf.ExternalLabelsCfg.ConfigMapName, externallabels.ParseFunc(conf.ExternalLabelsCfg, elProvider))
+			elWatchers.Add(conf.ExternalCfg.ConfigMapName, external.WatchFunc(elSource, elProvider))
 			elWatchers.Watch()
 		}
 

@@ -1,6 +1,6 @@
 module github.com/ibm/finops-agent
 
-go 1.26.3
+go 1.26.4
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
@@ -14,7 +14,7 @@ require (
 	github.com/onsi/gomega v1.38.2
 	github.com/opencost/opencost v1.120.2
 	github.com/opencost/opencost/core v1.120.2
-	github.com/opencost/opencost/modules/collector-source v1.120.2
+	github.com/opencost/opencost/modules/collector-source v0.0.0-00010101000000-000000000000
 	github.com/opencost/opencost/modules/prometheus-source v1.120.2
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/cors v1.11.1
@@ -154,6 +154,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oklog/run v1.2.0 // indirect
+	github.com/opencost/bingen v0.2.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
 	github.com/oracle/oci-go-sdk/v65 v65.117.1 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
