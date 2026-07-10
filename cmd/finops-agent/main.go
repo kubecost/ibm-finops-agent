@@ -15,6 +15,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/http"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
@@ -63,10 +64,27 @@ func main() {
 
 	diag := diagnostics.NewDiagnosticService()
 
+	// Health check iterates all emitters that implement emitter.HealthChecker.
+	// At server-start the slice is empty (healthy). Emitters are appended later on the
+	// same goroutine before the exporter starts, so by the time real traffic arrives
+	// the checks are active.
+	var emitters []emitter.Emitter
+
+	healthCheck := http.HealthChecker(func() bool {
+		for _, e := range emitters {
+			if hc, ok := e.(emitter.HealthChecker); ok {
+				if !hc.Healthy() {
+					return false
+				}
+			}
+		}
+		return true
+	})
+
 	// Setup the HTTP server - ensure the goroutine starts before continuing to initialization
 	// of the data source and emitters
 	started := make(chan struct{})
-	server := http.NewHttpServer(router, 9003)
+	server := http.NewHttpServer(router, 9003, healthCheck)
 	go func() {
 		close(started)
 
@@ -103,14 +121,15 @@ func main() {
 		log.Fatalf("Failed to determine cluster UID: %s", err)
 	}
 
-	dataSource := core.NewAgentDataSource(kubeConfig, kubeClientset, router, diag, emissionInterval)
+	var dataSource core.DataSource
+	var nodeStatsProvider *nodes.NodeStatsSummaryProvider
+	dataSource, nodeStatsProvider = core.NewAgentDataSource(kubeConfig, kubeClientset, router, diag, emissionInterval)
 
 	// Snapshot configuration will gather specific kubernetes resource requirements
 	// from each emitter that is enabled such that we only snapshot the resources that
 	// are required by the emitters.
 	snapshotConfig := emitter.NewSnapshotConfigFromEnv()
 
-	var emitters []emitter.Emitter
 	if env.IsKubecostEmitterEnabled() {
 		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv(clusterUID)
 		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
@@ -150,7 +169,7 @@ func main() {
 			emitter.NewKubernetesSnapshotConfigFromEnabled(cldyConfig.KubernetesResourcesRequired),
 		)
 
-		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
+		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{}), nodeStatsProvider))
 	}
 	if env.IsTurboEmitterEnabled() {
 		log.Infof("Turbonomic emitter not yet implemented.")

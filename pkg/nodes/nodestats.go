@@ -10,18 +10,51 @@ import (
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
+// NodeCollectionError captures the outcome of a failed node-stats collection attempt for a single node.
+type NodeCollectionError struct {
+	NodeName string
+	Error    error
+}
+
 type NodeStatsSummaryProvider struct {
 	client              StatSummaryClient
 	runState            atomic.AtomicRunState
 	statsLock           sync.RWMutex
 	stats               []*stats.Summary
 	lastRecordedSummary time.Time
+	lastNodeErrors      []NodeCollectionError
 }
 
 func NewNodeStatsSummaryProvider(client StatSummaryClient) *NodeStatsSummaryProvider {
 	return &NodeStatsSummaryProvider{
 		client: client,
 	}
+}
+
+// SecondsSinceLastSuccess returns the number of seconds since the last successful node-stats collection.
+// Returns 0 if no collection has ever succeeded.
+func (nssp *NodeStatsSummaryProvider) SecondsSinceLastSuccess() float64 {
+	nssp.statsLock.RLock()
+	defer nssp.statsLock.RUnlock()
+	if nssp.lastRecordedSummary.IsZero() {
+		return 0
+	}
+	return time.Since(nssp.lastRecordedSummary).Seconds()
+}
+
+// HasEverSucceeded returns true if at least one successful collection has occurred.
+func (nssp *NodeStatsSummaryProvider) HasEverSucceeded() bool {
+	nssp.statsLock.RLock()
+	defer nssp.statsLock.RUnlock()
+	return !nssp.lastRecordedSummary.IsZero()
+}
+
+// LastNodeErrors returns the per-node errors from the most recent collection cycle.
+// Returns nil if the last cycle had no errors.
+func (nssp *NodeStatsSummaryProvider) LastNodeErrors() []NodeCollectionError {
+	nssp.statsLock.RLock()
+	defer nssp.statsLock.RUnlock()
+	return nssp.lastNodeErrors
 }
 
 // Start begins recording the results of node stats summary queries against the node kubelets on a specific interval. Note
@@ -43,12 +76,13 @@ func (nssp *NodeStatsSummaryProvider) Start(interval time.Duration) bool {
 		}
 	}
 
+	nssp.statsLock.Lock()
+	nssp.lastNodeErrors = toNodeCollectionErrors(err)
 	if len(stats) != 0 {
-		nssp.statsLock.Lock()
 		nssp.stats = stats
 		nssp.lastRecordedSummary = time.Now().UTC()
-		nssp.statsLock.Unlock()
 	}
+	nssp.statsLock.Unlock()
 
 	go func() {
 		for {
@@ -72,18 +106,38 @@ func (nssp *NodeStatsSummaryProvider) Start(interval time.Duration) bool {
 				// do not overwrite previous results with a failed lookup
 				if len(stats) == 0 {
 					log.Debugf("All node stats summaries failed, not updating internal cache.")
+					nssp.statsLock.Lock()
+					nssp.lastNodeErrors = toNodeCollectionErrors(err)
+					nssp.statsLock.Unlock()
 					continue
 				}
 			}
 
 			nssp.statsLock.Lock()
 			nssp.stats = stats
+			nssp.lastNodeErrors = toNodeCollectionErrors(err)
 			nssp.lastRecordedSummary = time.Now().UTC()
 			nssp.statsLock.Unlock()
 		}
 	}()
 
 	return true
+}
+
+// toNodeCollectionErrors converts a joined error from GetNodeData into a slice of NodeCollectionError.
+// Each unwrapped sub-error becomes one entry. Returns nil if err is nil.
+func toNodeCollectionErrors(err error) []NodeCollectionError {
+	if err == nil {
+		return nil
+	}
+	subErrors := unwrapNodeError(err)
+	results := make([]NodeCollectionError, 0, len(subErrors))
+	for _, e := range subErrors {
+		results = append(results, NodeCollectionError{
+			Error: e,
+		})
+	}
+	return results
 }
 
 // Stop stops the node stats client from refreshing the internal stats data, but the pre-recorded data stays present. This

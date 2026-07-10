@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/ibm/finops-agent/pkg/version"
 
 	"github.com/opencost/opencost/core/pkg/log"
@@ -46,6 +47,7 @@ type Emitter struct {
 	Uploader          Uploader
 	ClusterID         *string
 	ScratchPath       string
+	nodeStatsProvider *nodes.NodeStatsSummaryProvider
 }
 
 type EmitterConfig struct {
@@ -61,6 +63,13 @@ type EmitterConfig struct {
 }
 
 const UPLOAD_FREQUENCY = 10
+
+// UploadFrequencyDuration is the upload cadence as a time.Duration.
+var UploadFrequencyDuration = time.Minute * time.Duration(UPLOAD_FREQUENCY)
+
+// MaxStaleUploadCycles is how many upload cycles may pass with no successful node-stats
+// collection before the agent considers itself wedged. Used by the /healthz staleness check.
+const MaxStaleUploadCycles = 3
 
 func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetEnvPrefix("CLOUDABILITY")
@@ -154,17 +163,18 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	}, nil
 }
 
-func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
+func NewEmitter(config EmitterConfig, stop chan struct{}, nodeStatsProvider *nodes.NodeStatsSummaryProvider) emitter.Emitter {
 	currentTime := time.Now().UTC()
 
 	return &Emitter{
-		config:           config,
-		Uploader:         NewCldyUploader(config.UploaderConfig, stop),
-		sampleCt:         initialSampleCt,
-		startTime:        currentTime,
-		lastEmission:     currentTime,
-		emissionInterval: config.EmissionInterval,
-		agentVersion:     version.Version,
+		config:            config,
+		Uploader:          NewCldyUploader(config.UploaderConfig, stop),
+		sampleCt:          initialSampleCt,
+		startTime:         currentTime,
+		lastEmission:      currentTime,
+		emissionInterval:  config.EmissionInterval,
+		agentVersion:      version.Version,
+		nodeStatsProvider: nodeStatsProvider,
 	}
 }
 
@@ -189,6 +199,21 @@ func getSecretFromFileVolume(filepath string) string {
 
 func (ce *Emitter) ID() emitter.EmitterID {
 	return emitter.CldyEmitterID
+}
+
+// Healthy reports whether the cldy emitter considers itself healthy.
+// Returns false when node-stats collection has been stale for longer than
+// MaxStaleUploadCycles * UploadFrequencyDuration, signaling that a container
+// restart is warranted.
+func (ce *Emitter) Healthy() bool {
+	if ce.nodeStatsProvider == nil {
+		return true
+	}
+	if !ce.nodeStatsProvider.HasEverSucceeded() {
+		return true // startup grace
+	}
+	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
+	return ce.nodeStatsProvider.SecondsSinceLastSuccess() <= restartThreshold.Seconds()
 }
 
 func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
@@ -472,6 +497,35 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values["custom_s3_region"] = ce.config.CustomS3UploadRegion
 	values["custom_azure_blob_name"] = ce.config.CustomAzureBlobContainerName
 	metrics["uptime"] = int(now.UTC().Sub(ce.startTime).Seconds())
+
+	// Node collection diagnostics from the background provider
+	var errorDetails []errorDetail
+	if ce.nodeStatsProvider != nil {
+		collectionFailed := !ce.nodeStatsProvider.HasEverSucceeded() || ce.nodeStatsProvider.SecondsSinceLastSuccess() > UploadFrequencyDuration.Seconds()
+		values["node_collection_failed"] = strconv.FormatBool(collectionFailed)
+		values["seconds_since_last_successful_node_collection"] = strconv.FormatInt(int64(ce.nodeStatsProvider.SecondsSinceLastSuccess()), 10)
+
+		nodeErrors := ce.nodeStatsProvider.LastNodeErrors()
+		metrics["nodes_failed"] = len(nodeErrors)
+
+		// Deduplicate errors by message and emit counts
+		errorCounts := map[string]int{}
+		for _, ne := range nodeErrors {
+			msg := ""
+			if ne.Error != nil {
+				msg = ne.Error.Error()
+			}
+			errorCounts[msg]++
+		}
+		for msg, count := range errorCounts {
+			errorDetails = append(errorDetails, errorDetail{
+				Message: msg,
+				Type:    "node_error",
+				Count:   count,
+			})
+		}
+	}
+
 	agent := agentData{
 		Name:    "cldy_agent_status",
 		Metrics: metrics,
@@ -480,6 +534,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		},
 		Ts:     now.UTC().UnixMilli() / 1000,
 		Values: values,
+		Errors: errorDetails,
 	}
 	agentBytes, err := json.Marshal(agent)
 	if err != nil {
@@ -495,6 +550,13 @@ type agentData struct {
 	Tags    map[string]string `json:"tags"`
 	Ts      int64             `json:"ts"`
 	Values  map[string]string `json:"values"`
+	Errors  []errorDetail     `json:"errors,omitempty"`
+}
+
+type errorDetail struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Count   int    `json:"count"`
 }
 
 func (ce *Emitter) getSuffix() string {
