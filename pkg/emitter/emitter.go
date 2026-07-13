@@ -39,6 +39,7 @@ type KubernetesSnapshot struct {
 // NodeStatsSummary contains summary data sets
 type NodeStatsSummary struct {
 	Stats []*stats.Summary
+	CollectionErr error
 }
 
 // MetricsSummary contains the metrics results from opencost data source queries.

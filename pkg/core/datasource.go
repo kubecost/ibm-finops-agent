@@ -47,7 +47,7 @@ func NewAgentDataSource(
 	router *httprouter.Router,
 	diag diagnostics.DiagnosticService,
 	interval time.Duration,
-) (DataSource, *nodes.NodeStatsSummaryProvider) {
+) DataSource {
 	discClient, err := discovery.NewDiscoveryClientForConfig(kubeConfig)
 	if err != nil {
 		log.Warnf("Failed to create Kubernetes discovery client: %s", err.Error())
@@ -77,9 +77,8 @@ func NewAgentDataSource(
 
 	// If we use a background service, we leverage the client to refresh node data on an interval
 	// otherwise, we retrieve node data _at_ snapshot time
-	var nodesProvider *nodes.NodeStatsSummaryProvider
 	if nodeClientConfig.BackgroundNodeCollection {
-		nodesProvider = nodes.NewNodeStatsSummaryProvider(nodeStatsSummaryClient)
+		nodesProvider := nodes.NewNodeStatsSummaryProvider(nodeStatsSummaryClient)
 		nodesProvider.Start(nodeClientConfig.RefreshInterval)
 
 		nodeStatsProvider = nodesProvider
@@ -107,7 +106,7 @@ func NewAgentDataSource(
 		clusterCache:              k8sCache,
 		nodeStatsSummaryClient:    nodeStatsProvider,
 		clusterMetadata:           clusterMetadata,
-	}, nodesProvider
+	}
 }
 
 type agentDataSource struct {

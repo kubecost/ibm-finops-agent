@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -19,7 +20,6 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/ibm/finops-agent/pkg/emitter"
-	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/ibm/finops-agent/pkg/version"
 
 	"github.com/opencost/opencost/core/pkg/log"
@@ -47,7 +47,13 @@ type Emitter struct {
 	Uploader          Uploader
 	ClusterID         *string
 	ScratchPath       string
-	nodeStatsProvider *nodes.NodeStatsSummaryProvider
+
+	// Node-stats collection diagnostics, updated from each snapshot the emitter receives.
+	// Guarded by nodeStatsMu because Healthy() is invoked from the /healthz handler goroutine
+	// while Emit()/Init() run on the exporter goroutine.
+	nodeStatsMu                  sync.Mutex
+	lastSuccessfulNodeCollection time.Time
+	lastNodeCollectionErr        error
 }
 
 type EmitterConfig struct {
@@ -163,18 +169,17 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	}, nil
 }
 
-func NewEmitter(config EmitterConfig, stop chan struct{}, nodeStatsProvider *nodes.NodeStatsSummaryProvider) emitter.Emitter {
+func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 	currentTime := time.Now().UTC()
 
 	return &Emitter{
-		config:            config,
-		Uploader:          NewCldyUploader(config.UploaderConfig, stop),
-		sampleCt:          initialSampleCt,
-		startTime:         currentTime,
-		lastEmission:      currentTime,
-		emissionInterval:  config.EmissionInterval,
-		agentVersion:      version.Version,
-		nodeStatsProvider: nodeStatsProvider,
+		config:           config,
+		Uploader:         NewCldyUploader(config.UploaderConfig, stop),
+		sampleCt:         initialSampleCt,
+		startTime:        currentTime,
+		lastEmission:     currentTime,
+		emissionInterval: config.EmissionInterval,
+		agentVersion:     version.Version,
 	}
 }
 
@@ -205,15 +210,51 @@ func (ce *Emitter) ID() emitter.EmitterID {
 // Returns false when node-stats collection has been stale for longer than
 // MaxStaleUploadCycles * UploadFrequencyDuration, signaling that a container
 // restart is warranted.
+//
+// Staleness is tracked from the snapshots the emitter receives, so this works on the
+// foreground collection path (node stats fetched at snapshot time). When node-stats
+// collection fails for every node, the snapshot itself fails upstream and Emit() is not
+// called, so lastSuccessfulNodeCollection stops advancing and the emitter eventually
+// reports unhealthy.
 func (ce *Emitter) Healthy() bool {
-	if ce.nodeStatsProvider == nil {
+	ce.nodeStatsMu.Lock()
+	lastSuccess := ce.lastSuccessfulNodeCollection
+	ce.nodeStatsMu.Unlock()
+
+	// startup grace: no successful collection has been observed yet
+	if lastSuccess.IsZero() {
 		return true
 	}
-	if !ce.nodeStatsProvider.HasEverSucceeded() {
-		return true // startup grace
-	}
 	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
-	return ce.nodeStatsProvider.SecondsSinceLastSuccess() <= restartThreshold.Seconds()
+	return time.Since(lastSuccess) <= restartThreshold
+}
+
+// recordNodeStats captures node-stats collection diagnostics from a snapshot. It advances
+// the last-successful-collection timestamp whenever any node stats were returned, and stores
+// the (partial) collection error for reporting in the agent status file.
+func (ce *Emitter) recordNodeStats(ns *emitter.NodeStatsSummary) {
+	ce.nodeStatsMu.Lock()
+	defer ce.nodeStatsMu.Unlock()
+
+	if ns == nil {
+		return
+	}
+	if len(ns.Stats) > 0 {
+		ce.lastSuccessfulNodeCollection = time.Now().UTC()
+	}
+	ce.lastNodeCollectionErr = ns.CollectionErr
+}
+
+// unwrapNodeErrors splits a possibly-joined collection error into its component per-node
+// errors. Returns nil when err is nil.
+func unwrapNodeErrors(err error) []error {
+	if err == nil {
+		return nil
+	}
+	if multiErr, ok := err.(interface{ Unwrap() []error }); ok {
+		return multiErr.Unwrap()
+	}
+	return []error{err}
 }
 
 func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
@@ -236,6 +277,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 		return err
 	}
 
+	ce.recordNodeStats(cs.NodeStats)
 	err = ce.writeStatsData(cs.NodeStats)
 	if err != nil {
 		return err
@@ -246,6 +288,10 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 }
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
+	// Record collection diagnostics from every snapshot, even when downsampling uploads, so
+	// health/staleness tracking reflects the latest node-stats collection.
+	ce.recordNodeStats(cs.NodeStats)
+
 	// Emit only after the emission interval has been met
 	if ce.shouldDownsample() {
 		return nil
@@ -498,32 +544,39 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values["custom_azure_blob_name"] = ce.config.CustomAzureBlobContainerName
 	metrics["uptime"] = int(now.UTC().Sub(ce.startTime).Seconds())
 
-	// Node collection diagnostics from the background provider
+	// Node collection diagnostics derived from the most recent snapshot.
+	ce.nodeStatsMu.Lock()
+	lastSuccess := ce.lastSuccessfulNodeCollection
+	collectionErr := ce.lastNodeCollectionErr
+	ce.nodeStatsMu.Unlock()
+
+	var secondsSinceLastSuccess int64
+	if !lastSuccess.IsZero() {
+		secondsSinceLastSuccess = int64(time.Since(lastSuccess).Seconds())
+	}
+	collectionFailed := lastSuccess.IsZero() || float64(secondsSinceLastSuccess) > UploadFrequencyDuration.Seconds()
+	values["node_collection_failed"] = strconv.FormatBool(collectionFailed)
+	values["seconds_since_last_successful_node_collection"] = strconv.FormatInt(secondsSinceLastSuccess, 10)
+
+	nodeErrors := unwrapNodeErrors(collectionErr)
+	metrics["nodes_failed"] = len(nodeErrors)
+
+	// Deduplicate errors by message and emit counts
 	var errorDetails []errorDetail
-	if ce.nodeStatsProvider != nil {
-		collectionFailed := !ce.nodeStatsProvider.HasEverSucceeded() || ce.nodeStatsProvider.SecondsSinceLastSuccess() > UploadFrequencyDuration.Seconds()
-		values["node_collection_failed"] = strconv.FormatBool(collectionFailed)
-		values["seconds_since_last_successful_node_collection"] = strconv.FormatInt(int64(ce.nodeStatsProvider.SecondsSinceLastSuccess()), 10)
-
-		nodeErrors := ce.nodeStatsProvider.LastNodeErrors()
-		metrics["nodes_failed"] = len(nodeErrors)
-
-		// Deduplicate errors by message and emit counts
-		errorCounts := map[string]int{}
-		for _, ne := range nodeErrors {
-			msg := ""
-			if ne.Error != nil {
-				msg = ne.Error.Error()
-			}
-			errorCounts[msg]++
+	errorCounts := map[string]int{}
+	for _, ne := range nodeErrors {
+		msg := ""
+		if ne != nil {
+			msg = ne.Error()
 		}
-		for msg, count := range errorCounts {
-			errorDetails = append(errorDetails, errorDetail{
-				Message: msg,
-				Type:    "node_error",
-				Count:   count,
-			})
-		}
+		errorCounts[msg]++
+	}
+	for msg, count := range errorCounts {
+		errorDetails = append(errorDetails, errorDetail{
+			Message: msg,
+			Type:    "node_error",
+			Count:   count,
+		})
 	}
 
 	agent := agentData{

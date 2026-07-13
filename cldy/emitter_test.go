@@ -36,7 +36,7 @@ var _ = Describe("Emitter", func() {
 					},
 				},
 			}
-			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}), nil)
+			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
 
 			mockUpload := mockUploader{data: []string{}}
@@ -100,7 +100,7 @@ var _ = Describe("Emitter", func() {
 					}},
 				EmitAsJson: true,
 			}
-			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}), nil)
+			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
 
 			mockUpload := mockUploader{data: []string{}}
@@ -180,7 +180,7 @@ var _ = Describe("Emitter", func() {
 				},
 				EmissionInterval: time.Duration(200) * time.Millisecond,
 			}
-			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}), nil)
+			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
 
 			mockUpload := mockUploader{data: []string{}}
@@ -214,7 +214,7 @@ var _ = Describe("Emitter", func() {
 					},
 				},
 			}
-			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}), nil)
+			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
 
 			data, err := buildTestData()

@@ -15,7 +15,6 @@ import (
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/env"
 	"github.com/ibm/finops-agent/pkg/http"
-	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
@@ -121,9 +120,7 @@ func main() {
 		log.Fatalf("Failed to determine cluster UID: %s", err)
 	}
 
-	var dataSource core.DataSource
-	var nodeStatsProvider *nodes.NodeStatsSummaryProvider
-	dataSource, nodeStatsProvider = core.NewAgentDataSource(kubeConfig, kubeClientset, router, diag, emissionInterval)
+	dataSource := core.NewAgentDataSource(kubeConfig, kubeClientset, router, diag, emissionInterval)
 
 	// Snapshot configuration will gather specific kubernetes resource requirements
 	// from each emitter that is enabled such that we only snapshot the resources that
@@ -169,7 +166,7 @@ func main() {
 			emitter.NewKubernetesSnapshotConfigFromEnabled(cldyConfig.KubernetesResourcesRequired),
 		)
 
-		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{}), nodeStatsProvider))
+		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
 	}
 	if env.IsTurboEmitterEnabled() {
 		log.Infof("Turbonomic emitter not yet implemented.")
