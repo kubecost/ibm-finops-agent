@@ -2025,6 +2025,36 @@ func (mqa *MetricsQuerierAdapter) QueryDataCoverage(limitDays int) (time.Time, t
 	return time.Time{}, time.Time{}, fmt.Errorf("not implemented")
 }
 
+// QueryInferencePromptTokens is not implemented for this adapter.
+func (mqa *MetricsQuerierAdapter) QueryInferencePromptTokens(start, end time.Time) *source.Future[source.InferenceTokensResult] {
+	return newErrorResult(source.DecodeInferenceTokensResult, fmt.Errorf("not implemented"))
+}
+
+// QueryInferenceGenerationTokens is not implemented for this adapter.
+func (mqa *MetricsQuerierAdapter) QueryInferenceGenerationTokens(start, end time.Time) *source.Future[source.InferenceTokensResult] {
+	return newErrorResult(source.DecodeInferenceTokensResult, fmt.Errorf("not implemented"))
+}
+
+// QueryInferenceInputProcessingTime is not implemented for this adapter.
+func (mqa *MetricsQuerierAdapter) QueryInferenceInputProcessingTime(start, end time.Time) *source.Future[source.InferenceProcessingTimeResult] {
+	return newErrorResult(source.DecodeInferenceProcessingTimeResult, fmt.Errorf("not implemented"))
+}
+
+// QueryInferenceOutputProcessingTime is not implemented for this adapter.
+func (mqa *MetricsQuerierAdapter) QueryInferenceOutputProcessingTime(start, end time.Time) *source.Future[source.InferenceProcessingTimeResult] {
+	return newErrorResult(source.DecodeInferenceProcessingTimeResult, fmt.Errorf("not implemented"))
+}
+
+// QueryInferenceCachedTokens is not implemented for this adapter.
+func (mqa *MetricsQuerierAdapter) QueryInferenceCachedTokens(start, end time.Time) *source.Future[source.InferenceTokensResult] {
+	return newErrorResult(source.DecodeInferenceTokensResult, fmt.Errorf("not implemented"))
+}
+
+// QueryInferenceCacheConfig is not implemented for this adapter.
+func (mqa *MetricsQuerierAdapter) QueryInferenceCacheConfig(t time.Time) *source.Future[source.InferenceCacheConfigResult] {
+	return newErrorResult(source.DecodeInferenceCacheConfigResult, fmt.Errorf("not implemented"))
+}
+
 func newErrorResult[T any](decoder source.ResultDecoder[T], err error) *source.Future[T] {
 	ch := make(source.QueryResultsChan)
 	go func() {

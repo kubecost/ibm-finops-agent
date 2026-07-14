@@ -28,14 +28,18 @@ func NewOpenCostConfigFromEnv() *OpenCostConfig {
 		AgentNamespace:             kcenv.GetFinOpsAgentNamespace(),
 	}
 
-	externalLabelsCMName := agentenv.GetExternalLabelsConfigMapName()
-	if externalLabelsCMName != "" {
-		ocCfg.ExternalCfg = &external.Config{
-			ConfigMapName: externalLabelsCMName,
-			Namespace:     agentenv.GetExternalLabelsNamespace(),
-			Key:           agentenv.GetExternalLabelsKey(),
-			Route:         agentenv.GetExternalLabelsRoute(),
-		}
+	externalnodeLabelsCM := agentenv.GetExternalNodeLabelsConfigMapName()
+	if externalnodeLabelsCM != "" {
+		nodeLabelsCfg := external.NewNodeLabelConfig(
+			externalnodeLabelsCM,
+			agentenv.GetExternalNodeLabelsNamespace(),
+			agentenv.GetExternalNodeLabelsKey(),
+			agentenv.GetExternalNodeLabelsRoute(),
+		)
+
+		// Any future external labels can be appended as a separate config.
+		// example external pod labels, namespace labels etc.
+		ocCfg.ExternalCfg = external.NewConfig(nodeLabelsCfg)
 	}
 	return ocCfg
 }

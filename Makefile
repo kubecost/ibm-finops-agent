@@ -60,3 +60,11 @@ podman-build-push:
 	podman build --rm --platform "linux/arm64" -f ./ibm-finops-agent/Dockerfile --manifest $(IMAGETAG) -t $(IMAGETAG)-arm64 ./ibm-finops-agent
 	podman build --rm --platform "linux/amd64" -f ./ibm-finops-agent/Dockerfile --manifest $(IMAGETAG) -t $(IMAGETAG)-amd64 ./ibm-finops-agent
 	podman manifest push $(IMAGETAG)
+
+.PHONY: podman-build-push-dev
+ podman-build-push-dev:
+	podman manifest rm $(IMAGETAG) > /dev/null 2>&1 || true
+	podman manifest create $(IMAGETAG)
+	podman build --rm --platform "linux/arm64" -f $(shell pwd)/Dockerfile.dev --manifest $(IMAGETAG) -t $(IMAGETAG)-arm64 ..
+	podman build --rm --platform "linux/amd64" -f $(shell pwd)/Dockerfile.dev --manifest $(IMAGETAG) -t $(IMAGETAG)-amd64 ..
+	podman manifest push $(IMAGETAG)
