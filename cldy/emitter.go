@@ -257,6 +257,31 @@ func unwrapNodeErrors(err error) []error {
 	return []error{err}
 }
 
+// nodeErrorDetails deduplicates node collection errors by message and returns one entry per
+// distinct message with its occurrence count. Returns nil when there are no errors.
+func nodeErrorDetails(nodeErrors []error) []errorDetail {
+	if len(nodeErrors) == 0 {
+		return nil
+	}
+	counts := map[string]int{}
+	for _, ne := range nodeErrors {
+		msg := ""
+		if ne != nil {
+			msg = ne.Error()
+		}
+		counts[msg]++
+	}
+	details := make([]errorDetail, 0, len(counts))
+	for msg, count := range counts {
+		details = append(details, errorDetail{
+			Message: msg,
+			Type:    "node_error",
+			Count:   count,
+		})
+	}
+	return details
+}
+
 func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	log.Infof("Initializing Cloudability emitter.")
 
@@ -550,34 +575,17 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	collectionErr := ce.lastNodeCollectionErr
 	ce.nodeStatsMu.Unlock()
 
-	var secondsSinceLastSuccess int64
+	// node_stats_age_seconds is the age of the node-stats data in this sample. On the
+	// foreground path (default) stats are fetched live per emit, so it is effectively ~0.
+	// On the background path (future work) it reports the cache age and grows as it goes stale.
+	var nodeStatsAgeSeconds int64
 	if !lastSuccess.IsZero() {
-		secondsSinceLastSuccess = int64(time.Since(lastSuccess).Seconds())
+		nodeStatsAgeSeconds = int64(time.Since(lastSuccess).Seconds())
 	}
-	collectionFailed := lastSuccess.IsZero() || float64(secondsSinceLastSuccess) > UploadFrequencyDuration.Seconds()
-	values["node_collection_failed"] = strconv.FormatBool(collectionFailed)
-	values["seconds_since_last_successful_node_collection"] = strconv.FormatInt(secondsSinceLastSuccess, 10)
+	values["node_stats_age_seconds"] = strconv.FormatInt(nodeStatsAgeSeconds, 10)
 
 	nodeErrors := unwrapNodeErrors(collectionErr)
 	metrics["nodes_failed"] = len(nodeErrors)
-
-	// Deduplicate errors by message and emit counts
-	var errorDetails []errorDetail
-	errorCounts := map[string]int{}
-	for _, ne := range nodeErrors {
-		msg := ""
-		if ne != nil {
-			msg = ne.Error()
-		}
-		errorCounts[msg]++
-	}
-	for msg, count := range errorCounts {
-		errorDetails = append(errorDetails, errorDetail{
-			Message: msg,
-			Type:    "node_error",
-			Count:   count,
-		})
-	}
 
 	agent := agentData{
 		Name:    "cldy_agent_status",
@@ -587,7 +595,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		},
 		Ts:     now.UTC().UnixMilli() / 1000,
 		Values: values,
-		Errors: errorDetails,
+		Errors: nodeErrorDetails(nodeErrors),
 	}
 	agentBytes, err := json.Marshal(agent)
 	if err != nil {

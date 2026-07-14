@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -151,47 +152,44 @@ func TestWriteAgentFileNodeDiagnostics(t *testing.T) {
 	tests := map[string]struct {
 		lastSuccess     time.Time
 		collectionErr   error
-		wantFailed      string
-		wantSecondsZero bool
+		wantAgeZero     bool
+		wantMinAgeSecs  int64 // when wantAgeZero is false, the reported age must be at least this
 		wantNodesFailed int
 		wantErrorCounts map[string]int
 	}{
 		"healthy fresh collection": {
 			lastSuccess:     time.Now().UTC(),
 			collectionErr:   nil,
-			wantFailed:      "false",
-			wantSecondsZero: true,
+			wantAgeZero:     true,
 			wantNodesFailed: 0,
 			wantErrorCounts: map[string]int{},
 		},
-		"never collected": {
+		"never collected reports zero age": {
 			lastSuccess:     time.Time{},
 			collectionErr:   nil,
-			wantFailed:      "true",
-			wantSecondsZero: true,
+			wantAgeZero:     true,
 			wantNodesFailed: 0,
 			wantErrorCounts: map[string]int{},
 		},
-		"stale collection past upload frequency": {
+		"stale collection reports growing age": {
 			lastSuccess:     time.Now().UTC().Add(-(UploadFrequencyDuration + time.Minute)),
 			collectionErr:   nil,
-			wantFailed:      "true",
+			wantAgeZero:     false,
+			wantMinAgeSecs:  int64(UploadFrequencyDuration.Seconds()),
 			wantNodesFailed: 0,
 			wantErrorCounts: map[string]int{},
 		},
 		"partial failures deduplicated by message": {
 			lastSuccess:     time.Now().UTC(),
 			collectionErr:   errors.Join(errors.New("node a: timeout"), errors.New("node b: refused"), errors.New("node a: timeout")),
-			wantFailed:      "false",
-			wantSecondsZero: true,
+			wantAgeZero:     true,
 			wantNodesFailed: 3,
 			wantErrorCounts: map[string]int{"node a: timeout": 2, "node b: refused": 1},
 		},
 		"nil error entry handled defensively": {
 			lastSuccess:     time.Now().UTC(),
 			collectionErr:   fakeMultiError{errs: []error{nil, errors.New("node c: eof")}},
-			wantFailed:      "false",
-			wantSecondsZero: true,
+			wantAgeZero:     true,
 			wantNodesFailed: 2,
 			wantErrorCounts: map[string]int{"": 1, "node c: eof": 1},
 		},
@@ -229,15 +227,25 @@ func TestWriteAgentFileNodeDiagnostics(t *testing.T) {
 				t.Fatalf("unmarshal agent file: %v", err)
 			}
 
-			if got := agent.Values["node_collection_failed"]; got != tt.wantFailed {
-				t.Errorf("node_collection_failed = %q, want %q", got, tt.wantFailed)
+			// node_collection_failed was dropped; ensure it is no longer emitted.
+			if _, ok := agent.Values["node_collection_failed"]; ok {
+				t.Errorf("node_collection_failed should no longer be emitted")
 			}
-			secs, ok := agent.Values["seconds_since_last_successful_node_collection"]
+
+			ageStr, ok := agent.Values["node_stats_age_seconds"]
 			if !ok {
-				t.Errorf("missing seconds_since_last_successful_node_collection")
+				t.Fatalf("missing node_stats_age_seconds")
 			}
-			if tt.wantSecondsZero && secs != "0" {
-				t.Errorf("seconds_since_last_successful_node_collection = %q, want 0", secs)
+			age, err := strconv.ParseInt(ageStr, 10, 64)
+			if err != nil {
+				t.Fatalf("node_stats_age_seconds = %q, not an int: %v", ageStr, err)
+			}
+			if tt.wantAgeZero {
+				if age != 0 {
+					t.Errorf("node_stats_age_seconds = %d, want 0", age)
+				}
+			} else if age < tt.wantMinAgeSecs {
+				t.Errorf("node_stats_age_seconds = %d, want >= %d", age, tt.wantMinAgeSecs)
 			}
 			if got := agent.Metrics["nodes_failed"]; got != tt.wantNodesFailed {
 				t.Errorf("nodes_failed = %d, want %d", got, tt.wantNodesFailed)
