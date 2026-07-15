@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/ibm/finops-agent/cldy"
@@ -63,22 +64,15 @@ func main() {
 
 	diag := diagnostics.NewDiagnosticService()
 
-	// Health check iterates all emitters that implement emitter.HealthChecker.
-	// At server-start the slice is empty (healthy). Emitters are appended later on the
-	// same goroutine before the exporter starts, so by the time real traffic arrives
-	// the checks are active.
-	var emitters []emitter.Emitter
+	// healthCheckers is published once, after all emitters are constructed. The HTTP server
+	// starts serving /healthz before the (potentially slow) emitter initialization completes,
+	// and its handlers run on separate goroutines, so the checker list must be shared through
+	// an atomic pointer rather than a plain slice. Until it is published (nil), /healthz
+	// reports healthy (startup grace).
+	var healthCheckers atomic.Pointer[[]emitter.HealthChecker]
+	healthCheck := newEmitterHealthCheck(&healthCheckers)
 
-	healthCheck := http.HealthChecker(func() bool {
-		for _, e := range emitters {
-			if hc, ok := e.(emitter.HealthChecker); ok {
-				if !hc.Healthy() {
-					return false
-				}
-			}
-		}
-		return true
-	})
+	var emitters []emitter.Emitter
 
 	// Setup the HTTP server - ensure the goroutine starts before continuing to initialization
 	// of the data source and emitters
@@ -180,6 +174,11 @@ func main() {
 		}
 	*/
 
+	// Publish the health checkers now that all emitters are constructed. The atomic Store
+	// establishes a happens-before edge to the fully-built slice for the /healthz handler
+	// goroutines, which read it via healthCheckers.Load().
+	publishHealthCheckers(&healthCheckers, emitters)
+
 	snapshotProvider := emitter.NewConcurrentSnapshotProvider(snapshotConfig)
 	exporter := emitter.NewExporter(dataSource, snapshotProvider, emitters...)
 
@@ -190,6 +189,37 @@ func main() {
 	defer exporter.Stop()
 
 	WaitForSignal()
+}
+
+// newEmitterHealthCheck returns a HealthChecker that reports healthy unless a published
+// emitter reports unhealthy. The checkers are read through an atomic pointer so the /healthz
+// handler goroutines never race with emitter registration on the main goroutine. Before the
+// checkers are published (nil pointer) the agent is considered healthy (startup grace).
+func newEmitterHealthCheck(checkers *atomic.Pointer[[]emitter.HealthChecker]) http.HealthChecker {
+	return func() bool {
+		published := checkers.Load()
+		if published == nil {
+			return true
+		}
+		for _, hc := range *published {
+			if !hc.Healthy() {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+// publishHealthCheckers extracts the emitters that implement emitter.HealthChecker and
+// atomically publishes them so the /healthz handler can consult them.
+func publishHealthCheckers(dst *atomic.Pointer[[]emitter.HealthChecker], emitters []emitter.Emitter) {
+	var checkers []emitter.HealthChecker
+	for _, e := range emitters {
+		if hc, ok := e.(emitter.HealthChecker); ok {
+			checkers = append(checkers, hc)
+		}
+	}
+	dst.Store(&checkers)
 }
 
 // WaitForSignal waits for a termination signal (SIGINT or SIGTERM) and then exits the program.
