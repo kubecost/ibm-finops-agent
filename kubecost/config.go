@@ -69,13 +69,13 @@ type EmitterConfig struct {
 	EmitAllocationMinuteResolution  bool
 	EmitAssetMinuteResolution       bool
 	EmitKubeModelMinuteResolution   bool
+	HeartbeatExportEnabled          bool
+	DiagnosticsExportEnabled        bool
 	EmitLegacyDateModels            bool
 	EmitKubeModel                   bool
 	KubernetesResourcesRequired     []string
 	StreamingExportEnabled          bool
 	StreamingExportCompressionLevel exporter.ExportCompressionLevel
-	HeartbeatExportEnabled          bool
-	DiagnosticsExportEnabled        bool
 }
 
 // NewEmitterConfigFromEnv creates a new EmitterConfig from environment variables.
@@ -93,14 +93,14 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 		EmitAllocationMinuteResolution: kcenv.IsMinuteMetricsEnabled(),
 		EmitAssetMinuteResolution:      kcenv.IsMinuteMetricsEnabled(),
 		EmitKubeModelMinuteResolution:  kcenv.IsMinuteMetricsEnabled(),
+		HeartbeatExportEnabled:         kcenv.IsHeartbeatExportEnabled(),
+		DiagnosticsExportEnabled:       kcenv.IsDiagnosticsExportEnabled(),
 		EmitLegacyDateModels:           coreenv.IsLegacyDataModelExported(),
 		EmitKubeModel:                  kcenv.IsFinOpsAgentKubeModelExported(),
 		// Kubecost emitter requires all kubernetes resources to be enabled
 		KubernetesResourcesRequired:     slices.Clone(emitter.SnapshotAllResources),
 		StreamingExportEnabled:          kcenv.IsStreamingExportEnabled(),
 		StreamingExportCompressionLevel: kcenv.GetStreamingExportCompressionLevel(),
-		HeartbeatExportEnabled:          kcenv.IsHeartbeatExportEnabled(),
-		DiagnosticsExportEnabled:        kcenv.IsDiagnosticsExportEnabled(),
 	}
 }
 
