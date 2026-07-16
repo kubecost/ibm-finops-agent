@@ -74,6 +74,8 @@ type EmitterConfig struct {
 	KubernetesResourcesRequired     []string
 	StreamingExportEnabled          bool
 	StreamingExportCompressionLevel exporter.ExportCompressionLevel
+	HeartbeatExportEnabled          bool
+	DiagnosticsExportEnabled        bool
 }
 
 // NewEmitterConfigFromEnv creates a new EmitterConfig from environment variables.
@@ -97,6 +99,8 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 		KubernetesResourcesRequired:     slices.Clone(emitter.SnapshotAllResources),
 		StreamingExportEnabled:          kcenv.IsStreamingExportEnabled(),
 		StreamingExportCompressionLevel: kcenv.GetStreamingExportCompressionLevel(),
+		HeartbeatExportEnabled:          kcenv.IsHeartbeatExportEnabled(),
+		DiagnosticsExportEnabled:        kcenv.IsDiagnosticsExportEnabled(),
 	}
 }
 
