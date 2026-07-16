@@ -96,8 +96,14 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	if customAzureBlobContainerName != "" {
 		azureBlobClientSecret = getSecretFromFileVolume(viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_SECRET_FILEPATH"))
 	}
+
+	apiKey := strings.TrimSpace(viper.GetString("API_KEY"))
+	if apiKey == "" {
+		apiKey = getSecretFromFileVolume(viper.GetString("API_KEY_FILEPATH"))
+	}
+
 	var keyAccess, keySecret, envID string
-	if customS3UploadBucket == "" && customS3UploadRegion == "" && customAzureBlobContainerName == "" {
+	if customS3UploadBucket == "" && customS3UploadRegion == "" && customAzureBlobContainerName == "" && apiKey == "" {
 		keyAccess = getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
 		keySecret = getSecretFromFileVolume(viper.GetString("KEY_SECRET_FILEPATH"))
 		envID = getSecretFromFileVolume(viper.GetString("ENV_ID_FILEPATH"))
@@ -107,6 +113,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 			ApptioConfig: ApptioConfig{
 				ClusterName:                     viper.GetString("CLUSTER_NAME"),
 				SecretManager:                   NewKeyValueSecretManager(keyAccess, keySecret),
+				APIKeySecretManager:             NewValueSecretManager(apiKey),
 				EnvID:                           envID,
 				Timeout:                         time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
 				Retries:                         viper.GetInt("UPLOAD_RETRY_COUNT"),
