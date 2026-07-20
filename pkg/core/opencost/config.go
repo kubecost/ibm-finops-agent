@@ -3,7 +3,6 @@ package opencost
 import (
 	"github.com/ibm/finops-agent/kubecost/env"
 	kcenv "github.com/ibm/finops-agent/kubecost/env"
-	agentenv "github.com/ibm/finops-agent/pkg/env"
 	coreenv "github.com/opencost/opencost/core/pkg/env"
 	"github.com/opencost/opencost/core/pkg/external"
 	ocenv "github.com/opencost/opencost/pkg/env"
@@ -28,13 +27,13 @@ func NewOpenCostConfigFromEnv() *OpenCostConfig {
 		AgentNamespace:             kcenv.GetFinOpsAgentNamespace(),
 	}
 
-	externalnodeLabelsCM := agentenv.GetExternalNodeLabelsConfigMapName()
+	externalnodeLabelsCM := ocenv.GetExternalNodeLabelsConfigMapName()
 	if externalnodeLabelsCM != "" {
 		nodeLabelsCfg := external.NewNodeLabelConfig(
 			externalnodeLabelsCM,
-			agentenv.GetExternalNodeLabelsNamespace(),
-			agentenv.GetExternalNodeLabelsKey(),
-			agentenv.GetExternalNodeLabelsRoute(),
+			ocenv.GetExternalNodeLabelsNamespace(),
+			ocenv.GetExternalNodeLabelsKey(),
+			ocenv.GetExternalNodeLabelsRoute(),
 		)
 
 		// Any future external labels can be appended as a separate config.
