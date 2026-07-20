@@ -2,7 +2,6 @@ package opencost
 
 import (
 	"github.com/ibm/finops-agent/kubecost/env"
-	kcenv "github.com/ibm/finops-agent/kubecost/env"
 	coreenv "github.com/opencost/opencost/core/pkg/env"
 	"github.com/opencost/opencost/core/pkg/external"
 	ocenv "github.com/opencost/opencost/pkg/env"
@@ -24,7 +23,7 @@ func NewOpenCostConfigFromEnv() *OpenCostConfig {
 		CloudProviderAPIKey:        ocenv.GetCloudProviderAPIKey(),
 		CollectorDataSourceEnabled: ocenv.IsCollectorDataSourceEnabled(),
 		BucketConfigFile:           env.GetExportBucketConfigFile(),
-		AgentNamespace:             kcenv.GetFinOpsAgentNamespace(),
+		AgentNamespace:             env.GetFinOpsAgentNamespace(),
 	}
 
 	externalnodeLabelsCM := ocenv.GetExternalNodeLabelsConfigMapName()
