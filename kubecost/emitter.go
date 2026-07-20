@@ -113,11 +113,15 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 		heartbeatexporter.NewLogLevelMetadataProvider(),
 	)
 	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.AppName, ke.config.ClusterName, version.FriendlyVersion(), bucketStore, heartbeatMetadata)
-	agentHeartbeat.Start(ke.config.ExportIntervals.HeartbeatInterval)
+	if ke.config.HeartbeatExportEnabled {
+		agentHeartbeat.Start(ke.config.ExportIntervals.HeartbeatInterval)
+	}
 
 	// diagnostics exporter
 	diagnosticsExporter := diagexporter.NewDiagnosticsExportController(ke.config.AppName, ke.config.ClusterName, bucketStore, ke.diag)
-	diagnosticsExporter.Start(ke.config.ExportIntervals.DiagnosticsInterval)
+	if ke.config.DiagnosticsExportEnabled {
+		diagnosticsExporter.Start(ke.config.ExportIntervals.DiagnosticsInterval)
+	}
 
 	// initialize emitter's internal state
 	ke.dataSource = dataSource

@@ -175,6 +175,7 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 type ApptioConfig struct {
 	ClusterName                     string
 	SecretManager                   SecretManager
+	APIKeySecretManager             SecretManager
 	EnvID                           string
 	OpenToken                       string
 	CustomerType                    string
@@ -201,8 +202,10 @@ func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
 	}
 	return func(request *http.Request) (*url.URL, error) {
 		if config.UseProxyForGettingUploadURLOnly {
-			// agent configured to only use proxy for GetUploadURL and frontdoor login requests
-			if request.URL.Path == clustersUploadEndpoint || strings.Contains(request.URL.Path, apikeyloginEndpoint) {
+			// agent configured to only use proxy for presign and frontdoor login requests
+			if request.URL.Path == clustersUploadEndpoint ||
+				request.URL.Path == metricsSampleEndpoint ||
+				strings.Contains(request.URL.Path, apikeyloginEndpoint) {
 				return config.ProxyURL, nil
 			}
 			return nil, nil
@@ -394,37 +397,8 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 	return uploadURL, nil
 }
 
-func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) (rErr error) {
-	fileToUpload, err := os.Open(payload.FilePath)
-	if err != nil {
-		return fmt.Errorf("error in opening file to upload: %w", err)
-	}
-	fi, err := fileToUpload.Stat()
-	if err != nil {
-		return err
-	}
-	size := fi.Size()
-
-	request, err := http.NewRequest(http.MethodPut, uploadURL, fileToUpload)
-	if err != nil {
-		return err
-	}
-
-	request.Header.Set(contentTypeHeader, "multipart/form-data")
-	request.Header.Set(contentMD5, payload.UploadHash)
-	request.ContentLength = size
-
-	resp, err := s.CldyUploadClient.Do(request, s3UploadDescription)
-	if err != nil {
-		return err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("sample upload failed with status code: %d", resp.StatusCode)
-	}
-
-	log.Infof("Successfully uploaded metric sample %s to cloudability", removeQueryParameters(path.Base(uploadURL)))
-	return nil
+func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) error {
+	return uploadPayloadToPresignedURL(s.CldyUploadClient, payload, uploadURL)
 }
 
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {

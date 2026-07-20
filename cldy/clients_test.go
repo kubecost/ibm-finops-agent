@@ -114,6 +114,43 @@ var _ = Describe("Client Proxy", func() {
 			Expect(actualURL.Path).To(Equal(config.ProxyURL.Path))
 		})
 	})
+	Context("Metrics Collector presign", func() {
+		proxyExample := "https://proxy.example.com"
+		proxyURL, err := url.Parse(proxyExample)
+		Expect(err).ToNot(HaveOccurred())
+
+		requestURL := "https://metrics-collector.cloudability.com/metricsample"
+
+		It("should use proxy when UseProxyForGettingUploadURLOnly is true", func() {
+			config := cldy.ApptioConfig{
+				UseProxyForGettingUploadURLOnly: true,
+				ProxyURL:                        proxyURL,
+			}
+
+			proxyFunc := cldy.BuildProxyFunc(config)
+			request, err := http.NewRequest(http.MethodPost, requestURL, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			actualURL, err := proxyFunc(request)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(actualURL.Host).To(Equal(config.ProxyURL.Host))
+		})
+
+		It("should not use proxy for S3 upload when UseProxyForGettingUploadURLOnly is true", func() {
+			config := cldy.ApptioConfig{
+				UseProxyForGettingUploadURLOnly: true,
+				ProxyURL:                        proxyURL,
+			}
+
+			proxyFunc := cldy.BuildProxyFunc(config)
+			request, err := http.NewRequest(http.MethodPut, "https://apptio-production.s3.amazonaws.com/sample", nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			actualURL, err := proxyFunc(request)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(actualURL).To(BeNil())
+		})
+	})
 	Context("All other endpoints", func() {
 		proxyExample := "https://proxy.example.com"
 		proxyURL, err := url.Parse(proxyExample)
