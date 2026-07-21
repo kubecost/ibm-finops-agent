@@ -1,6 +1,6 @@
 module github.com/ibm/finops-agent
 
-go 1.26.2
+go 1.26.5
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
@@ -12,10 +12,10 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
-	github.com/opencost/opencost v1.120.5-0.20260701171025-87faadd1d783
-	github.com/opencost/opencost/core v1.120.5-0.20260701171025-87faadd1d783
-	github.com/opencost/opencost/modules/collector-source v1.120.5-0.20260701171025-87faadd1d783
-	github.com/opencost/opencost/modules/prometheus-source v1.120.5-0.20260701171025-87faadd1d783
+	github.com/opencost/opencost v1.121.0
+	github.com/opencost/opencost/core v1.121.0
+	github.com/opencost/opencost/modules/collector-source v1.121.0
+	github.com/opencost/opencost/modules/prometheus-source v1.121.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/cors v1.11.1
 	github.com/spf13/cast v1.10.0
@@ -154,6 +154,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oklog/run v1.2.0 // indirect
+	github.com/opencost/bingen v0.2.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
 	github.com/oracle/oci-go-sdk/v65 v65.117.1 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
@@ -217,6 +218,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.32.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a // indirect
