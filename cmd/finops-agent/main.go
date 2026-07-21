@@ -64,20 +64,18 @@ func main() {
 
 	diag := diagnostics.NewDiagnosticService()
 
-	// healthCheckers is published once, after all emitters are constructed. The HTTP server
-	// starts serving /healthz before the (potentially slow) emitter initialization completes,
-	// and its handlers run on separate goroutines, so the checker list must be shared through
-	// an atomic pointer rather than a plain slice. Until it is published (nil), /healthz
-	// reports healthy (startup grace).
+	// Emitters are constructed after the server starts, so healthCheckers is published
+	// atomically once they are all built to avoid a race with /healthz handler goroutines.
 	var healthCheckers atomic.Pointer[[]emitter.HealthChecker]
 	healthCheck := newEmitterHealthCheck(&healthCheckers)
+	router.HandlerFunc(gohttp.MethodGet, "/healthz", healthzHandler(healthCheck))
 
 	var emitters []emitter.Emitter
 
 	// Setup the HTTP server - ensure the goroutine starts before continuing to initialization
 	// of the data source and emitters
 	started := make(chan struct{})
-	server := http.NewHttpServer(router, 9003, healthCheck)
+	server := http.NewHttpServer(router, 9003)
 	go func() {
 		close(started)
 
@@ -191,11 +189,25 @@ func main() {
 	WaitForSignal()
 }
 
+// healthzHandler returns an HTTP handler for the /healthz liveness endpoint.
+// checker is called on each request; returning false causes a 503 response.
+func healthzHandler(checker func() bool) gohttp.HandlerFunc {
+	return func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		if !checker() {
+			w.WriteHeader(gohttp.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(gohttp.StatusOK)
+	}
+}
+
 // newEmitterHealthCheck returns a HealthChecker that reports healthy unless a published
 // emitter reports unhealthy. The checkers are read through an atomic pointer so the /healthz
 // handler goroutines never race with emitter registration on the main goroutine. Before the
 // checkers are published (nil pointer) the agent is considered healthy (startup grace).
-func newEmitterHealthCheck(checkers *atomic.Pointer[[]emitter.HealthChecker]) http.HealthChecker {
+func newEmitterHealthCheck(checkers *atomic.Pointer[[]emitter.HealthChecker]) func() bool {
 	return func() bool {
 		published := checkers.Load()
 		if published == nil {
