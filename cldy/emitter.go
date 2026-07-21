@@ -51,7 +51,7 @@ type Emitter struct {
 	// Node-stats collection diagnostics, updated from each snapshot the emitter receives.
 	// Guarded by nodeStatsMu because Healthy() is invoked from the /healthz handler goroutine
 	// while Emit()/Init() run on the exporter goroutine.
-	nodeStatsMu                  sync.Mutex
+	nodeStatsMu                  sync.RWMutex
 	lastSuccessfulNodeCollection time.Time
 	lastNodeCollectionErr        error
 }
@@ -217,9 +217,9 @@ func (ce *Emitter) ID() emitter.EmitterID {
 // called, so lastSuccessfulNodeCollection stops advancing and the emitter eventually
 // reports unhealthy.
 func (ce *Emitter) Healthy() bool {
-	ce.nodeStatsMu.Lock()
+	ce.nodeStatsMu.RLock()
 	lastSuccess := ce.lastSuccessfulNodeCollection
-	ce.nodeStatsMu.Unlock()
+	ce.nodeStatsMu.RUnlock()
 
 	// startup grace: no successful collection has been observed yet
 	if lastSuccess.IsZero() {
@@ -570,10 +570,10 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	metrics["uptime"] = int(now.UTC().Sub(ce.startTime).Seconds())
 
 	// Node collection diagnostics derived from the most recent snapshot.
-	ce.nodeStatsMu.Lock()
+	ce.nodeStatsMu.RLock()
 	lastSuccess := ce.lastSuccessfulNodeCollection
 	collectionErr := ce.lastNodeCollectionErr
-	ce.nodeStatsMu.Unlock()
+	ce.nodeStatsMu.RUnlock()
 
 	// node_stats_age_seconds is the age of the node-stats data in this sample. On the
 	// foreground path (default) stats are fetched live per emit, so it is effectively ~0.
