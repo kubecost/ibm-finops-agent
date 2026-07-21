@@ -68,14 +68,14 @@ func NewOpenCostDataSource(
 			log.Errorf("Failed to create an external label source: %s", err)
 		}
 
-		nlCfg := conf.ExternalCfg.NodeLabelConfig()
-		elNamespace := nlCfg.Namespace()
+		nodeLabelConfig := conf.ExternalCfg.NodeLabelConfig()
+		nodeLabelNamespace := nodeLabelConfig.Namespace()
 		// If configmap is in the same namespace as the finops agent we can just use the same configmap watcher.
-		if elNamespace == "" {
-			configWatchers.Add(nlCfg.ConfigMapName(), external.WatchFunc(labelSource, labelProvider))
+		if nodeLabelNamespace == "" {
+			configWatchers.Add(nodeLabelConfig.ConfigMapName(), external.WatchFunc(labelSource, labelProvider))
 		} else {
-			elWatchers := watcher.NewConfigMapWatchers(kubeClientset, elNamespace)
-			elWatchers.Add(nlCfg.ConfigMapName(), external.WatchFunc(labelSource, labelProvider))
+			elWatchers := watcher.NewConfigMapWatchers(kubeClientset, nodeLabelNamespace)
+			elWatchers.Add(nodeLabelConfig.ConfigMapName(), external.WatchFunc(labelSource, labelProvider))
 			elWatchers.Watch()
 		}
 	}
