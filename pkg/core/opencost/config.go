@@ -26,10 +26,10 @@ func NewOpenCostConfigFromEnv() *OpenCostConfig {
 		AgentNamespace:             env.GetFinOpsAgentNamespace(),
 	}
 
-	externalnodeLabelsCM := ocenv.GetExternalNodeLabelsConfigMapName()
-	if externalnodeLabelsCM != "" {
-		nodeLabelsCfg := external.NewNodeLabelConfig(
-			externalnodeLabelsCM,
+	nodeLabelsConfigMap := ocenv.GetExternalNodeLabelsConfigMapName()
+	if nodeLabelsConfigMap != "" {
+		nodeLabelConfig := external.NewNodeLabelConfig(
+			nodeLabelsConfigMap,
 			ocenv.GetExternalNodeLabelsNamespace(),
 			ocenv.GetExternalNodeLabelsKey(),
 			ocenv.GetExternalNodeLabelsRoute(),
@@ -37,7 +37,7 @@ func NewOpenCostConfigFromEnv() *OpenCostConfig {
 
 		// Any future external labels can be appended as a separate config.
 		// example external pod labels, namespace labels etc.
-		ocCfg.ExternalCfg = external.NewConfig(nodeLabelsCfg)
+		ocCfg.ExternalCfg = external.NewConfig(nodeLabelConfig)
 	}
 	return ocCfg
 }

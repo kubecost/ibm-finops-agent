@@ -60,29 +60,24 @@ func NewOpenCostDataSource(
 	configWatchers := watcher.NewConfigMapWatchers(kubeClientset, conf.AgentNamespace)
 	configWatchers.AddWatcher(provider.ConfigWatcherFor(cloudProvider))
 
-	var elProvider external.LabelProvider
-	// This part of the code could be improved. If the config watcher is
-	// located in pkg/core/util, ConfigMapSource could be implemented with
-	// it's own config watcher. The Agent currently uses the WatchFunc in
-	// the external package and matches the watcher to the appropriate namespace.
+	var labelProvider external.LabelProvider
 	if conf.ExternalCfg != nil {
-		elProvider = external.NewNodeLabelProvider()
-		elSource, err := external.NewLabelSource(conf.ExternalCfg)
+		labelProvider = external.NewNodeLabelProvider()
+		labelSource, err := external.NewLabelSource(conf.ExternalCfg)
 		if err != nil {
-			log.Errorf("Failed to create an external Source: %s", err)
+			log.Errorf("Failed to create an external label source: %s", err)
 		}
 
 		nlCfg := conf.ExternalCfg.NodeLabelConfig()
 		elNamespace := nlCfg.Namespace()
 		// If configmap is in the same namespace as the finops agent we can just use the same configmap watcher.
 		if elNamespace == "" {
-			configWatchers.Add(nlCfg.ConfigMapName(), external.WatchFunc(elSource, elProvider))
+			configWatchers.Add(nlCfg.ConfigMapName(), external.WatchFunc(labelSource, labelProvider))
 		} else {
 			elWatchers := watcher.NewConfigMapWatchers(kubeClientset, elNamespace)
-			elWatchers.Add(nlCfg.ConfigMapName(), external.WatchFunc(elSource, elProvider))
+			elWatchers.Add(nlCfg.ConfigMapName(), external.WatchFunc(labelSource, labelProvider))
 			elWatchers.Watch()
 		}
-
 	}
 
 	configWatchers.Watch()
@@ -130,7 +125,7 @@ func NewOpenCostDataSource(
 				clusterInfoProvider,
 				clusterCache,
 				nodeClient,
-				elProvider,
+				labelProvider,
 			)
 			return ds, nil
 		}
