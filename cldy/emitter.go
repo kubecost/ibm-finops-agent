@@ -114,7 +114,11 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 
 	apiKey := strings.TrimSpace(viper.GetString("API_KEY"))
 	if apiKey == "" {
-		apiKey = getSecretFromFileVolume(viper.GetString("API_KEY_FILEPATH"))
+		if fp := viper.GetString("API_KEY_FILEPATH"); fp != "" {
+			if key, err := os.ReadFile(fp); err == nil {
+				apiKey = strings.TrimSpace(string(key))
+			}
+		}
 	}
 
 	var keyAccess, keySecret, envID string
