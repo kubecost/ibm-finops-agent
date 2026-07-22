@@ -1,5 +1,23 @@
 name: Automated FinOps Agent Release
 
+# RELEASE_AUTOMATION_TOKEN Configuration
+# =======================================
+# Required Scope: repo (full control of private repositories)
+#
+# Setup:
+# 1. Create PAT: https://github.com/settings/tokens (classic token, 'repo' scope)
+# 2. Add secret: https://github.com/kubecost/ibm-finops-agent/settings/secrets/actions
+#    Name: RELEASE_AUTOMATION_TOKEN
+#
+# Validation:
+#   export TOKEN="<your-token>"
+#   curl -s -H "Authorization: token $TOKEN" https://api.github.com/user
+#   curl -s -I -H "Authorization: token $TOKEN" https://api.github.com/user | grep "x-oauth-scopes:"
+#   curl -s -H "Authorization: token $TOKEN" https://api.github.com/repos/kubecost/ibm-finops-agent | jq -r '.permissions.push'
+#   curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" https://api.github.com/repos/kubecost/finops-agent-chart
+#   curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" https://api.github.com/repos/kubecost/kubecost
+#   curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" https://api.github.com/repos/kubecost/integration-ci-cd
+
 on:
   workflow_dispatch:
     inputs:
@@ -58,7 +76,7 @@ jobs:
 
       - name: Wait for build workflow to start
         env:
-          GH_TOKEN: ${{ secrets.PR_CREATE_GH_PAT }}
+          GH_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
         run: |
           echo "⏳ Waiting for build workflow to start..."
           
@@ -89,7 +107,7 @@ jobs:
 
       - name: Wait for build to complete
         env:
-          GH_TOKEN: ${{ secrets.PR_CREATE_GH_PAT }}
+          GH_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
         timeout-minutes: 30
         run: |
           echo "⏳ Waiting for image build to complete..."
@@ -106,7 +124,7 @@ jobs:
         with:
           repository: kubecost/finops-agent-chart
           ref: main
-          token: ${{ secrets.PR_CREATE_GH_PAT }}
+          token: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
           fetch-depth: 0
 
       - name: Install yq
@@ -153,7 +171,7 @@ jobs:
 
       - name: Wait for publish workflow to start
         env:
-          GH_TOKEN: ${{ secrets.PR_CREATE_GH_PAT }}
+          GH_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
         run: |
           echo "⏳ Waiting for chart publish workflow to start..."
           
@@ -184,7 +202,7 @@ jobs:
 
       - name: Wait for publish to complete
         env:
-          GH_TOKEN: ${{ secrets.PR_CREATE_GH_PAT }}
+          GH_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
         timeout-minutes: 20
         run: |
           echo "⏳ Waiting for chart publish to complete..."
@@ -201,7 +219,7 @@ jobs:
         with:
           repository: kubecost/kubecost
           ref: develop
-          token: ${{ secrets.PR_CREATE_GH_PAT }}
+          token: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
           fetch-depth: 0
 
       - name: Install Helm
