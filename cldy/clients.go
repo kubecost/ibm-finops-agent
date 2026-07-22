@@ -348,10 +348,18 @@ func (s *ApptioServiceImpl) testUpload() error {
 // upload to Apptio's S3 bucket
 func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL string, rErr error) {
 	url := fmt.Sprintf("%s%s", s.CloudabilityURL, clustersUploadEndpoint)
+
+	// The Frontdoor API requires a plain semver without a leading "v".
+	// Fall back to "0.0.0" for non-semver strings (e.g. "dev" in local builds).
+	agentVersion := strings.TrimPrefix(payload.AgentVersion, "v")
+	if !semverRegexp.MatchString(agentVersion) {
+		agentVersion = "0.0.0"
+	}
+
 	body, err := json.Marshal(map[string]interface{}{
 		"clusterUID":   payload.ClusterUID,
 		"fileName":     payload.FileName,
-		"agentVersion": payload.AgentVersion,
+		"agentVersion": agentVersion,
 		"uploadHash":   payload.UploadHash,
 	})
 	if err != nil {
