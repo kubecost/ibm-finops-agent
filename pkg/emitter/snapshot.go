@@ -206,6 +206,7 @@ func snapshotNodeStats(client nodes.StatSummaryClient) (*NodeStatsSummary, error
 
 	return &NodeStatsSummary{
 		Stats: data,
+		CollectionErr: err,
 	}, nil
 }
 
