@@ -39,6 +39,7 @@ type KubernetesSnapshot struct {
 // NodeStatsSummary contains summary data sets
 type NodeStatsSummary struct {
 	Stats []*stats.Summary
+	CollectionErr error
 }
 
 // MetricsSummary contains the metrics results from opencost data source queries.
@@ -227,4 +228,11 @@ type Emitter interface {
 
 	// Emit emits the `ClusterSnapshot` based on the emitter's implementation.
 	Emit(context.Context, *ClusterSnapshot) error
+}
+
+// HealthChecker is an optional interface that an Emitter can implement to participate
+// in the agent's /healthz liveness check. If Healthy() returns false, the agent reports
+// itself unhealthy and the kubelet liveness probe will eventually restart it.
+type HealthChecker interface {
+	Healthy() bool
 }

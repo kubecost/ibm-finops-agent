@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/ibm/finops-agent/cldy"
@@ -63,6 +64,14 @@ func main() {
 
 	diag := diagnostics.NewDiagnosticService()
 
+	// Emitters are constructed after the server starts, so healthCheckers is published
+	// atomically once they are all built to avoid a race with /healthz handler goroutines.
+	var healthCheckers atomic.Pointer[[]emitter.HealthChecker]
+	healthCheck := newEmitterHealthCheck(&healthCheckers)
+	router.HandlerFunc(gohttp.MethodGet, "/healthz", healthzHandler(healthCheck))
+
+	var emitters []emitter.Emitter
+
 	// Setup the HTTP server - ensure the goroutine starts before continuing to initialization
 	// of the data source and emitters
 	started := make(chan struct{})
@@ -110,7 +119,6 @@ func main() {
 	// are required by the emitters.
 	snapshotConfig := emitter.NewSnapshotConfigFromEnv()
 
-	var emitters []emitter.Emitter
 	if env.IsKubecostEmitterEnabled() {
 		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv(clusterUID)
 		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
@@ -164,6 +172,11 @@ func main() {
 		}
 	*/
 
+	// Publish the health checkers now that all emitters are constructed. The atomic Store
+	// establishes a happens-before edge to the fully-built slice for the /healthz handler
+	// goroutines, which read it via healthCheckers.Load().
+	publishHealthCheckers(&healthCheckers, emitters)
+
 	snapshotProvider := emitter.NewConcurrentSnapshotProvider(snapshotConfig)
 	exporter := emitter.NewExporter(dataSource, snapshotProvider, emitters...)
 
@@ -174,6 +187,51 @@ func main() {
 	defer exporter.Stop()
 
 	WaitForSignal()
+}
+
+// healthzHandler returns an HTTP handler for the /healthz liveness endpoint.
+// checker is called on each request; returning false causes a 503 response.
+func healthzHandler(checker func() bool) gohttp.HandlerFunc {
+	return func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		if !checker() {
+			w.WriteHeader(gohttp.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(gohttp.StatusOK)
+	}
+}
+
+// newEmitterHealthCheck returns a HealthChecker that reports healthy unless a published
+// emitter reports unhealthy. The checkers are read through an atomic pointer so the /healthz
+// handler goroutines never race with emitter registration on the main goroutine. Before the
+// checkers are published (nil pointer) the agent is considered healthy (startup grace).
+func newEmitterHealthCheck(checkers *atomic.Pointer[[]emitter.HealthChecker]) func() bool {
+	return func() bool {
+		published := checkers.Load()
+		if published == nil {
+			return true
+		}
+		for _, hc := range *published {
+			if !hc.Healthy() {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+// publishHealthCheckers extracts the emitters that implement emitter.HealthChecker and
+// atomically publishes them so the /healthz handler can consult them.
+func publishHealthCheckers(dst *atomic.Pointer[[]emitter.HealthChecker], emitters []emitter.Emitter) {
+	var checkers []emitter.HealthChecker
+	for _, e := range emitters {
+		if hc, ok := e.(emitter.HealthChecker); ok {
+			checkers = append(checkers, hc)
+		}
+	}
+	dst.Store(&checkers)
 }
 
 // WaitForSignal waits for a termination signal (SIGINT or SIGTERM) and then exits the program.

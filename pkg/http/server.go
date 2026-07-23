@@ -11,12 +11,6 @@ import (
 	"github.com/rs/cors"
 )
 
-func Healthz(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Length", "0")
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(200)
-}
-
 func Version(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	_, err := fmt.Fprintf(w, "%s", version.Version)
@@ -30,7 +24,6 @@ func Version(w http.ResponseWriter, _ *http.Request) {
 
 func NewHttpServer(h http.Handler, port int) *http.Server {
 	rootMux := http.NewServeMux()
-	rootMux.HandleFunc("/healthz", Healthz)
 	rootMux.HandleFunc("/version", Version)
 	rootMux.Handle("/metrics", promhttp.Handler())
 	rootMux.Handle("/", h)
