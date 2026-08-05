@@ -21,10 +21,10 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/aws/aws-sdk-go/aws"                  //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
-	"github.com/aws/aws-sdk-go/aws/session"          //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
-	"github.com/aws/aws-sdk-go/service/s3"           //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
-	"github.com/aws/aws-sdk-go/service/s3/s3manager" //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
@@ -504,26 +504,35 @@ func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageSer
 }
 
 type CustomS3UploadService interface {
-	Do(sampleToUpload *s3manager.UploadInput) error
+	Do(sampleToUpload *s3.PutObjectInput) error
 }
 
+// CustomS3Uploader wraps the SDK v2 upload manager, which handles automatic
+// multipart upload for large sample tarballs.
+//
+// feature/s3/manager is deprecated in favour of feature/s3/transfermanager,
+// but that module is still pre-GA (v0.3.9) and its API can change between
+// releases, so it is not yet suitable for the upload path. Revisit once
+// transfermanager reaches v1.
 type CustomS3Uploader struct {
-	Uploader *s3manager.Uploader
+	Uploader *manager.Uploader //nolint:staticcheck // see doc comment: transfermanager is pre-GA
 }
 
 func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
-	sess, err := session.NewSession(&aws.Config{
-		Region:     aws.String(s3Region),
-		MaxRetries: aws.Int(3)},
+	// SDK v1 used MaxRetries: 3, which meant three *retries* on top of the
+	// initial call, i.e. four attempts. SDK v2's WithRetryMaxAttempts counts
+	// total attempts, so 4 preserves the previous behaviour.
+	cfg, err := awsconfig.LoadDefaultConfig(context.TODO(),
+		awsconfig.WithRegion(s3Region),
+		awsconfig.WithRetryMaxAttempts(4),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("could not establish AWS Session, "+
+		return nil, fmt.Errorf("could not load AWS configuration, "+
 			"ensure Cloudability AWS environment variables are set correctly: %s", err)
 	}
-	svc := s3.New(sess)
 
 	return &CustomS3Uploader{
-		Uploader: s3manager.NewUploaderWithClient(svc),
+		Uploader: manager.NewUploader(s3.NewFromConfig(cfg)), //nolint:staticcheck // transfermanager is pre-GA, see CustomS3Uploader
 	}, nil
 }
 
@@ -539,7 +548,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 		return err
 	}
 
-	sampleToUpload := &s3manager.UploadInput{
+	sampleToUpload := &s3.PutObjectInput{
 		Bucket: aws.String(cs3c.S3Bucket),
 		Key:    aws.String(key),
 		Body:   fileReader,
@@ -555,8 +564,8 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 	return nil
 }
 
-func (cs3u CustomS3Uploader) Do(sampleToUpload *s3manager.UploadInput) error {
-	_, err := cs3u.Uploader.Upload(sampleToUpload)
+func (cs3u CustomS3Uploader) Do(sampleToUpload *s3.PutObjectInput) error {
+	_, err := cs3u.Uploader.Upload(context.TODO(), sampleToUpload) //nolint:staticcheck // transfermanager is pre-GA, see CustomS3Uploader
 	return err
 }
 
