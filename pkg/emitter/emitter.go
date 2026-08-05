@@ -30,6 +30,7 @@ type KubernetesSnapshot struct {
 	PersistentVolumeClaims []*v1.PersistentVolumeClaim
 	StorageClasses         []*stv1.StorageClass
 	Jobs                   []*batchv1.Job
+	CronJobs               []*batchv1.CronJob
 	PodDisruptionBudgets   []*policyv1.PodDisruptionBudget
 	ReplicationControllers []*v1.ReplicationController
 	ResourceQuotas         []*v1.ResourceQuota
@@ -38,6 +39,7 @@ type KubernetesSnapshot struct {
 // NodeStatsSummary contains summary data sets
 type NodeStatsSummary struct {
 	Stats []*stats.Summary
+	CollectionErr error
 }
 
 // MetricsSummary contains the metrics results from opencost data source queries.
@@ -56,6 +58,9 @@ type MetricsSnapshot struct {
 	LocalStorageActiveMinutes            []*source.LocalStorageActiveMinutesResult
 	LocalStorageUsedAvg                  []*source.LocalStorageUsedAvgResult
 	LocalStorageUsedMax                  []*source.LocalStorageUsedMaxResult
+	KMLocalStorageBytes                  []*source.UIDValueResult
+	KMLocalStorageUsedAvg                []*source.NodeUIDValueResult
+	KMLocalStorageUsedMax                []*source.NodeUIDValueResult
 	LocalStorageBytes                    []*source.LocalStorageBytesResult
 	NodeActiveMinutes                    []*source.NodeActiveMinutesResult
 	NodeCPUCoresCapacity                 []*source.NodeCPUCoresCapacityResult
@@ -69,6 +74,8 @@ type MetricsSnapshot struct {
 	NodeRAMUserPercent                   []*source.NodeRAMUserPercentResult
 	LBActiveMinutes                      []*source.LBActiveMinutesResult
 	LBPricePerHr                         []*source.LBPricePerHrResult
+	ClusterInfo                          []*source.ClusterInfoResult
+	ClusterKubeModelVersion              []*source.ClusterKubeModelVersionResult
 	ClusterUptime                        []*source.UptimeResult
 	ClusterManagementDuration            []*source.ClusterManagementDurationResult
 	ClusterManagementPricePerHr          []*source.ClusterManagementPricePerHrResult
@@ -95,10 +102,14 @@ type MetricsSnapshot struct {
 	IsGPUShared                          []*source.IsGPUSharedResult
 	PodPVCAllocation                     []*source.PodPVCAllocationResult
 	PVCBytesRequested                    []*source.PVCBytesRequestedResult
+	PVCBytesUsedAvg                      []*source.PVCUIDValueResult
+	PVCBytesUsedMax                      []*source.PVCUIDValueResult
 	PVCInfo                              []*source.PVCInfoResult
+	KMPVCInfo                            []*source.PVCInfoResult
 	PVBytes                              []*source.PVBytesResult
 	PVPricePerGiBHour                    []*source.PVPricePerGiBHourResult
 	PVInfo                               []*source.PVInfoResult
+	KMPVInfo                             []*source.PVInfoResult
 	NetZoneGiB                           []*source.NetZoneGiBResult
 	NetZonePricePerGiB                   []*source.NetZonePricePerGiBResult
 	NetRegionGiB                         []*source.NetRegionGiBResult
@@ -123,30 +134,79 @@ type MetricsSnapshot struct {
 	NamespaceLabels                      []*source.NamespaceLabelsResult
 	PodLabels                            []*source.PodLabelsResult
 	ServiceLabels                        []*source.ServiceLabelsResult
-	DeploymentLabels                     []*source.DeploymentLabelsResult
-	StatefulSetLabels                    []*source.StatefulSetLabelsResult
-	DaemonSetLabels                      []*source.DaemonSetLabelsResult
-	JobLabels                            []*source.JobLabelsResult
+	DeploymentLabels                     []*source.LabelsResult
+	StatefulSetLabels                    []*source.LabelsResult
+	DaemonSetLabels                      []*source.LabelsResult
+	JobLabels                            []*source.LabelsResult
 	PodsWithReplicaSetOwner              []*source.PodsWithReplicaSetOwnerResult
 	ReplicaSetsWithoutOwners             []*source.ReplicaSetsWithoutOwnersResult
 	ReplicaSetsWithRollout               []*source.ReplicaSetsWithRolloutResult
 	ResourceQuotaUptime                  []*source.UptimeResult
-	ResourceQuotaSpecCPURequestAvg       []*source.ResourceQuotaSpecCPURequestAvgResult
-	ResourceQuotaSpecCPURequestMax       []*source.ResourceQuotaSpecCPURequestMaxResult
-	ResourceQuotaSpecRAMRequestAvg       []*source.ResourceQuotaSpecRAMRequestAvgResult
-	ResourceQuotaSpecRAMRequestMax       []*source.ResourceQuotaSpecRAMRequestMaxResult
-	ResourceQuotaSpecCPULimitAvg         []*source.ResourceQuotaSpecCPULimitAvgResult
-	ResourceQuotaSpecCPULimitMax         []*source.ResourceQuotaSpecCPULimitMaxResult
-	ResourceQuotaSpecRAMLimitAvg         []*source.ResourceQuotaSpecRAMLimitAvgResult
-	ResourceQuotaSpecRAMLimitMax         []*source.ResourceQuotaSpecRAMLimitMaxResult
-	ResourceQuotaStatusUsedCPURequestAvg []*source.ResourceQuotaStatusUsedCPURequestAvgResult
-	ResourceQuotaStatusUsedCPURequestMax []*source.ResourceQuotaStatusUsedCPURequestMaxResult
-	ResourceQuotaStatusUsedRAMRequestAvg []*source.ResourceQuotaStatusUsedRAMRequestAvgResult
-	ResourceQuotaStatusUsedRAMRequestMax []*source.ResourceQuotaStatusUsedRAMRequestMaxResult
-	ResourceQuotaStatusUsedCPULimitAvg   []*source.ResourceQuotaStatusUsedCPULimitAvgResult
-	ResourceQuotaStatusUsedCPULimitMax   []*source.ResourceQuotaStatusUsedCPULimitMaxResult
-	ResourceQuotaStatusUsedRAMLimitAvg   []*source.ResourceQuotaStatusUsedRAMLimitAvgResult
-	ResourceQuotaStatusUsedRAMLimitMax   []*source.ResourceQuotaStatusUsedRAMLimitMaxResult
+	ResourceQuotaSpecCPURequestAvg       []*source.ResourceResult
+	ResourceQuotaSpecCPURequestMax       []*source.ResourceResult
+	ResourceQuotaSpecRAMRequestAvg       []*source.ResourceResult
+	ResourceQuotaSpecRAMRequestMax       []*source.ResourceResult
+	ResourceQuotaSpecCPULimitAvg         []*source.ResourceResult
+	ResourceQuotaSpecCPULimitMax         []*source.ResourceResult
+	ResourceQuotaSpecRAMLimitAvg         []*source.ResourceResult
+	ResourceQuotaSpecRAMLimitMax         []*source.ResourceResult
+	ResourceQuotaStatusUsedCPURequestAvg []*source.ResourceResult
+	ResourceQuotaStatusUsedCPURequestMax []*source.ResourceResult
+	ResourceQuotaStatusUsedRAMRequestAvg []*source.ResourceResult
+	ResourceQuotaStatusUsedRAMRequestMax []*source.ResourceResult
+	ResourceQuotaStatusUsedCPULimitAvg   []*source.ResourceResult
+	ResourceQuotaStatusUsedCPULimitMax   []*source.ResourceResult
+	ResourceQuotaStatusUsedRAMLimitAvg   []*source.ResourceResult
+	ResourceQuotaStatusUsedRAMLimitMax   []*source.ResourceResult
+	NodeInfo                             []*source.NodeInfoResult
+	NodeUptime                           []*source.UptimeResult
+	NodeResourceCapacities               []*source.ResourceResult
+	NodeResourcesAllocatable             []*source.ResourceResult
+	PodInfo                              []*source.PodInfoResult
+	PodUptime                            []*source.UptimeResult
+	PodOwners                            []*source.OwnerResult
+	PodPVCVolumes                        []*source.PodPVCVolumeResult
+	PodNetworkEgressBytes                []*source.PodNetworkBytesResult
+	PodNetworkIngressBytes               []*source.PodNetworkBytesResult
+	ContainerUptime                      []*source.ContainerUptimeResult
+	ContainerResourceRequests            []*source.ContainerResourceResult
+	ContainerResourceLimits              []*source.ContainerResourceResult
+	DCGMDeviceInfo                       []*source.DCGMDeviceInfoResult
+	DCGMDeviceUptime                     []*source.DCGMDeviceUptimeResult
+	DCGMContainerUsageAvg                []*source.DCGMDeviceContainerUsageResult
+	DCGMContainerUsageMax                []*source.DCGMDeviceContainerUsageResult
+	PVCUptime                            []*source.UptimeResult
+	PVUptime                             []*source.UptimeResult
+	DeploymentInfo                       []*source.DeploymentInfoResult
+	DeploymentUptime                     []*source.UptimeResult
+	DeploymentAnnotations                []*source.AnnotationsResult
+	DeploymentMatchLabels                []*source.DeploymentLabelsResult
+	StatefulSetInfo                      []*source.StatefulSetInfoResult
+	StatefulSetUptime                    []*source.UptimeResult
+	StatefulSetAnnotations               []*source.AnnotationsResult
+	StatefulSetMatchLabels               []*source.StatefulSetLabelsResult
+	DaemonSetInfo                        []*source.DaemonSetInfoResult
+	DaemonSetUptime                      []*source.UptimeResult
+	DaemonSetAnnotations                 []*source.AnnotationsResult
+	JobInfo                              []*source.JobInfoResult
+	JobUptime                            []*source.UptimeResult
+	JobAnnotations                       []*source.AnnotationsResult
+	CronJobInfo                          []*source.CronJobInfoResult
+	CronJobUptime                        []*source.UptimeResult
+	CronJobLabels                        []*source.LabelsResult
+	CronJobAnnotations                   []*source.AnnotationsResult
+	ReplicaSetInfo                       []*source.ReplicaSetInfoResult
+	ReplicaSetUptime                     []*source.UptimeResult
+	ReplicaSetLabels                     []*source.LabelsResult
+	ReplicaSetAnnotations                []*source.AnnotationsResult
+	ReplicaSetOwners                     []*source.OwnerResult
+	NamespaceInfo                        []*source.NamespaceInfoResult
+	ServiceInfo                          []*source.ServiceInfoResult
+	ServiceUptime                        []*source.UptimeResult
+	ServiceSelectorLabels                []*source.ServiceLabelsResult
+	PodsWithDaemonSetOwner               []*source.PodsWithDaemonSetOwnerResult
+	PodsWithJobOwner                     []*source.PodsWithJobOwnerResult
+	ResourceQuotaInfo                    []*source.ResourceQuotaInfoResult
 }
 
 type ClusterSnapshot struct {
@@ -168,4 +228,11 @@ type Emitter interface {
 
 	// Emit emits the `ClusterSnapshot` based on the emitter's implementation.
 	Emit(context.Context, *ClusterSnapshot) error
+}
+
+// HealthChecker is an optional interface that an Emitter can implement to participate
+// in the agent's /healthz liveness check. If Healthy() returns false, the agent reports
+// itself unhealthy and the kubelet liveness probe will eventually restart it.
+type HealthChecker interface {
+	Healthy() bool
 }

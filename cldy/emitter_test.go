@@ -275,6 +275,17 @@ var _ = Describe("Emitter", func() {
 
 			Expect(config.UploaderConfig.ApptioConfig.ProxyURL.Path).To(Equal("1.1.1.1"))
 		})
+		It("should load api key from env", func() {
+			t := GinkgoT()
+			t.Setenv("CLOUDABILITY_API_KEY", "goodkey123")
+
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+
+			apiKey, err := config.UploaderConfig.ApptioConfig.APIKeySecretManager.GetSecret()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(apiKey)).To(Equal("goodkey123"))
+		})
 		It("should throw error on improper outbound format", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).ToNot(HaveOccurred())
