@@ -193,6 +193,19 @@ func (cca *ClusterCacheAdapter) GetAllJobs() []*clustercache.Job {
 	return jobs
 }
 
+func (cca *ClusterCacheAdapter) GetAllCronJobs() []*clustercache.CronJob {
+	cca.lock.RLock()
+	defer cca.lock.RUnlock()
+
+	cc := cca.snapshot
+
+	var cronJobs []*clustercache.CronJob
+	for _, cronJob := range cc.CronJobs {
+		cronJobs = append(cronJobs, clustercache.TransformCronJob(cronJob))
+	}
+	return cronJobs
+}
+
 func (cca *ClusterCacheAdapter) GetAllPodDisruptionBudgets() []*clustercache.PodDisruptionBudget {
 	cca.lock.RLock()
 	defer cca.lock.RUnlock()

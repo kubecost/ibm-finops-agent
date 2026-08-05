@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -46,6 +47,13 @@ type Emitter struct {
 	Uploader          Uploader
 	ClusterID         *string
 	ScratchPath       string
+
+	// Node-stats collection diagnostics, updated from each snapshot the emitter receives.
+	// Guarded by nodeStatsMu because Healthy() is invoked from the /healthz handler goroutine
+	// while Emit()/Init() run on the exporter goroutine.
+	nodeStatsMu                  sync.RWMutex
+	lastSuccessfulNodeCollection time.Time
+	lastNodeCollectionErr        error
 }
 
 type EmitterConfig struct {
@@ -61,6 +69,13 @@ type EmitterConfig struct {
 }
 
 const UPLOAD_FREQUENCY = 10
+
+// UploadFrequencyDuration is the upload cadence as a time.Duration.
+var UploadFrequencyDuration = time.Minute * time.Duration(UPLOAD_FREQUENCY)
+
+// MaxStaleUploadCycles is how many upload cycles may pass with no successful node-stats
+// collection before the agent considers itself wedged. Used by the /healthz staleness check.
+const MaxStaleUploadCycles = 3
 
 func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetEnvPrefix("CLOUDABILITY")
@@ -96,8 +111,18 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	if customAzureBlobContainerName != "" {
 		azureBlobClientSecret = getSecretFromFileVolume(viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_SECRET_FILEPATH"))
 	}
+
+	apiKey := strings.TrimSpace(viper.GetString("API_KEY"))
+	if apiKey == "" {
+		if fp := viper.GetString("API_KEY_FILEPATH"); fp != "" {
+			if key, err := os.ReadFile(fp); err == nil {
+				apiKey = strings.TrimSpace(string(key))
+			}
+		}
+	}
+
 	var keyAccess, keySecret, envID string
-	if customS3UploadBucket == "" && customS3UploadRegion == "" && customAzureBlobContainerName == "" {
+	if customS3UploadBucket == "" && customS3UploadRegion == "" && customAzureBlobContainerName == "" && apiKey == "" {
 		keyAccess = getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
 		keySecret = getSecretFromFileVolume(viper.GetString("KEY_SECRET_FILEPATH"))
 		envID = getSecretFromFileVolume(viper.GetString("ENV_ID_FILEPATH"))
@@ -107,6 +132,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 			ApptioConfig: ApptioConfig{
 				ClusterName:                     viper.GetString("CLUSTER_NAME"),
 				SecretManager:                   NewKeyValueSecretManager(keyAccess, keySecret),
+				APIKeySecretManager:             NewValueSecretManager(apiKey),
 				EnvID:                           envID,
 				Timeout:                         time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
 				Retries:                         viper.GetInt("UPLOAD_RETRY_COUNT"),
@@ -184,6 +210,82 @@ func (ce *Emitter) ID() emitter.EmitterID {
 	return emitter.CldyEmitterID
 }
 
+// Healthy reports whether the cldy emitter considers itself healthy.
+// Returns false when node-stats collection has been stale for longer than
+// MaxStaleUploadCycles * UploadFrequencyDuration, signaling that a container
+// restart is warranted.
+//
+// Staleness is tracked from the snapshots the emitter receives, so this works on the
+// foreground collection path (node stats fetched at snapshot time). When node-stats
+// collection fails for every node, the snapshot itself fails upstream and Emit() is not
+// called, so lastSuccessfulNodeCollection stops advancing and the emitter eventually
+// reports unhealthy.
+func (ce *Emitter) Healthy() bool {
+	ce.nodeStatsMu.RLock()
+	lastSuccess := ce.lastSuccessfulNodeCollection
+	ce.nodeStatsMu.RUnlock()
+
+	// startup grace: no successful collection has been observed yet
+	if lastSuccess.IsZero() {
+		return true
+	}
+	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
+	return time.Since(lastSuccess) <= restartThreshold
+}
+
+// recordNodeStats captures node-stats collection diagnostics from a snapshot. It advances
+// the last-successful-collection timestamp whenever any node stats were returned, and stores
+// the (partial) collection error for reporting in the agent status file.
+func (ce *Emitter) recordNodeStats(ns *emitter.NodeStatsSummary) {
+	ce.nodeStatsMu.Lock()
+	defer ce.nodeStatsMu.Unlock()
+
+	if ns == nil {
+		return
+	}
+	if len(ns.Stats) > 0 {
+		ce.lastSuccessfulNodeCollection = time.Now().UTC()
+	}
+	ce.lastNodeCollectionErr = ns.CollectionErr
+}
+
+// unwrapNodeErrors splits a possibly-joined collection error into its component per-node
+// errors. Returns nil when err is nil.
+func unwrapNodeErrors(err error) []error {
+	if err == nil {
+		return nil
+	}
+	if multiErr, ok := err.(interface{ Unwrap() []error }); ok {
+		return multiErr.Unwrap()
+	}
+	return []error{err}
+}
+
+// nodeErrorDetails deduplicates node collection errors by message and returns one entry per
+// distinct message with its occurrence count. Returns nil when there are no errors.
+func nodeErrorDetails(nodeErrors []error) []errorDetail {
+	if len(nodeErrors) == 0 {
+		return nil
+	}
+	counts := map[string]int{}
+	for _, ne := range nodeErrors {
+		msg := ""
+		if ne != nil {
+			msg = ne.Error()
+		}
+		counts[msg]++
+	}
+	details := make([]errorDetail, 0, len(counts))
+	for msg, count := range counts {
+		details = append(details, errorDetail{
+			Message: msg,
+			Type:    "node_error",
+			Count:   count,
+		})
+	}
+	return details
+}
+
 func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 	log.Infof("Initializing Cloudability emitter.")
 
@@ -204,6 +306,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 		return err
 	}
 
+	ce.recordNodeStats(cs.NodeStats)
 	err = ce.writeStatsData(cs.NodeStats)
 	if err != nil {
 		return err
@@ -214,6 +317,10 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 }
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
+	// Record collection diagnostics from every snapshot, even when downsampling uploads, so
+	// health/staleness tracking reflects the latest node-stats collection.
+	ce.recordNodeStats(cs.NodeStats)
+
 	// Emit only after the emission interval has been met
 	if ce.shouldDownsample() {
 		return nil
@@ -465,6 +572,25 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values["custom_s3_region"] = ce.config.CustomS3UploadRegion
 	values["custom_azure_blob_name"] = ce.config.CustomAzureBlobContainerName
 	metrics["uptime"] = int(now.UTC().Sub(ce.startTime).Seconds())
+
+	// Node collection diagnostics derived from the most recent snapshot.
+	ce.nodeStatsMu.RLock()
+	lastSuccess := ce.lastSuccessfulNodeCollection
+	collectionErr := ce.lastNodeCollectionErr
+	ce.nodeStatsMu.RUnlock()
+
+	// node_stats_age_seconds is the age of the node-stats data in this sample. On the
+	// foreground path (default) stats are fetched live per emit, so it is effectively ~0.
+	// On the background path (future work) it reports the cache age and grows as it goes stale.
+	var nodeStatsAgeSeconds int64
+	if !lastSuccess.IsZero() {
+		nodeStatsAgeSeconds = int64(time.Since(lastSuccess).Seconds())
+	}
+	values["node_stats_age_seconds"] = strconv.FormatInt(nodeStatsAgeSeconds, 10)
+
+	nodeErrors := unwrapNodeErrors(collectionErr)
+	metrics["nodes_failed"] = len(nodeErrors)
+
 	agent := agentData{
 		Name:    "cldy_agent_status",
 		Metrics: metrics,
@@ -473,6 +599,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		},
 		Ts:     now.UTC().UnixMilli() / 1000,
 		Values: values,
+		Errors: nodeErrorDetails(nodeErrors),
 	}
 	agentBytes, err := json.Marshal(agent)
 	if err != nil {
@@ -488,6 +615,13 @@ type agentData struct {
 	Tags    map[string]string `json:"tags"`
 	Ts      int64             `json:"ts"`
 	Values  map[string]string `json:"values"`
+	Errors  []errorDetail     `json:"errors,omitempty"`
+}
+
+type errorDetail struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Count   int    `json:"count"`
 }
 
 func (ce *Emitter) getSuffix() string {

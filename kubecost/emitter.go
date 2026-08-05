@@ -75,7 +75,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 
 	log.Infof("Successfully created bucket storage")
 
-	pipelineConfig := exporter.NewPipelinesExportConfig(ke.config.ClusterUID, ke.config.ClusterName)
+	pipelineConfig := exporter.NewPipelinesExportConfig(ke.config.AppName, ke.config.ClusterUID, ke.config.ClusterName, ke.config.EmitLegacyDateModels, ke.config.EmitKubeModel)
 	if ke.config.EmitAllocationMinuteResolution {
 		pipelineConfig.AllocationPiplineResolutions = append(
 			pipelineConfig.AllocationPiplineResolutions,
@@ -94,6 +94,11 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 			10*time.Minute,
 		)
 	}
+	pipelineConfig.Streaming = ke.config.StreamingExportEnabled
+	pipelineConfig.Compression = ke.config.StreamingExportCompressionLevel
+	if ke.config.StreamingExportEnabled {
+		log.Infof("Streaming export enabled with compression level: %d", ke.config.StreamingExportCompressionLevel)
+	}
 
 	// all pipeline export controllers
 	pipelineControllers := exporter.NewPipelineExportControllers(bucketStore, costModel, pipelineConfig)
@@ -108,11 +113,15 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 		heartbeatexporter.NewLogLevelMetadataProvider(),
 	)
 	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.AppName, ke.config.ClusterName, version.FriendlyVersion(), bucketStore, heartbeatMetadata)
-	agentHeartbeat.Start(ke.config.ExportIntervals.HeartbeatInterval)
+	if ke.config.HeartbeatExportEnabled {
+		agentHeartbeat.Start(ke.config.ExportIntervals.HeartbeatInterval)
+	}
 
 	// diagnostics exporter
 	diagnosticsExporter := diagexporter.NewDiagnosticsExportController(ke.config.AppName, ke.config.ClusterName, bucketStore, ke.diag)
-	diagnosticsExporter.Start(ke.config.ExportIntervals.DiagnosticsInterval)
+	if ke.config.DiagnosticsExportEnabled {
+		diagnosticsExporter.Start(ke.config.ExportIntervals.DiagnosticsInterval)
+	}
 
 	// initialize emitter's internal state
 	ke.dataSource = dataSource
