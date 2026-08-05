@@ -43,22 +43,22 @@ func LoadInformerConfig() InformerConfig {
 
 var (
 	cacheResourceMap = map[reflect.Type]schema.GroupVersionResource{
-		reflect.TypeOf(corev1.Namespace{}):             {Version: "v1", Resource: "namespaces"},
-		reflect.TypeOf(corev1.Node{}):                  {Version: "v1", Resource: "nodes"},
-		reflect.TypeOf(corev1.Pod{}):                   {Version: "v1", Resource: "pods"},
-		reflect.TypeOf(corev1.Service{}):               {Version: "v1", Resource: "services"},
-		reflect.TypeOf(corev1.PersistentVolume{}):      {Version: "v1", Resource: "persistentvolumes"},
-		reflect.TypeOf(corev1.PersistentVolumeClaim{}): {Version: "v1", Resource: "persistentvolumeclaims"},
-		reflect.TypeOf(corev1.ReplicationController{}): {Version: "v1", Resource: "replicationcontrollers"},
-		reflect.TypeOf(appsv1.Deployment{}):            {Group: "apps", Version: "v1", Resource: "deployments"},
-		reflect.TypeOf(appsv1.DaemonSet{}):             {Group: "apps", Version: "v1", Resource: "daemonsets"},
-		reflect.TypeOf(appsv1.StatefulSet{}):           {Group: "apps", Version: "v1", Resource: "statefulsets"},
-		reflect.TypeOf(appsv1.ReplicaSet{}):            {Group: "apps", Version: "v1", Resource: "replicasets"},
-		reflect.TypeOf(stv1.StorageClass{}):            {Group: "storage.k8s.io", Version: "v1", Resource: "storageclasses"},
-		reflect.TypeOf(batchv1.Job{}):                  {Group: "batch", Version: "v1", Resource: "jobs"},
-		reflect.TypeOf(batchv1.CronJob{}):              {Group: "batch", Version: "v1", Resource: "cronjobs"},
-		reflect.TypeOf(policyv1.PodDisruptionBudget{}): {Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"},
-		reflect.TypeOf(corev1.ResourceQuota{}):         {Version: "v1", Resource: "resourcequotas"},
+		reflect.TypeFor[corev1.Namespace]():             {Version: "v1", Resource: "namespaces"},
+		reflect.TypeFor[corev1.Node]():                  {Version: "v1", Resource: "nodes"},
+		reflect.TypeFor[corev1.Pod]():                   {Version: "v1", Resource: "pods"},
+		reflect.TypeFor[corev1.Service]():               {Version: "v1", Resource: "services"},
+		reflect.TypeFor[corev1.PersistentVolume]():      {Version: "v1", Resource: "persistentvolumes"},
+		reflect.TypeFor[corev1.PersistentVolumeClaim](): {Version: "v1", Resource: "persistentvolumeclaims"},
+		reflect.TypeFor[corev1.ReplicationController](): {Version: "v1", Resource: "replicationcontrollers"},
+		reflect.TypeFor[appsv1.Deployment]():            {Group: "apps", Version: "v1", Resource: "deployments"},
+		reflect.TypeFor[appsv1.DaemonSet]():             {Group: "apps", Version: "v1", Resource: "daemonsets"},
+		reflect.TypeFor[appsv1.StatefulSet]():           {Group: "apps", Version: "v1", Resource: "statefulsets"},
+		reflect.TypeFor[appsv1.ReplicaSet]():            {Group: "apps", Version: "v1", Resource: "replicasets"},
+		reflect.TypeFor[stv1.StorageClass]():            {Group: "storage.k8s.io", Version: "v1", Resource: "storageclasses"},
+		reflect.TypeFor[batchv1.Job]():                  {Group: "batch", Version: "v1", Resource: "jobs"},
+		reflect.TypeFor[batchv1.CronJob]():              {Group: "batch", Version: "v1", Resource: "cronjobs"},
+		reflect.TypeFor[policyv1.PodDisruptionBudget](): {Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"},
+		reflect.TypeFor[corev1.ResourceQuota]():         {Version: "v1", Resource: "resourcequotas"},
 	}
 	// fields to trim on specific resources if parseMetricsData is enabled
 	gvkToSanitizePaths = map[schema.GroupVersionKind][]string{

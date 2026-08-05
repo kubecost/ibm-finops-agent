@@ -356,7 +356,7 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 		agentVersion = "0.0.0"
 	}
 
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"clusterUID":   payload.ClusterUID,
 		"fileName":     payload.FileName,
 		"agentVersion": agentVersion,
