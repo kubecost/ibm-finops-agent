@@ -307,6 +307,32 @@ var _ = Describe("Uploader", func() {
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(2))
 			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(2))
 		})
+		It("should upload via metrics-collector api key", func() {
+			config := defaultConfig(tempDir)
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			err := os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
+			Expect(err).ToNot(HaveOccurred())
+			uploader.SetClusterID("test_id")
+			actualUploader := uploader.(*cldy.CldyUploader)
+			service := cldy.MetricsCollectorServiceImpl{
+				APIKey:           "goodkey123",
+				BaseURL:          "https://metrics-collector.example.com/metricsample",
+				UserAgent:        "cldy-client/test",
+				CldyUploadClient: &mockClientService{},
+			}
+			actualUploader.StorageServices = append(actualUploader.StorageServices, &service)
+			payload := cldy.UploadPayload{
+				ClusterUID:   "good-cluster",
+				FileName:     goodFileName,
+				AgentVersion: "1.0.0",
+				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
+				FilePath:     tempDir + "/scratch/temp_test_data/daemonsets.jsonl",
+			}
+			err = actualUploader.StorageServices[0].Upload(payload)
+			Expect(err).ToNot(HaveOccurred())
+		})
 		It("should upload to custom s3 bucket", func() {
 			config := defaultConfig(tempDir)
 			stopCh := make(chan struct{})
@@ -500,6 +526,16 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response,
 			}
 			return &resp, nil
 		}
+	}
+	// request to acquire s3 url from metrics-collector
+	if strings.Contains(r.URL.Path, "metricsample") {
+		if r.Header.Get("x-api-key") == "bad-key" {
+			return &http.Response{StatusCode: 403, Body: io.NopCloser(strings.NewReader(""))}, nil
+		}
+		responseBody, _ := json.Marshal(map[string]string{
+			"location": "somewhere/valid-location",
+		})
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(responseBody))}, nil
 	}
 	// request to acquire s3 url from Cloudability
 	if strings.Contains(r.URL.Path, "clusters/upload") {
