@@ -240,7 +240,7 @@ var _ = Describe("ApptioService agent version sanitization", func() {
 						capturedVersion = body["agentVersion"].(string)
 						resp := map[string]interface{}{
 							"result": map[string]interface{}{
-								"location":  "https://s3.example.com/upload",
+								"location":  "https://apptio-production.s3.us-west-2.amazonaws.com/upload",
 								"requestId": "req-123",
 							},
 						}

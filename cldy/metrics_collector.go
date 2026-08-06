@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
@@ -227,7 +228,58 @@ func getMetricsCollectorURLByRegion(region string) string {
 	}
 }
 
+// allowedUploadHostSuffixes are the domains a presigned upload URL may point at.
+//
+// The upload URL is not chosen by the agent: it is read from the "location"
+// field of a Cloudability API response and then used as the destination for a
+// PUT containing the cluster's entire resource inventory. Without validation, a
+// tampered or malicious response could redirect that payload to any host
+// (CWE-918). Presigned URLs are S3, so they resolve under amazonaws.com; the
+// Apptio and Cloudability domains are permitted because both fronting services
+// may return a URL on their own domain.
+//
+// Matching is on a dot boundary so that a lookalike host such as
+// "evil-amazonaws.com" does not satisfy an "amazonaws.com" suffix.
+var allowedUploadHostSuffixes = []string{
+	"amazonaws.com",
+	"cloudability.com",
+	"apptio.com",
+}
+
+// validateUploadURL rejects an upload destination that is not HTTPS or does not
+// sit under one of allowedUploadHostSuffixes.
+func validateUploadURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("upload URL could not be parsed: %w", err)
+	}
+
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("refusing to upload to a non-HTTPS destination (scheme %q)", parsed.Scheme)
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("upload URL has no host")
+	}
+
+	for _, suffix := range allowedUploadHostSuffixes {
+		if host == suffix || strings.HasSuffix(host, "."+suffix) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("refusing to upload to unexpected host %q; expected one of %v",
+		host, allowedUploadHostSuffixes)
+}
+
 func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, uploadURL string) error {
+	// The destination comes from an API response rather than from our own
+	// configuration, so check it before sending the cluster inventory to it.
+	if err := validateUploadURL(uploadURL); err != nil {
+		return fmt.Errorf("invalid presigned upload URL: %w", err)
+	}
+
 	fileToUpload, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("error in opening file to upload: %w", err)
