@@ -9,10 +9,10 @@ on:
         type: string
       # Every irreversible action here is a `git push`, so a dry run passes
       # --dry-run to each one: git still contacts the remote and validates auth
-      # and the ref update, but nothing lands. Steps that only observe a push's
-      # side effects are skipped with `if: !inputs.dry_run`. Not exercised: the
-      # image build, the chart publish, and Chart.lock (which needs the new
-      # chart version to actually be published).
+      # and the ref update, but nothing lands. Steps that need a push to have
+      # actually landed are skipped with `if: !inputs.dry_run`. Not exercised:
+      # the image build, the chart publish, Chart.lock (which needs the new
+      # chart version to actually be published), and the kubecost PR.
       dry_run:
         description: "Dry run (validate and edit locally, push nothing)"
         required: false
@@ -29,6 +29,7 @@ concurrency:
 env:
   VERSION: ${{ inputs.version }}
   TAG: v${{ inputs.version }}
+  BRANCH: finops-agent-v${{ inputs.version }}
 
   # The only difference between a real release and a dry run.
   PUSH_ARGS: ${{ inputs.dry_run && '--dry-run' || '' }}
@@ -221,16 +222,38 @@ jobs:
       # run for real. Chart.lock is left untouched in a dry run.
       - name: Update Chart.lock
         if: ${{ !inputs.dry_run }}
+        timeout-minutes: 10
         run: |
           helm repo add finops-agent https://kubecost.github.io/finops-agent-chart/ || true
-          helm repo update finops-agent
+          for i in {1..60}; do
+            helm repo update finops-agent
+            PUBLISHED=$(helm search repo finops-agent --version "$VERSION" \
+              --output json | jq -r '.[0].version // empty')
+            if [ -n "$PUBLISHED" ]; then break; fi
+            echo "⏳ Waiting for chart $VERSION to reach the published index (attempt $i/60)..."
+            sleep 5
+          done
+          : "${PUBLISHED:?chart $VERSION did not reach the published index within 5 minutes}"
+
           helm dependency update ./kubecost
 
-      - name: Commit and push
+      - name: Commit and push branch
         run: |
+          git checkout -b "$BRANCH"
           git add kubecost/Chart.yaml kubecost/Chart.lock
           git commit -m "Update finops-agent to $TAG"
-          git push $PUSH_ARGS origin "$KUBECOST_BRANCH"
+          git push $PUSH_ARGS origin "$BRANCH"
+
+      - name: Open PR against kubecost
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+        run: |
+          gh pr create --repo "$KUBECOST_REPO" \
+            --base "$KUBECOST_BRANCH" --head "$BRANCH" \
+            --label dependencies \
+            --title "Update finops-agent to $TAG" \
+            --body "Automated by https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   summary:
     name: Release Summary
@@ -263,11 +286,11 @@ jobs:
 
           - $(mark "$TAG_RESULT") ibm-finops-agent tagged and image built
           - $(mark "$CHART_RESULT") finops-agent-chart updated and published
-          - $(mark "$KUBECOST_RESULT") kubecost chart dependency updated
+          - $(mark "$KUBECOST_RESULT") kubecost chart dependency PR opened — merge it to finish the release
 
           [agent tag](https://github.com/${{ github.repository }}/releases/tag/$TAG) &middot;
           [chart release](https://github.com/$CHART_REPO/releases/tag/$TAG) &middot;
-          [kubecost commits](https://github.com/$KUBECOST_REPO/commits/$KUBECOST_BRANCH)
+          [kubecost PR](https://github.com/$KUBECOST_REPO/pulls?q=head%3A$BRANCH)
           EOF
 
       # A dry run pushes no tags, so there is never anything to clean up.
