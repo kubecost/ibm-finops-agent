@@ -27,6 +27,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  VERSION: ${{ inputs.version }}
   TAG: v${{ inputs.version }}
 
   # The only difference between a real release and a dry run.
@@ -55,11 +56,11 @@ jobs:
     steps:
       - name: Validate version format
         run: |
-          if ! [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "❌ Invalid version format. Expected: X.Y.Z (e.g., 1.0.22)"
             exit 1
           fi
-          echo "✅ Version format valid: ${{ inputs.version }}"
+          echo "✅ Version format valid: $VERSION"
 
       - name: Generate app token to tag ibm-finops-agent and watch the build
         id: generate-app-token
@@ -86,21 +87,30 @@ jobs:
           echo "✅ Tag $TAG is available"
 
       - name: Create and push tag
+        id: push-tag
         run: |
+          # Recorded before the push, so the build poll below can tell our run
+          # apart from an earlier release's.
+          echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           git tag -a "$TAG" -m "Release $TAG"
           git push $PUSH_ARGS origin "$TAG"
 
       # The tag push triggers build-release.yaml, which dispatches to
-      # $BUILD_REPO. Poll for the run that appears there, then watch it.
+      # $BUILD_REPO. Nothing in the resulting run names our tag — a
+      # repository_dispatch run reports the default branch — so --created is
+      # the only thing distinguishing it from the last release's run. Without
+      # it, --limit 1 returns that older run and `gh run watch` exits
+      # immediately with its stale success.
       - name: Wait for image build
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          SINCE: ${{ steps.push-tag.outputs.since }}
         timeout-minutes: 30
         run: |
           for i in {1..24}; do
             RUN_ID=$(gh run list --repo "$BUILD_REPO" --workflow "$BUILD_WORKFLOW" \
-              --event repository_dispatch --limit 1 \
+              --event repository_dispatch --created ">=$SINCE" --limit 1 \
               --json databaseId --jq '.[0].databaseId // empty')
             if [ -n "$RUN_ID" ]; then break; fi
             echo "⏳ Waiting for build to start (attempt $i/24)..."
@@ -133,7 +143,7 @@ jobs:
       - name: Bump image tag and chart version
         run: |
           sed -i -E "/^image:/,/^[^ ]/ s|^  tag: .*|  tag: $TAG|" charts/finops-agent/values.yaml
-          sed -i -E "s|^version: .*|version: ${{ inputs.version }}|;
+          sed -i -E "s|^version: .*|version: $VERSION|;
                      s|^appVersion: .*|appVersion: $TAG|" charts/finops-agent/Chart.yaml
 
           git --no-pager diff
@@ -143,7 +153,7 @@ jobs:
             [ "$actual" = "$3" ] || { echo "❌ $1: $2 is '$actual', expected '$3'"; exit 1; }
           }
           verify charts/finops-agent/values.yaml .image.tag "$TAG"
-          verify charts/finops-agent/Chart.yaml .version "${{ inputs.version }}"
+          verify charts/finops-agent/Chart.yaml .version "$VERSION"
           verify charts/finops-agent/Chart.yaml .appVersion "$TAG"
 
       - name: Commit, tag, and push
