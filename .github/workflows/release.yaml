@@ -1,23 +1,5 @@
 name: Automated FinOps Agent Release
 
-# RELEASE_AUTOMATION_TOKEN Configuration
-# =======================================
-# Required Scope: repo (full control of private repositories)
-#
-# Setup:
-# 1. Create PAT: https://github.com/settings/tokens (classic token, 'repo' scope)
-# 2. Add secret: https://github.com/kubecost/ibm-finops-agent/settings/secrets/actions
-#    Name: RELEASE_AUTOMATION_TOKEN
-#
-# Validation:
-#   export TOKEN="<your-token>"
-#   curl -s -H "Authorization: token $TOKEN" https://api.github.com/user
-#   curl -s -I -H "Authorization: token $TOKEN" https://api.github.com/user | grep "x-oauth-scopes:"
-#   curl -s -H "Authorization: token $TOKEN" https://api.github.com/repos/kubecost/ibm-finops-agent | jq -r '.permissions.push'
-#   curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" https://api.github.com/repos/kubecost/finops-agent-chart
-#   curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" https://api.github.com/repos/kubecost/kubecost
-#   curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $TOKEN" https://api.github.com/repos/kubecost/integration-ci-cd
-
 on:
   workflow_dispatch:
     inputs:
@@ -27,8 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: write
-  actions: read
+  contents: read
 
 concurrency:
   group: finops-agent-release
@@ -47,9 +28,19 @@ jobs:
           fi
           echo "✅ Version format valid: ${{ inputs.version }}"
 
+      - name: Generate app token to read ibm-finops-agent tags
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: ibm-finops-agent
+
       - name: Check tag doesn't exist
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
-          if git ls-remote --tags https://github.com/kubecost/ibm-finops-agent.git | grep -q "refs/tags/v${{ inputs.version }}"; then
+          if gh api repos/kubecost/ibm-finops-agent/git/ref/tags/v${{ inputs.version }} >/dev/null 2>&1; then
             echo "❌ Tag v${{ inputs.version }} already exists in ibm-finops-agent"
             exit 1
           fi
@@ -60,23 +51,35 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
+      - name:
+          Generate app token to tag ibm-finops-agent and watch integration-ci-cd
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: |
+            ibm-finops-agent
+            integration-ci-cd
+
       - name: Checkout ibm-finops-agent
         uses: actions/checkout@v6
         with:
           ref: develop
+          token: ${{ steps.generate-app-token.outputs.token }}
           fetch-depth: 0
 
       - name: Create and push tag
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "kc-actions-bot[bot]"
+          git config user.email "kc-actions-bot[bot]@users.noreply.github.com"
           git tag -a v${{ inputs.version }} -m "Release v${{ inputs.version }}"
           git push origin v${{ inputs.version }}
           echo "✅ Tagged ibm-finops-agent with v${{ inputs.version }}"
 
       - name: Wait for build workflow to start
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
           echo "⏳ Waiting for build workflow to start..."
           
@@ -107,7 +110,7 @@ jobs:
 
       - name: Wait for build to complete
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         timeout-minutes: 30
         run: |
           echo "⏳ Waiting for image build to complete..."
@@ -119,12 +122,20 @@ jobs:
     needs: tag-agent
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token to update finops-agent-chart
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: finops-agent-chart
+
       - name: Checkout finops-agent-chart
         uses: actions/checkout@v6
         with:
           repository: kubecost/finops-agent-chart
           ref: main
-          token: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
+          token: ${{ steps.generate-app-token.outputs.token }}
           fetch-depth: 0
 
       - name: Install yq
@@ -156,8 +167,8 @@ jobs:
 
       - name: Commit and push changes
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "kc-actions-bot[bot]"
+          git config user.email "kc-actions-bot[bot]@users.noreply.github.com"
           git add charts/finops-agent/values.yaml charts/finops-agent/Chart.yaml
           git commit -m "Release v${{ inputs.version }}"
           git push origin main
@@ -171,7 +182,7 @@ jobs:
 
       - name: Wait for publish workflow to start
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
           echo "⏳ Waiting for chart publish workflow to start..."
           
@@ -202,7 +213,7 @@ jobs:
 
       - name: Wait for publish to complete
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         timeout-minutes: 20
         run: |
           echo "⏳ Waiting for chart publish to complete..."
@@ -214,12 +225,20 @@ jobs:
     needs: update-chart
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token to update kubecost
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: kubecost
+
       - name: Checkout kubecost
         uses: actions/checkout@v6
         with:
           repository: kubecost/kubecost
           ref: develop
-          token: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
+          token: ${{ steps.generate-app-token.outputs.token }}
           fetch-depth: 0
 
       - name: Install Helm
@@ -258,8 +277,8 @@ jobs:
 
       - name: Commit and push changes
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "kc-actions-bot[bot]"
+          git config user.email "kc-actions-bot[bot]@users.noreply.github.com"
           git add kubecost/Chart.yaml kubecost/Chart.lock
           git commit -m "Update finops-agent to v${{ inputs.version }}"
           git push origin develop
