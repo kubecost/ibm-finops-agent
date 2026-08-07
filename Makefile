@@ -21,9 +21,16 @@ envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	@test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 
-ci-lint: 
+ci-lint:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.2.1
 	golangci-lint run
+
+# go-fix-check runs the Go fix tool to update deprecated or outdated API usage
+# to current equivalents (e.g. old error patterns, renamed stdlib identifiers).
+# -diff prints a unified diff instead of rewriting files, and exits non-zero
+# if the diff is non-empty, which causes CI to fail.
+go-fix-check:
+	go fix -diff ./...
 
 # $(call TEST_KUBERNETES, image_tag, prefix, git_commit)
 define TEST_KUBERNETES
