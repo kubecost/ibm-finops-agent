@@ -4,16 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version number (e.g., 1.0.22)'
+        description: "Version number (e.g., 1.0.22)"
         required: true
         type: string
-      # Every irreversible action here is a `git push`, so a dry run does
-      # everything else for real (checkout, edits, local commits and tags) and
-      # stops at each push. Steps that only observe a push's side effects are
-      # skipped with `if: !inputs.dry_run`. Not exercised: the image build, the
-      # chart publish, and Chart.lock (needs the chart version published).
+      # Every irreversible action here is a `git push`, so a dry run passes
+      # --dry-run to each one: git still contacts the remote and validates auth
+      # and the ref update, but nothing lands. Steps that only observe a push's
+      # side effects are skipped with `if: !inputs.dry_run`. Not exercised: the
+      # image build, the chart publish, and Chart.lock (which needs the new
+      # chart version to actually be published).
       dry_run:
-        description: 'Dry run (validate and edit locally, push nothing)'
+        description: "Dry run (validate and edit locally, push nothing)"
         required: false
         default: false
         type: boolean
@@ -25,9 +26,31 @@ concurrency:
   group: finops-agent-release
   cancel-in-progress: false
 
+env:
+  TAG: v${{ inputs.version }}
+
+  # The only difference between a real release and a dry run.
+  PUSH_ARGS: ${{ inputs.dry_run && '--dry-run' || '' }}
+
+  # The cross-repo contract. The two workflow filenames name files in repos
+  # this one cannot see, so a rename there surfaces here only as a "did not
+  # start" timeout — keep them visible in one place.
+  BUILD_REPO: kubecost/integration-ci-cd
+  BUILD_WORKFLOW: finops-agent-build-release.yaml
+  CHART_REPO: kubecost/finops-agent-chart
+  CHART_WORKFLOW: publish-chart.yaml
+  KUBECOST_REPO: kubecost/kubecost
+  KUBECOST_BRANCH: develop
+
+  # Applies to every commit and annotated tag this workflow creates.
+  GIT_AUTHOR_NAME: kc-actions-bot[bot]
+  GIT_AUTHOR_EMAIL: kc-actions-bot[bot]@users.noreply.github.com
+  GIT_COMMITTER_NAME: kc-actions-bot[bot]
+  GIT_COMMITTER_EMAIL: kc-actions-bot[bot]@users.noreply.github.com
+
 jobs:
-  validate:
-    name: Validate Version
+  tag-agent:
+    name: Validate and tag ibm-finops-agent
     runs-on: ubuntu-latest
     steps:
       - name: Validate version format
@@ -38,31 +61,7 @@ jobs:
           fi
           echo "✅ Version format valid: ${{ inputs.version }}"
 
-      - name: Generate app token to read ibm-finops-agent tags
-        id: generate-app-token
-        uses: actions/create-github-app-token@v3.2.0
-        with:
-          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
-          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
-          repositories: ibm-finops-agent
-
-      - name: Check tag doesn't exist
-        env:
-          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
-        run: |
-          if gh api repos/kubecost/ibm-finops-agent/git/ref/tags/v${{ inputs.version }} >/dev/null 2>&1; then
-            echo "❌ Tag v${{ inputs.version }} already exists in ibm-finops-agent"
-            exit 1
-          fi
-          echo "✅ Tag v${{ inputs.version }} is available"
-
-  tag-agent:
-    name: Tag ibm-finops-agent
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - name:
-          Generate app token to tag ibm-finops-agent and watch integration-ci-cd
+      - name: Generate app token to tag ibm-finops-agent and watch the build
         id: generate-app-token
         uses: actions/create-github-app-token@v3.2.0
         with:
@@ -77,63 +76,39 @@ jobs:
         with:
           ref: develop
           token: ${{ steps.generate-app-token.outputs.token }}
-          fetch-depth: 0
+
+      - name: Check tag doesn't exist
+        run: |
+          if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+            echo "❌ Tag $TAG already exists"
+            exit 1
+          fi
+          echo "✅ Tag $TAG is available"
 
       - name: Create and push tag
         run: |
-          git config user.name "kc-actions-bot[bot]"
-          git config user.email "kc-actions-bot[bot]@users.noreply.github.com"
-          git tag -a v${{ inputs.version }} -m "Release v${{ inputs.version }}"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push $PUSH_ARGS origin "$TAG"
 
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "🔍 DRY RUN: would push tag v${{ inputs.version }} to ibm-finops-agent"
-            exit 0
-          fi
-
-          git push origin v${{ inputs.version }}
-          echo "✅ Tagged ibm-finops-agent with v${{ inputs.version }}"
-
-      - name: Wait for build workflow to start
-        if: ${{ !inputs.dry_run }}
-        env:
-          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
-        run: |
-          echo "⏳ Waiting for build workflow to start..."
-          
-          # Wait for workflow to be triggered by repository_dispatch
-          for i in {1..30}; do
-            RUN_ID=$(gh run list \
-              --repo kubecost/integration-ci-cd \
-              --workflow finops-agent-build-release.yaml \
-              --limit 5 \
-              --json databaseId,event,createdAt \
-              --jq '.[] | select(.event == "repository_dispatch") | .databaseId' \
-              | head -1)
-            
-            if [ -n "$RUN_ID" ]; then
-              break
-            fi
-            echo "⏳ Waiting for workflow to start (attempt $i/30)..."
-            sleep 2
-          done
-          
-          if [ -z "$RUN_ID" ]; then
-            echo "❌ Build workflow did not start after 60 seconds"
-            exit 1
-          fi
-          
-          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
-          echo "✅ Build workflow started: $RUN_ID"
-
-      - name: Wait for build to complete
+      # The tag push triggers build-release.yaml, which dispatches to
+      # $BUILD_REPO. Poll for the run that appears there, then watch it.
+      - name: Wait for image build
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         timeout-minutes: 30
         run: |
-          echo "⏳ Waiting for image build to complete..."
-          gh run watch ${{ env.RUN_ID }} --repo kubecost/integration-ci-cd --exit-status
-          echo "✅ Image build completed successfully"
+          for i in {1..24}; do
+            RUN_ID=$(gh run list --repo "$BUILD_REPO" --workflow "$BUILD_WORKFLOW" \
+              --event repository_dispatch --limit 1 \
+              --json databaseId --jq '.[0].databaseId // empty')
+            if [ -n "$RUN_ID" ]; then break; fi
+            echo "⏳ Waiting for build to start (attempt $i/24)..."
+            sleep 5
+          done
+          : "${RUN_ID:?build workflow did not start within 2 minutes}"
+
+          gh run watch "$RUN_ID" --repo "$BUILD_REPO" --exit-status
 
   update-chart:
     name: Update finops-agent-chart
@@ -151,107 +126,56 @@ jobs:
       - name: Checkout finops-agent-chart
         uses: actions/checkout@v6
         with:
-          repository: kubecost/finops-agent-chart
+          repository: ${{ env.CHART_REPO }}
           ref: main
           token: ${{ steps.generate-app-token.outputs.token }}
-          fetch-depth: 0
 
-      - name: Install yq
+      - name: Bump image tag and chart version
         run: |
-          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
-          sudo chmod +x /usr/local/bin/yq
+          sed -i -E "s|^  tag: .*|  tag: $TAG|" charts/finops-agent/values.yaml
+          sed -i -E "s|^version: .*|version: ${{ inputs.version }}|;
+                     s|^appVersion: .*|appVersion: $TAG|" charts/finops-agent/Chart.yaml
 
-      - name: Update image tag in values.yaml
-        run: |
-          yq eval '.image.tag = "v${{ inputs.version }}"' -i charts/finops-agent/values.yaml
-          
-          # Verify the change
-          if ! grep -q 'tag: v${{ inputs.version }}' charts/finops-agent/values.yaml; then
-            echo "❌ Failed to update values.yaml image tag"
-            exit 1
-          fi
-          echo "✅ Updated values.yaml image tag to v${{ inputs.version }}"
+          git --no-pager diff
 
-      - name: Update chart version in Chart.yaml
-        run: |
-          yq eval '.version = "${{ inputs.version }}"' -i charts/finops-agent/Chart.yaml
-          
-          # Verify the change
-          if ! grep -q "^version: ${{ inputs.version }}$" charts/finops-agent/Chart.yaml; then
-            echo "❌ Failed to update Chart.yaml version"
-            exit 1
-          fi
-          echo "✅ Updated Chart.yaml version to ${{ inputs.version }}"
+          verify() {
+            actual=$(yq "$2" "$1")
+            [ "$actual" = "$3" ] || { echo "❌ $1: $2 is '$actual', expected '$3'"; exit 1; }
+          }
+          verify charts/finops-agent/values.yaml .image.tag "$TAG"
+          verify charts/finops-agent/Chart.yaml .version "${{ inputs.version }}"
+          verify charts/finops-agent/Chart.yaml .appVersion "$TAG"
 
-      - name: Commit and push changes
+          # Those three lines should be the only thing that moved.
+          changed=$(git diff --numstat | awk '{a += $1; d += $2} END {print a, d}')
+          [ "$changed" = "3 3" ] || { echo "❌ expected 3 changed lines, got: $changed"; exit 1; }
+
+      - name: Commit, tag, and push
         run: |
-          git config user.name "kc-actions-bot[bot]"
-          git config user.email "kc-actions-bot[bot]@users.noreply.github.com"
           git add charts/finops-agent/values.yaml charts/finops-agent/Chart.yaml
-          git commit -m "Release v${{ inputs.version }}"
+          git commit -m "Release $TAG"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push $PUSH_ARGS origin main "$TAG"
 
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "🔍 DRY RUN: would push this commit to finops-agent-chart main:"
-            git show --stat HEAD
-            exit 0
-          fi
-
-          git push origin main
-          echo "✅ Committed changes to finops-agent-chart"
-
-      - name: Create and push tag
-        run: |
-          git tag -a v${{ inputs.version }} -m "Release v${{ inputs.version }}"
-
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "🔍 DRY RUN: would push tag v${{ inputs.version }} to finops-agent-chart"
-            exit 0
-          fi
-
-          git push origin v${{ inputs.version }}
-          echo "✅ Tagged finops-agent-chart with v${{ inputs.version }}"
-
-      - name: Wait for publish workflow to start
-        if: ${{ !inputs.dry_run }}
-        env:
-          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
-        run: |
-          echo "⏳ Waiting for chart publish workflow to start..."
-          
-          # Wait for workflow to be triggered by tag push
-          for i in {1..30}; do
-            RUN_ID=$(gh run list \
-              --repo kubecost/finops-agent-chart \
-              --workflow publish-chart.yaml \
-              --limit 5 \
-              --json databaseId,event,headBranch,createdAt \
-              --jq '.[] | select(.event == "push" and (.headBranch | startswith("v"))) | .databaseId' \
-              | head -1)
-            
-            if [ -n "$RUN_ID" ]; then
-              break
-            fi
-            echo "⏳ Waiting for workflow to start (attempt $i/30)..."
-            sleep 2
-          done
-          
-          if [ -z "$RUN_ID" ]; then
-            echo "❌ Publish workflow did not start after 60 seconds"
-            exit 1
-          fi
-          
-          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
-          echo "✅ Publish workflow started: $RUN_ID"
-
-      - name: Wait for publish to complete
+      # --branch matches the tag ref, so this correlates to the tag just
+      # pushed rather than to whatever happened to run most recently.
+      - name: Wait for chart publish
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         timeout-minutes: 20
         run: |
-          echo "⏳ Waiting for chart publish to complete..."
-          gh run watch ${{ env.RUN_ID }} --repo kubecost/finops-agent-chart --exit-status
-          echo "✅ Chart published successfully"
+          for i in {1..24}; do
+            RUN_ID=$(gh run list --repo "$CHART_REPO" --workflow "$CHART_WORKFLOW" \
+              --event push --branch "$TAG" --limit 1 \
+              --json databaseId --jq '.[0].databaseId // empty')
+            if [ -n "$RUN_ID" ]; then break; fi
+            echo "⏳ Waiting for chart publish to start (attempt $i/24)..."
+            sleep 5
+          done
+          : "${RUN_ID:?chart publish workflow did not start within 2 minutes}"
+
+          gh run watch "$RUN_ID" --repo "$CHART_REPO" --exit-status
 
   update-kubecost:
     name: Update kubecost chart dependency
@@ -269,122 +193,94 @@ jobs:
       - name: Checkout kubecost
         uses: actions/checkout@v6
         with:
-          repository: kubecost/kubecost
-          ref: develop
+          repository: ${{ env.KUBECOST_REPO }}
+          ref: ${{ env.KUBECOST_BRANCH }}
           token: ${{ steps.generate-app-token.outputs.token }}
-          fetch-depth: 0
 
       - name: Install Helm
         uses: azure/setup-helm@v3
         with:
           version: v3.12.0
 
-      - name: Update finops-agent dependency version
+      - name: Bump finops-agent dependency
         run: |
-          yq eval '(.dependencies[] | select(.name == "finops-agent")).version = "v${{ inputs.version }}"' -i kubecost/Chart.yaml
-          
-          # Verify the change
-          if ! grep -q 'version: "v${{ inputs.version }}"' kubecost/Chart.yaml; then
-            echo "❌ Failed to update Chart.yaml dependency version"
-            exit 1
-          fi
-          echo "✅ Updated Chart.yaml dependency to v${{ inputs.version }}"
+          sed -i -E '/^  - name: finops-agent$/,/^  - name:/ {
+                       s|^    version: .*|    version: "'"$TAG"'"|
+                     }' kubecost/Chart.yaml
 
-      # Needs the new chart version to actually be published, so it can only run
-      # for real. Chart.lock is left untouched in a dry run.
-      - name: Update Helm dependencies
+          git --no-pager diff
+
+          actual=$(yq '.dependencies[] | select(.name == "finops-agent") | .version' kubecost/Chart.yaml)
+          [ "$actual" = "$TAG" ] || { echo "❌ dependency is '$actual', expected '$TAG'"; exit 1; }
+
+          changed=$(git diff --numstat | awk '{a += $1; d += $2} END {print a, d}')
+          [ "$changed" = "1 1" ] || { echo "❌ expected 1 changed line, got: $changed"; exit 1; }
+
+      # Needs the new chart version to actually be published, so it can only
+      # run for real. Chart.lock is left untouched in a dry run.
+      - name: Update Chart.lock
         if: ${{ !inputs.dry_run }}
         run: |
           helm repo add finops-agent https://kubecost.github.io/finops-agent-chart/ || true
-          helm repo update
-          
-          if ! helm dependency update ./kubecost; then
-            echo "❌ Failed to update Helm dependencies"
-            exit 1
-          fi
-          
-          # Verify Chart.lock was updated
-          if ! grep -q "version: v${{ inputs.version }}" kubecost/Chart.lock; then
-            echo "❌ Chart.lock does not contain expected version v${{ inputs.version }}"
-            exit 1
-          fi
-          
-          echo "✅ Updated Chart.lock with finops-agent v${{ inputs.version }}"
+          helm repo update finops-agent
+          helm dependency update ./kubecost
 
-      - name: Commit and push changes
+      - name: Commit and push
         run: |
-          git config user.name "kc-actions-bot[bot]"
-          git config user.email "kc-actions-bot[bot]@users.noreply.github.com"
           git add kubecost/Chart.yaml kubecost/Chart.lock
-          git commit -m "Update finops-agent to v${{ inputs.version }}"
-
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "🔍 DRY RUN: would push this commit to kubecost develop:"
-            git show --stat HEAD
-            exit 0
-          fi
-
-          git push origin develop
-          echo "✅ Committed changes to kubecost chart"
+          git commit -m "Update finops-agent to $TAG"
+          git push $PUSH_ARGS origin "$KUBECOST_BRANCH"
 
   summary:
     name: Release Summary
     needs: [tag-agent, update-chart, update-kubecost]
     runs-on: ubuntu-latest
-    if: always() && needs.tag-agent.result != 'skipped'
+    if: always()
     steps:
-      - name: Generate dry run summary
-        if: ${{ inputs.dry_run }}
+      - name: Report status
+        env:
+          TAG_RESULT: ${{ needs.tag-agent.result }}
+          CHART_RESULT: ${{ needs.update-chart.result }}
+          KUBECOST_RESULT: ${{ needs.update-kubecost.result }}
         run: |
-          echo "# 🔍 Dry Run — FinOps Agent Release v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Nothing was pushed. Verified:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Version format is valid and tag v${{ inputs.version }} is available" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ finops-agent-chart edits apply and commit cleanly" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ kubecost Chart.yaml edit applies and commits cleanly" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Not exercised: image build, chart publish, Chart.lock update." >> $GITHUB_STEP_SUMMARY
+          mark() {
+            case "$1" in
+              success) echo "✅" ;;
+              skipped) echo "⏭️" ;;
+              *)       echo "❌" ;;
+            esac
+          }
 
-      - name: Generate summary
-        if: ${{ !inputs.dry_run }}
-        run: |
-          echo "# FinOps Agent Release v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Status" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ ibm-finops-agent tagged" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Images built and pushed" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ finops-agent-chart updated and published" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ kubecost chart dependency updated" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Resources" >> $GITHUB_STEP_SUMMARY
-          echo "- [ibm-finops-agent tag](https://github.com/kubecost/ibm-finops-agent/releases/tag/v${{ inputs.version }})" >> $GITHUB_STEP_SUMMARY
-          echo "- [finops-agent-chart release](https://github.com/kubecost/finops-agent-chart/releases/tag/v${{ inputs.version }})" >> $GITHUB_STEP_SUMMARY
-          echo "- [kubecost commit](https://github.com/kubecost/kubecost/commits/develop)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Verify images in registries:" >> $GITHUB_STEP_SUMMARY
-          echo "   - GCR: \`gcr.io/kubecost1/agent:v${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "   - ICR: \`icr.io/ibm-finops/agent:v${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "2. Test the new chart version" >> $GITHUB_STEP_SUMMARY
-          echo "3. Monitor for issues" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            TITLE="🔍 Dry Run — FinOps Agent Release $TAG (nothing was pushed)"
+          else
+            TITLE="FinOps Agent Release $TAG"
+          fi
 
-  cleanup:
-    name: Cleanup on Failure
-    needs: [tag-agent, update-chart, update-kubecost]
-    runs-on: ubuntu-latest
-    # A dry run pushes no tags, so there is nothing to clean up.
-    if: failure() && !inputs.dry_run
-    steps:
-      - name: Provide cleanup instructions
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          # $TITLE
+
+          - $(mark "$TAG_RESULT") ibm-finops-agent tagged and image built
+          - $(mark "$CHART_RESULT") finops-agent-chart updated and published
+          - $(mark "$KUBECOST_RESULT") kubecost chart dependency updated
+
+          [agent tag](https://github.com/${{ github.repository }}/releases/tag/$TAG) &middot;
+          [chart release](https://github.com/$CHART_REPO/releases/tag/$TAG) &middot;
+          [kubecost commits](https://github.com/$KUBECOST_REPO/commits/$KUBECOST_BRANCH)
+          EOF
+
+      # A dry run pushes no tags, so there is never anything to clean up.
+      - name: Add cleanup instructions
+        if: ${{ !inputs.dry_run && contains(needs.*.result, 'failure') }}
         run: |
-          echo "⚠️ Workflow failed. Manual cleanup may be required:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "To delete tags if needed:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "# Delete ibm-finops-agent tag" >> $GITHUB_STEP_SUMMARY
-          echo "git push --delete origin v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# Delete finops-agent-chart tag (if created)" >> $GITHUB_STEP_SUMMARY
-          echo "cd finops-agent-chart" >> $GITHUB_STEP_SUMMARY
-          echo "git push --delete origin v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+
+          ## Manual cleanup
+
+          The release stopped partway through. Delete whichever tags were pushed:
+
+          \`\`\`bash
+          gh api -X DELETE repos/${{ github.repository }}/git/refs/tags/$TAG
+          gh api -X DELETE repos/$CHART_REPO/git/refs/tags/$TAG
+          \`\`\`
+          EOF
