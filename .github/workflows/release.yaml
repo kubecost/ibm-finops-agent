@@ -7,6 +7,16 @@ on:
         description: 'Version number (e.g., 1.0.22)'
         required: true
         type: string
+      # Every irreversible action here is a `git push`, so a dry run does
+      # everything else for real (checkout, edits, local commits and tags) and
+      # stops at each push. Steps that only observe a push's side effects are
+      # skipped with `if: !inputs.dry_run`. Not exercised: the image build, the
+      # chart publish, and Chart.lock (needs the chart version published).
+      dry_run:
+        description: 'Dry run (validate and edit locally, push nothing)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -74,10 +84,17 @@ jobs:
           git config user.name "kc-actions-bot[bot]"
           git config user.email "kc-actions-bot[bot]@users.noreply.github.com"
           git tag -a v${{ inputs.version }} -m "Release v${{ inputs.version }}"
+
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN: would push tag v${{ inputs.version }} to ibm-finops-agent"
+            exit 0
+          fi
+
           git push origin v${{ inputs.version }}
           echo "✅ Tagged ibm-finops-agent with v${{ inputs.version }}"
 
       - name: Wait for build workflow to start
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
@@ -109,6 +126,7 @@ jobs:
           echo "✅ Build workflow started: $RUN_ID"
 
       - name: Wait for build to complete
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         timeout-minutes: 30
@@ -171,16 +189,30 @@ jobs:
           git config user.email "kc-actions-bot[bot]@users.noreply.github.com"
           git add charts/finops-agent/values.yaml charts/finops-agent/Chart.yaml
           git commit -m "Release v${{ inputs.version }}"
+
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN: would push this commit to finops-agent-chart main:"
+            git show --stat HEAD
+            exit 0
+          fi
+
           git push origin main
           echo "✅ Committed changes to finops-agent-chart"
 
       - name: Create and push tag
         run: |
           git tag -a v${{ inputs.version }} -m "Release v${{ inputs.version }}"
+
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN: would push tag v${{ inputs.version }} to finops-agent-chart"
+            exit 0
+          fi
+
           git push origin v${{ inputs.version }}
           echo "✅ Tagged finops-agent-chart with v${{ inputs.version }}"
 
       - name: Wait for publish workflow to start
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
@@ -212,6 +244,7 @@ jobs:
           echo "✅ Publish workflow started: $RUN_ID"
 
       - name: Wait for publish to complete
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         timeout-minutes: 20
@@ -257,7 +290,10 @@ jobs:
           fi
           echo "✅ Updated Chart.yaml dependency to v${{ inputs.version }}"
 
+      # Needs the new chart version to actually be published, so it can only run
+      # for real. Chart.lock is left untouched in a dry run.
       - name: Update Helm dependencies
+        if: ${{ !inputs.dry_run }}
         run: |
           helm repo add finops-agent https://kubecost.github.io/finops-agent-chart/ || true
           helm repo update
@@ -281,6 +317,13 @@ jobs:
           git config user.email "kc-actions-bot[bot]@users.noreply.github.com"
           git add kubecost/Chart.yaml kubecost/Chart.lock
           git commit -m "Update finops-agent to v${{ inputs.version }}"
+
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "🔍 DRY RUN: would push this commit to kubecost develop:"
+            git show --stat HEAD
+            exit 0
+          fi
+
           git push origin develop
           echo "✅ Committed changes to kubecost chart"
 
@@ -290,7 +333,20 @@ jobs:
     runs-on: ubuntu-latest
     if: always() && needs.tag-agent.result != 'skipped'
     steps:
+      - name: Generate dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "# 🔍 Dry Run — FinOps Agent Release v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Nothing was pushed. Verified:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Version format is valid and tag v${{ inputs.version }} is available" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ finops-agent-chart edits apply and commit cleanly" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ kubecost Chart.yaml edit applies and commits cleanly" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Not exercised: image build, chart publish, Chart.lock update." >> $GITHUB_STEP_SUMMARY
+
       - name: Generate summary
+        if: ${{ !inputs.dry_run }}
         run: |
           echo "# FinOps Agent Release v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -316,7 +372,8 @@ jobs:
     name: Cleanup on Failure
     needs: [tag-agent, update-chart, update-kubecost]
     runs-on: ubuntu-latest
-    if: failure()
+    # A dry run pushes no tags, so there is nothing to clean up.
+    if: failure() && !inputs.dry_run
     steps:
       - name: Provide cleanup instructions
         run: |
