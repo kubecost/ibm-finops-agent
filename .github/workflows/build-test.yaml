@@ -9,13 +9,22 @@ env:
 
 jobs:
   build_test_agent:
-    runs-on: ubuntu-latest
+    # Native runner per arch: no QEMU, both legs in parallel.
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    name: build_test_agent (${{ matrix.arch }})
+
     permissions:
       contents: read
       id-token: write
-
-    outputs:
-      AGENT_IMAGE_TAG: ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}
 
     steps:
       - name: Checkout ibm-finops-agent
@@ -24,7 +33,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head.sha || github.ref }}
           path: ./ibm-finops-agent
 
-      # Creates tags for agent images 
+      # Creates tags for agent images
       - name: Set image tag
         id: tag
         run: |
@@ -36,14 +45,14 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Build test agent
         id: docker_build_agent
         uses: docker/build-push-action@v6
         with:
           context: ./ibm-finops-agent
           file: ./ibm-finops-agent/Dockerfile
-          platforms: "linux/amd64,linux/arm64"
+          platforms: linux/${{ matrix.arch }}
           push: false
           build-args: |
             version=${{ github.event.pull_request.head.sha || github.event.merge_group.head.sha || github.ref }}
