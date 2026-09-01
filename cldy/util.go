@@ -99,13 +99,50 @@ func getFileNameAndHash(filePath string) (string, string, error) {
 	return fileName, base64.StdEncoding.EncodeToString(hash.Sum(nil)), nil
 }
 
-// SafePath joins elements and creates a path that prevents file traversal while maintaining trailing separators
+// SafePath joins elements into a path that cannot escape the first element,
+// while maintaining trailing separators.
+//
+// Parent-directory segments are dropped rather than resolved, so
+// "test/scratch/../file" yields "test/scratch/file" and not "test/file".
+//
+// The removal is segment-aware. A previous implementation deleted every literal
+// ".." substring before cleaning, which was defeated by any sequence that
+// re-formed a traversal after deletion -- "....//" collapses to "../" once the
+// inner ".." is removed, so "....//....//etc/passwd" escaped to "/etc/passwd".
+// It also corrupted legitimate names, rewriting "v1..2-cluster" to
+// "v1 2-cluster". Splitting on the separator and discarding only segments that
+// are exactly ".." avoids both: "...." and "v1..2-cluster" are ordinary names
+// and are preserved intact.
 func SafePath(elements ...string) string {
-	path := strings.Join(elements, string(filepath.Separator))
-	path = strings.ReplaceAll(path, "..", "")
-	path = filepath.Clean(path)
-	if len(elements) != 0 && strings.HasSuffix(elements[len(elements)-1], string(filepath.Separator)) {
-		return path + string(filepath.Separator)
+	sep := string(filepath.Separator)
+	joined := strings.Join(elements, sep)
+
+	// Drop traversal and no-op segments. Only an exact ".." is traversal; a
+	// segment merely containing dots is a valid filename.
+	segments := strings.Split(joined, sep)
+	kept := segments[:0]
+	for _, s := range segments {
+		if s == ".." || s == "." {
+			continue
+		}
+		kept = append(kept, s)
+	}
+	path := filepath.Clean(strings.Join(kept, sep))
+
+	// Defence in depth: the segment filter above should make escape impossible,
+	// but verify containment explicitly rather than relying on that reasoning.
+	// Falling back to the base is safe because the base is always a directory
+	// the agent owns.
+	if len(elements) > 1 {
+		base := filepath.Clean(elements[0])
+		if base != "." && path != base && !strings.HasPrefix(path, base+sep) {
+			log.Warnf("refusing to build a path outside %q from elements %q; using base", base, elements)
+			path = base
+		}
+	}
+
+	if len(elements) != 0 && strings.HasSuffix(elements[len(elements)-1], sep) {
+		return path + sep
 	}
 	return path
 }

@@ -9,6 +9,15 @@ import (
 	"github.com/opencost/opencost/core/pkg/model/kubemodel"
 )
 
+// Permissions for the generated output tree. This is a developer tool rather
+// than part of the agent runtime, but there is no reason for its output to be
+// group- or world-writable, and the directory mode was reported as
+// CWE-732 (insecure directory permissions).
+const (
+	outputDirPerm  = 0o750
+	outputFilePerm = 0o600
+)
+
 func kubeModelBinaryToJson(bytes []byte) ([]byte, error) {
 	kms := new(kubemodel.KubeModelSet)
 	err := kms.UnmarshalBinary(bytes)
@@ -39,7 +48,7 @@ func decodeKubeModel(srcPath, outPath string) {
 		}
 
 		if d.IsDir() {
-			err := os.MkdirAll(filepath.Join(outPath, path), 0755)
+			err := os.MkdirAll(filepath.Join(outPath, path), outputDirPerm)
 			if err != nil {
 				return err
 			}
@@ -61,7 +70,7 @@ func decodeKubeModel(srcPath, outPath string) {
 		}
 
 		outFilePath := filepath.Join(outPath, srcPath, fileName+".json")
-		err = os.WriteFile(outFilePath, jsonData, 0644)
+		err = os.WriteFile(outFilePath, jsonData, outputFilePerm)
 		if err != nil {
 			fmt.Printf("[kubemodel] error writing JSON file %s: %v\n", outFilePath, err)
 			return nil

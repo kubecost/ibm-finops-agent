@@ -238,9 +238,9 @@ var _ = Describe("ApptioService agent version sanitization", func() {
 						var body map[string]any
 						Expect(json.NewDecoder(r.Body).Decode(&body)).To(Succeed())
 						capturedVersion = body["agentVersion"].(string)
-						resp := map[string]any{
-							"result": map[string]any{
-								"location":  "https://s3.example.com/upload",
+						resp := map[string]interface{}{
+							"result": map[string]interface{}{
+								"location":  "https://apptio-production.s3.us-west-2.amazonaws.com/upload",
 								"requestId": "req-123",
 							},
 						}

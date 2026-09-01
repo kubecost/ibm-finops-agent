@@ -263,7 +263,7 @@ var _ = Describe("Uploader", func() {
 			time.Sleep(500 * time.Millisecond)
 			Expect(mcs.countByPath["/service/apikeylogin"]).To(Equal(1))
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(1))
-			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(1))
+			Expect(mcs.countByPath["/somewhere/valid-location"]).To(Equal(1))
 
 			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
 			Expect(err).ToNot(HaveOccurred())
@@ -271,7 +271,7 @@ var _ = Describe("Uploader", func() {
 			time.Sleep(500 * time.Millisecond)
 			Expect(mcs.countByPath["/service/apikeylogin"]).To(Equal(1))
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(2))
-			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(2))
+			Expect(mcs.countByPath["/somewhere/valid-location"]).To(Equal(2))
 		})
 
 		It("should log back in if required", func() {
@@ -297,7 +297,7 @@ var _ = Describe("Uploader", func() {
 			time.Sleep(500 * time.Millisecond)
 			Expect(mcs.countByPath["/service/apikeylogin"]).To(Equal(1))
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(1))
-			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(1))
+			Expect(mcs.countByPath["/somewhere/valid-location"]).To(Equal(1))
 
 			err = os.CopyFS(tempDir+"/scratch/temp_test_data", os.DirFS("testdata"))
 			Expect(err).ToNot(HaveOccurred())
@@ -305,7 +305,7 @@ var _ = Describe("Uploader", func() {
 			time.Sleep(500 * time.Millisecond)
 			Expect(mcs.countByPath["/service/apikeylogin"]).To(Equal(2))
 			Expect(mcs.countByPath["/v3/internal/containers/clusters/upload"]).To(Equal(2))
-			Expect(mcs.countByPath["somewhere/valid-location"]).To(Equal(2))
+			Expect(mcs.countByPath["/somewhere/valid-location"]).To(Equal(2))
 		})
 		It("should upload via metrics-collector api key", func() {
 			config := defaultConfig(tempDir)
@@ -533,7 +533,7 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response,
 			return &http.Response{StatusCode: 403, Body: io.NopCloser(strings.NewReader(""))}, nil
 		}
 		responseBody, _ := json.Marshal(map[string]string{
-			"location": "somewhere/valid-location",
+			"location": "https://apptio-production.s3.us-west-2.amazonaws.com/somewhere/valid-location",
 		})
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(responseBody))}, nil
 	}
@@ -546,7 +546,7 @@ func (mcs *mockClientService) Do(r *http.Request, _ string) (res *http.Response,
 		} else {
 			responseBody, _ := json.Marshal(cldy.CloudabilityClustersUploadResponse{
 				Result: cldy.CloudabilityClustersUploadInfo{
-					Location: "somewhere/valid-location",
+					Location: "https://apptio-production.s3.us-west-2.amazonaws.com/somewhere/valid-location",
 				}})
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(responseBody))}, nil
 		}

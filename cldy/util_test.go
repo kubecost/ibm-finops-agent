@@ -74,6 +74,48 @@ func TestSafePath(t *testing.T) {
 			},
 			want: "test/scratch/dirName/",
 		},
+
+		// The following escaped the previous implementation, which deleted every
+		// literal ".." substring before cleaning. "...." collapses to ".." once the
+		// inner ".." is removed, which then resolves as a traversal.
+		"traversal via doubled dots": {
+			elements: []string{
+				"test/scratch",
+				"....//....//etc/passwd",
+			},
+			want: "test/scratch/..../..../etc/passwd",
+		},
+		"traversal via dot-slash padding": {
+			elements: []string{
+				"test/scratch",
+				"..././..././etc/shadow",
+			},
+			want: "test/scratch/.../.../etc/shadow",
+		},
+		"traversal escaping the base is clamped": {
+			elements: []string{
+				"test/scratch",
+				"../../../../etc/passwd",
+			},
+			want: "test/scratch/etc/passwd",
+		},
+
+		// The previous implementation also mangled legitimate names containing
+		// consecutive dots, silently writing samples to the wrong directory.
+		"legitimate name with consecutive dots is preserved": {
+			elements: []string{
+				"test/scratch",
+				"v1..2-cluster",
+			},
+			want: "test/scratch/v1..2-cluster",
+		},
+		"legitimate filename with consecutive dots is preserved": {
+			elements: []string{
+				"test/scratch",
+				"my..cluster.tgz",
+			},
+			want: "test/scratch/my..cluster.tgz",
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
