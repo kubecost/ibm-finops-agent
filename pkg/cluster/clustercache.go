@@ -33,6 +33,9 @@ type ClusterCache interface {
 	// GetAllShortLivedPods returns all pods with short duration that were recently deleted
 	GetAllShortLivedPods() []*v1.Pod
 
+	// AcknowledgeShortLivedPods clears the short-lived pod buffer after a successful export
+	AcknowledgeShortLivedPods()
+
 	// GetAllServices returns all the cached services
 	GetAllServices() []*v1.Service
 
