@@ -59,15 +59,16 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 		var tlsConfig *tls.Config
 
 		if certFile != "" && keyFile != "" {
-			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+			reloader := newClientCertReloader(certFile, keyFile)
 
-			if err != nil {
+			// Prime and validate at startup so a misconfiguration still fails fast.
+			if _, err := reloader.GetClientCertificate(nil); err != nil {
 				log.Fatalf("Unable to load cert: %s key: %s error: %v", certFile, keyFile, err)
 			}
 
 			tlsConfig = &tls.Config{
-				Certificates: []tls.Certificate{cert},
-				RootCAs:      caCertPool,
+				GetClientCertificate: reloader.GetClientCertificate,
+				RootCAs:              caCertPool,
 			}
 
 			transport = transportWithTLSConfig(tlsConfig)
