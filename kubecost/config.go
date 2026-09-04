@@ -71,6 +71,9 @@ type EmitterConfig struct {
 	EmitKubeModelMinuteResolution   bool
 	HeartbeatExportEnabled          bool
 	DiagnosticsExportEnabled        bool
+	HeartbeatStorageRetention       time.Duration
+	DiagnosticsStorageRetention     time.Duration
+	StorageCleanupInterval          time.Duration
 	EmitLegacyDateModels            bool
 	EmitKubeModel                   bool
 	KubernetesResourcesRequired     []string
@@ -95,6 +98,9 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 		EmitKubeModelMinuteResolution:  kcenv.IsMinuteMetricsEnabled(),
 		HeartbeatExportEnabled:         kcenv.IsHeartbeatExportEnabled(),
 		DiagnosticsExportEnabled:       kcenv.IsDiagnosticsExportEnabled(),
+		HeartbeatStorageRetention:      kcenv.GetHeartbeatStorageRetention(),
+		DiagnosticsStorageRetention:    kcenv.GetDiagnosticsStorageRetention(),
+		StorageCleanupInterval:         kcenv.GetStorageCleanupInterval(),
 		EmitLegacyDateModels:           coreenv.IsLegacyDataModelExported(),
 		EmitKubeModel:                  kcenv.IsFinOpsAgentKubeModelExported(),
 		// Kubecost emitter requires all kubernetes resources to be enabled
