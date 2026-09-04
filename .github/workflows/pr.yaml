@@ -15,6 +15,42 @@ on:
     types: [checks_requested]
 
 jobs:
+  # Fails the build only when our own code actually calls a vulnerable symbol.
+  # govulncheck performs reachability analysis, so advisories in modules we
+  # require but never call are reported without failing the job. That matters
+  # here: we currently carry three such advisories that have no fix available
+  # (golang.org/x/crypto openpgp, and two aws-sdk-go v1 s3crypto issues), and a
+  # scanner that failed on those would need a permanently-maintained ignore
+  # list. This job needs none.
+  #
+  # Runs independently of build-and-test so a failing unit test does not mask a
+  # vulnerability, and vice versa. It also inherits this workflow's nightly
+  # cron, which is where most of the value is: newly published advisories are
+  # caught against unchanged code, without waiting for someone to open a PR.
+  vuln-scan:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      # Pinned rather than @latest so the scanner itself is reproducible and
+      # cannot change under us mid-review. This does not stale the advisory
+      # data: govulncheck fetches the vulnerability database from vuln.go.dev
+      # at run time, so a pinned binary still sees newly published advisories.
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
   build-and-test:
     runs-on: ubuntu-latest
     permissions:
