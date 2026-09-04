@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/util"
+	ocatomic "github.com/opencost/opencost/core/pkg/util/atomic"
 	"github.com/opencost/opencost/core/pkg/log"
-	"github.com/opencost/opencost/core/pkg/util/atomic"
 )
 
 // Exporter is an interface that defines a data emission management system and facilitates the
@@ -31,7 +32,7 @@ type Exporter interface {
 // defaultExporter is the default implementation of the Exporter interface. It's a straight-forward
 // snapshot and emission loop that runs on a specified interval.
 type defaultExporter struct {
-	runState         atomic.AtomicRunState
+	runState         ocatomic.AtomicRunState
 	ds               core.DataSource
 	snapshotProvider SnapshotProvider
 	emitters         []Emitter
@@ -100,6 +101,7 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 			}
 
 			var emitTasks sync.WaitGroup
+			var emitErrors atomic.Int32
 
 			// sandbox each emitter.Emit() call to it's own goroutine and trap any panics that occur, logging
 			// the error and emitter id
@@ -107,12 +109,20 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 				emitTasks.Go(func() {
 					if err := emit(runContext, emitter, snapshot); err != nil {
 						log.Errorf("[%s] failed to emit snapshot: %v", emitter.ID(), err)
+						emitErrors.Add(1)
 					}
 				})
 			}
 
 			// wait for all emit tasks to complete before continuing
 			emitTasks.Wait()
+
+			// only persist snapshot state if all emitters succeeded to avoid recording timestamps for data that never shipped
+			if emitErrors.Load() == 0 {
+				if err := de.snapshotProvider.PersistState(); err != nil {
+					log.Warnf("failed to persist snapshot state: %v", err)
+				}
+			}
 		}
 	}()
 
