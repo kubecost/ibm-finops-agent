@@ -187,12 +187,22 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 	}
 }
 
+// sampleDirPerm is the mode applied to the scratch, upload and per-sample
+// directories. Those hold a full inventory of the cluster's Kubernetes
+// resources between collection and upload, so they must not be world-readable
+// or world-writable -- os.ModePerm is 0777, which is both.
+//
+// 0750 rather than 0700 so that group access is retained, which some Kubernetes
+// volume setups rely on when a pod sets fsGroup. The agent itself is the only
+// writer either way.
+const sampleDirPerm = 0o750
+
 func createIfNotExists(path string) error {
 	_, err := os.Stat(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return os.MkdirAll(path, os.ModePerm)
+	return os.MkdirAll(path, sampleDirPerm)
 }
 
 // getSecretFromFileVolume attempts to gather secret from filepath
@@ -301,7 +311,7 @@ func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
 
 	// Since sample count is intiialized at -1, use next path to get 0 as first index
 	ce.currentSamplePath = ce.newNextSamplePath()
-	err = os.Mkdir(ce.currentSamplePath, os.ModePerm)
+	err = os.Mkdir(ce.currentSamplePath, sampleDirPerm)
 	if err != nil {
 		return err
 	}
@@ -327,7 +337,7 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 	}
 
 	ce.nextSamplePath = ce.newNextSamplePath()
-	err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
+	err := os.Mkdir(ce.nextSamplePath, sampleDirPerm)
 	if err != nil {
 		return err
 	}
