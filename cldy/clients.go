@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -662,10 +661,8 @@ func newBlobServicePrincipalClient(customBlobUrl string, azureTentantID string, 
 	}
 
 	retryConfig := azblob.ClientOptions{
-		ClientOptions: azcore.ClientOptions{
-			Retry: policy.RetryOptions{
-				MaxRetries: 3,
-			},
+		Retry: policy.RetryOptions{
+			MaxRetries: 3,
 		},
 	}
 	azureClient, err := azblob.NewClient(customBlobUrl, cred, &retryConfig)
