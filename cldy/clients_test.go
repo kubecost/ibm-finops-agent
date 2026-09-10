@@ -605,7 +605,7 @@ var _ = Describe("ApptioClient doWithRetry request bodies", func() {
 
 		before := openDescriptors()
 		const iterations = 40
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			Expect(uploadPayloadToPresignedURL(nil, payload, unparseableURL)).To(HaveOccurred())
 		}
 		after := openDescriptors()

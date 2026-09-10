@@ -939,7 +939,7 @@ func seedUploadQueue(tempDir string, count int) []string {
 	uploadDir := filepath.Join(tempDir, "upload")
 	Expect(os.MkdirAll(uploadDir, os.ModePerm)).To(Succeed())
 	paths := make([]string, 0, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		stamp := time.Now().UTC().Add(-time.Duration(i) * time.Minute).Format("2006-01-02-15-04-05")
 		path := filepath.Join(uploadDir, fmt.Sprintf("test-id_%s.tgz", stamp))
 		Expect(os.WriteFile(path, []byte("sample contents"), 0600)).To(Succeed())
