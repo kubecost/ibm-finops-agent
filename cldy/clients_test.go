@@ -634,3 +634,52 @@ var _ = Describe("ApptioClient doWithRetry request bodies", func() {
 		Expect(sleeps).To(Equal([]time.Duration{2 * time.Second, 4 * time.Second}))
 	})
 })
+
+var _ = Describe("ApptioClient redirect policy", func() {
+	// The upload client sets GetBody on the requests that carry a body, so that doWithRetry can
+	// replay them. That is also exactly the condition net/http requires before it will follow a
+	// 307/308 with a body, so without an explicit policy a redirect from the upload host would
+	// replay the whole sample tar - and the API key login body - to whatever host it named.
+	It("does not follow a redirect away from the upload host", func() {
+		var redirectTarget struct {
+			sync.Mutex
+			hits int
+			body int
+		}
+		attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			received, _ := io.ReadAll(r.Body)
+			redirectTarget.Lock()
+			redirectTarget.hits++
+			redirectTarget.body += len(received)
+			redirectTarget.Unlock()
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer attacker.Close()
+
+		upload := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, attacker.URL+"/exfil", http.StatusTemporaryRedirect)
+		}))
+		defer upload.Close()
+
+		payload := []byte("cluster sample contents")
+		request, err := http.NewRequest(http.MethodPut, upload.URL+"/presigned", bytes.NewReader(payload))
+		Expect(err).ToNot(HaveOccurred())
+		request.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(payload)), nil
+		}
+
+		client := NewApptioClient(ApptioConfig{Timeout: 5 * time.Second})
+		resp, err := client.client.Do(request)
+		Expect(err).ToNot(HaveOccurred())
+		defer drainAndClose(resp.Body)
+
+		// the 3xx is handed back rather than followed, so the upload fails closed and is retried
+		// against the original host instead of being recorded as a success
+		Expect(resp.StatusCode).To(Equal(http.StatusTemporaryRedirect))
+
+		redirectTarget.Lock()
+		defer redirectTarget.Unlock()
+		Expect(redirectTarget.hits).To(Equal(0), "the redirect target must never be contacted")
+		Expect(redirectTarget.body).To(Equal(0), "no payload bytes may reach the redirect target")
+	})
+})

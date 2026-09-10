@@ -217,6 +217,17 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 	httpClient := http.Client{
 		Timeout:   config.Timeout,
 		Transport: netTransport,
+		// Never follow a redirect. This client carries the API key to Frontdoor and PUTs the
+		// whole sample tar to a presigned S3 URL, and since those requests set GetBody so the
+		// retry loop can replay them, net/http would otherwise happily replay the body to
+		// whatever host a 307 or 308 names - including over plain http, since the stdlib does
+		// not block a scheme downgrade on redirect. A redirected upload that answered 200 would
+		// also be recorded as a successful upload, and the local tar deleted. Handing the 3xx
+		// back to the caller instead fails closed: it is not a 200, so the upload is retried
+		// against the original host.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 	return ApptioClient{
 		client:     &httpClient,
