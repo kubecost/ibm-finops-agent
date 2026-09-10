@@ -491,7 +491,9 @@ var _ = Describe("Uploader", func() {
 			elapsed := time.Since(start)
 
 			// unbounded this is 20 attempts and a full second, proportional to the queue depth
-			// and well past the tick it has to fit inside
+			// and well past the tick it has to fit inside. Bounded, the deadline is checked
+			// before each entry, so 200ms budget / 50ms per attempt admits 4 attempts; 6 leaves
+			// two attempts of slack for scheduler jitter on a loaded box.
 			Expect(service.callCount()).To(BeNumerically("<=", 6))
 			Expect(elapsed).To(BeNumerically("<", config.UploadFrequency))
 			// nothing shipped, so the whole queue is retained for later cycles

@@ -267,6 +267,14 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 	// store an object whose declared length is unmet, and the Content-MD5 set below would not
 	// match the altered bytes either. Recomputing the size per attempt is therefore not worth the
 	// extra stat-per-retry machinery.
+	//
+	// Deletion between attempts is likewise not guarded here, deliberately. The only in-process
+	// deleter of upload tars, ClearOldUploadSamples, runs via ConstructPayload on the same upload
+	// goroutine as this retry loop and strictly before DrainUploads in the same tick, so it can
+	// never fire between attempts of one upload. If the file vanishes anyway (deleted from
+	// outside the agent), the reopen fails, doWithRetry aborts with a rewind error, and the next
+	// cycle's fs.ErrNotExist check in UploadData drops the queue entry - one noisy log line, then
+	// self-healed.
 	request.GetBody = func() (io.ReadCloser, error) {
 		return os.Open(payload.FilePath)
 	}
