@@ -177,6 +177,31 @@ var _ = Describe("Uploader", func() {
 			// copy over another sample and ensure recovery does not break happy path
 			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
 		})
+		It("should keep a recent tar and drop a stale one when no recovery period is configured", func() {
+			uploadDir := filepath.Join(tempDir, "upload")
+			Expect(os.MkdirAll(uploadDir, os.ModePerm)).To(Succeed())
+			tarAged := func(age time.Duration) string {
+				stamp := time.Now().UTC().Add(-age).Format("2006-01-02-15-04-05")
+				return filepath.Join(uploadDir, "test-id_"+stamp+".tgz")
+			}
+			recent, stale := tarAged(time.Hour), tarAged(48*time.Hour)
+			for _, path := range []string{recent, stale} {
+				Expect(os.WriteFile(path, []byte("sample contents"), 0600)).To(Succeed())
+			}
+
+			config := noUploadConfig(tempDir)
+			config.RecoveryPeriod = 0
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh)
+			actualUploader := uploader.(*cldy.CldyUploader)
+
+			// an unset period falls back to the default rather than to zero, which would treat
+			// every tar on disk as expired and delete the whole backlog at boot
+			Expect(actualUploader.PendingUploads()).To(ConsistOf(recent))
+			Expect(recent).To(BeAnExistingFile())
+			Expect(stale).ToNot(BeAnExistingFile())
+		})
 		It("should not recover incomplete sample", func() {
 			config := defaultConfig(tempDir)
 			// 100 years (should recover all samples if complete)

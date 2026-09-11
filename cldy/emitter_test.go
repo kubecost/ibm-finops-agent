@@ -246,6 +246,16 @@ var _ = Describe("Emitter", func() {
 			Expect(config.ParseMetricData).To(BeFalse())
 			Expect(config.UploaderConfig.ScratchDir).To(Equal("/opt/finops-agent"))
 			Expect(config.UploaderConfig.ApptioConfig.Region).To(Equal("us"))
+			Expect(config.UploaderConfig.RecoveryPeriod).To(Equal(24 * time.Hour))
+		})
+		It("should load the recovery period from env", func() {
+			t := GinkgoT()
+			t.Setenv("CLOUDABILITY_UPLOAD_RECOVERY_PERIOD", "36h")
+
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(config.UploaderConfig.RecoveryPeriod).To(Equal(36 * time.Hour))
 		})
 		It("should load and parse custom outbound config", func() {
 			tempDir, err := os.MkdirTemp("", "")
