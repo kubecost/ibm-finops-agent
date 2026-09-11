@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -356,7 +355,7 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 		agentVersion = "0.0.0"
 	}
 
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"clusterUID":   payload.ClusterUID,
 		"fileName":     payload.FileName,
 		"agentVersion": agentVersion,
@@ -513,8 +512,8 @@ type CustomS3Uploader struct {
 
 func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 	sess, err := session.NewSession(&aws.Config{
-		Region:     aws.String(s3Region),
-		MaxRetries: aws.Int(3)},
+		Region:     new(s3Region),
+		MaxRetries: new(3)},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("could not establish AWS Session, "+
@@ -540,8 +539,8 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 	}
 
 	sampleToUpload := &s3manager.UploadInput{
-		Bucket: aws.String(cs3c.S3Bucket),
-		Key:    aws.String(key),
+		Bucket: new(cs3c.S3Bucket),
+		Key:    new(key),
 		Body:   fileReader,
 	}
 
@@ -662,10 +661,8 @@ func newBlobServicePrincipalClient(customBlobUrl string, azureTentantID string, 
 	}
 
 	retryConfig := azblob.ClientOptions{
-		ClientOptions: azcore.ClientOptions{
-			Retry: policy.RetryOptions{
-				MaxRetries: 3,
-			},
+		Retry: policy.RetryOptions{
+			MaxRetries: 3,
 		},
 	}
 	azureClient, err := azblob.NewClient(customBlobUrl, cred, &retryConfig)

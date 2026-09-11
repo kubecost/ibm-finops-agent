@@ -188,6 +188,7 @@ type MetricsSnapshot struct {
 	DaemonSetInfo                        []*source.DaemonSetInfoResult
 	DaemonSetUptime                      []*source.UptimeResult
 	DaemonSetAnnotations                 []*source.AnnotationsResult
+	DaemonSetArguments                   []*source.DaemonSetArgumentResult
 	JobInfo                              []*source.JobInfoResult
 	JobUptime                            []*source.UptimeResult
 	JobAnnotations                       []*source.AnnotationsResult

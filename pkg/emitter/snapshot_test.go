@@ -1,6 +1,7 @@
 package emitter
 
 import (
+	"slices"
 	"testing"
 	"time"
 	"unsafe"
@@ -49,9 +50,9 @@ func checkExpected(t *testing.T, snapshotTime time.Time, res time.Duration, metr
 
 	truncTime := snapshotTime.Truncate(res)
 	count := 0
-	for i := len(metrics) - 1; i >= 0; i-- {
-		start := metrics[i].Window.Start()
-		end := metrics[i].Window.End()
+	for _, metric := range slices.Backward(metrics) {
+		start := metric.Window.Start()
+		end := metric.Window.End()
 		expectedStart := truncTime.Add(-res * time.Duration(count))
 		expectedEnd := expectedStart.Add(res)
 

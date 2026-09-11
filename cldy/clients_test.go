@@ -25,7 +25,7 @@ var _ = Describe("Client Proxy", func() {
 
 		It("should not be used when Proxy URL is not set", func() {
 			config := cldy.ApptioConfig{
-				ProxyURL:                        &url.URL{},
+				ProxyURL: &url.URL{},
 			}
 
 			proxyFunc := cldy.BuildProxyFunc(config)
@@ -42,7 +42,7 @@ var _ = Describe("Client Proxy", func() {
 		})
 		It("should be used when Proxy URL is set", func() {
 			config := cldy.ApptioConfig{
-				ProxyURL:                        proxyURL,
+				ProxyURL: proxyURL,
 			}
 
 			proxyFunc := cldy.BuildProxyFunc(config)
@@ -235,11 +235,11 @@ var _ = Describe("ApptioService agent version sanitization", func() {
 						return resp, nil
 					case strings.Contains(r.URL.Path, "clusters/upload"):
 						// getUploadURL: capture agentVersion from body
-						var body map[string]interface{}
+						var body map[string]any
 						Expect(json.NewDecoder(r.Body).Decode(&body)).To(Succeed())
 						capturedVersion = body["agentVersion"].(string)
-						resp := map[string]interface{}{
-							"result": map[string]interface{}{
+						resp := map[string]any{
+							"result": map[string]any{
 								"location":  "https://s3.example.com/upload",
 								"requestId": "req-123",
 							},

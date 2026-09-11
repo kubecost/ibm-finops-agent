@@ -28,13 +28,9 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
-				UploaderConfig: cldy.UploaderConfig{
-					ScratchDir: tempDir,
-					ApptioConfig: cldy.ApptioConfig{
-						SecretManager: cldy.NewKeyValueSecretManager("", ""),
-						EnvID:         "1",
-					},
-				},
+				ScratchDir:    tempDir,
+				SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				EnvID:         "1",
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
@@ -92,13 +88,10 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
-				UploaderConfig: cldy.UploaderConfig{
-					ScratchDir: tempDir,
-					ApptioConfig: cldy.ApptioConfig{
-						SecretManager: cldy.NewKeyValueSecretManager("", ""),
-						EnvID:         "1",
-					}},
-				EmitAsJson: true,
+				ScratchDir:    tempDir,
+				SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				EnvID:         "1",
+				EmitAsJson:    true,
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
@@ -172,12 +165,8 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
-				UploaderConfig: cldy.UploaderConfig{
-					ScratchDir: tempDir,
-					ApptioConfig: cldy.ApptioConfig{
-						SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					},
-				},
+				ScratchDir:       tempDir,
+				SecretManager:    cldy.NewKeyValueSecretManager("", ""),
 				EmissionInterval: time.Duration(200) * time.Millisecond,
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
@@ -207,12 +196,8 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
-				UploaderConfig: cldy.UploaderConfig{
-					ScratchDir: tempDir,
-					ApptioConfig: cldy.ApptioConfig{
-						SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					},
-				},
+				ScratchDir:    tempDir,
+				SecretManager: cldy.NewKeyValueSecretManager("", ""),
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
