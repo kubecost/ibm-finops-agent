@@ -506,7 +506,7 @@ type CustomS3UploadService interface {
 }
 
 type CustomS3Uploader struct {
-	Uploader *manager.Uploader
+	Uploader *manager.Uploader //nolint:staticcheck // SA1019: feature/s3/manager is deprecated; successor feature/s3/transfermanager is still v0.x (unstable API)
 }
 
 func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
@@ -522,7 +522,7 @@ func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 	svc := s3.NewFromConfig(cfg)
 
 	return &CustomS3Uploader{
-		Uploader: manager.NewUploader(svc),
+		Uploader: manager.NewUploader(svc), //nolint:staticcheck // SA1019: feature/s3/manager is deprecated; successor feature/s3/transfermanager is still v0.x (unstable API)
 	}, nil
 }
 
@@ -555,7 +555,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 }
 
 func (cs3u CustomS3Uploader) Do(sampleToUpload *s3.PutObjectInput) error {
-	_, err := cs3u.Uploader.Upload(context.TODO(), sampleToUpload)
+	_, err := cs3u.Uploader.Upload(context.TODO(), sampleToUpload) //nolint:staticcheck // SA1019: feature/s3/manager is deprecated; successor feature/s3/transfermanager is still v0.x (unstable API)
 	return err
 }
 
