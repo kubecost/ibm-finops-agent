@@ -505,14 +505,16 @@ type CustomS3UploadService interface {
 	Do(sampleToUpload *s3.PutObjectInput) error
 }
 
+// CustomS3Uploader wraps the S3 transfer manager. feature/s3/manager is deprecated in favor of
+// feature/s3/transfermanager, which is still v0.x with an unstable API, so staticcheck's SA1019
+// is suppressed at each use site until the successor reaches v1.
 type CustomS3Uploader struct {
-	Uploader *manager.Uploader //nolint:staticcheck // SA1019: feature/s3/manager is deprecated; successor feature/s3/transfermanager is still v0.x (unstable API)
+	Uploader *manager.Uploader //nolint:staticcheck
 }
 
 func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
+	cfg, err := config.LoadDefaultConfig(context.Background(),
 		config.WithRegion(s3Region),
-		// SDK v1 MaxRetries of 3 counted retries only; v2 counts the initial attempt too
 		config.WithRetryMaxAttempts(4),
 	)
 	if err != nil {
@@ -522,7 +524,7 @@ func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 	svc := s3.NewFromConfig(cfg)
 
 	return &CustomS3Uploader{
-		Uploader: manager.NewUploader(svc), //nolint:staticcheck // SA1019: feature/s3/manager is deprecated; successor feature/s3/transfermanager is still v0.x (unstable API)
+		Uploader: manager.NewUploader(svc), //nolint:staticcheck
 	}, nil
 }
 
@@ -555,7 +557,8 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 }
 
 func (cs3u CustomS3Uploader) Do(sampleToUpload *s3.PutObjectInput) error {
-	_, err := cs3u.Uploader.Upload(context.TODO(), sampleToUpload) //nolint:staticcheck // SA1019: feature/s3/manager is deprecated; successor feature/s3/transfermanager is still v0.x (unstable API)
+	// StorageService.Upload takes no context, so there is none to inherit here.
+	_, err := cs3u.Uploader.Upload(context.TODO(), sampleToUpload) //nolint:staticcheck
 	return err
 }
 
