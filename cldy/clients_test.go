@@ -664,8 +664,11 @@ var _ = Describe("ApptioClient redirect policy", func() {
 		payload := []byte("cluster sample contents")
 		request, err := http.NewRequest(http.MethodPut, upload.URL+"/presigned", bytes.NewReader(payload))
 		Expect(err).ToNot(HaveOccurred())
+		var replayed []*recordingBody
 		request.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(payload)), nil
+			body := &recordingBody{Reader: strings.NewReader(string(payload))}
+			replayed = append(replayed, body)
+			return body, nil
 		}
 
 		client := NewApptioClient(ApptioConfig{Timeout: 5 * time.Second})
@@ -676,6 +679,9 @@ var _ = Describe("ApptioClient redirect policy", func() {
 		// the 3xx is handed back rather than followed, so the upload fails closed and is retried
 		// against the original host instead of being recorded as a success
 		Expect(resp.StatusCode).To(Equal(http.StatusTemporaryRedirect))
+
+		Expect(replayed).To(HaveLen(1), "net/http opens one replay body for the redirect hop")
+		Expect(replayed[0].closed).To(BeTrue(), "the body opened for the refused redirect hop must be closed")
 
 		redirectTarget.Lock()
 		defer redirectTarget.Unlock()

@@ -25,6 +25,8 @@ var ErrDiskSpaceExceeded = errors.New("upload directory cleaned and disk issue p
 
 var ErrNoStorageServices = errors.New("no cloudability upload services are available, retaining sample")
 
+const defaultRecoveryPeriod = 24 * time.Hour
+
 type Uploader interface {
 	AddSample(sample string)
 	RemoveSample(sample string)
@@ -47,10 +49,13 @@ type CldyUploader struct {
 	RecoveredSamples int
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
-	lastUploadSize   uint64
+	lastPayloadSize  uint64
 }
 
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
+	if config.RecoveryPeriod <= 0 {
+		config.RecoveryPeriod = defaultRecoveryPeriod
+	}
 	uploadPathDir := config.ScratchDir + "/" + uploadPath
 	err := createIfNotExists(uploadPathDir)
 	if err != nil {
@@ -475,6 +480,12 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 		return "", err
 	}
 
+	if info, statErr := tw.Stat(); statErr != nil {
+		log.Warnf("unable to size payload %s for the disk space check: %s", path, statErr)
+	} else {
+		cu.lastPayloadSize = uint64(info.Size())
+	}
+
 	err = cu.removeSamples(files)
 	if err != nil {
 		return "", err
@@ -533,14 +544,7 @@ func (cu *CldyUploader) UploadData(path string) error {
 		}
 	}
 
-	// retain size of file before removal for disk calculation purposes
-	f, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	cu.lastUploadSize = uint64(f.Size())
-
-	// uploads data, then removes tar from path if successful
+	// every service accepted the tar, so it has been shipped and can go
 	return os.Remove(path)
 }
 
@@ -548,15 +552,15 @@ func (cu *CldyUploader) UploadData(path string) error {
 // found to the tar writer; the purpose for accepting multiple writers is to allow
 // for multiple outputs
 func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr error) {
-	// create a buffer of double the last upload size
-	if !IsAvailableDiskSpace(cu.lastUploadSize*2, cu.UploadPathDir) {
+	// budget double the size of the last payload built
+	if !IsAvailableDiskSpace(cu.lastPayloadSize*2, cu.UploadPathDir) {
 		err := cu.ClearOldUploadSamples()
 		if err != nil {
 			return err
 		}
 
 		// Omit current sample if cleaning upload directory does not work
-		if !IsAvailableDiskSpace(cu.lastUploadSize*2, cu.UploadPathDir) {
+		if !IsAvailableDiskSpace(cu.lastPayloadSize*2, cu.UploadPathDir) {
 			return ErrDiskSpaceExceeded
 		}
 	}

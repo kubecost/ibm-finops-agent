@@ -225,7 +225,12 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 		// also be recorded as a successful upload, and the local tar deleted. Handing the 3xx
 		// back to the caller instead fails closed: it is not a 200, so the upload is retried
 		// against the original host.
-		CheckRedirect: func(*http.Request, []*http.Request) error {
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			if req.Body != nil {
+				if err := req.Body.Close(); err != nil {
+					log.Debugf("error closing the body of a refused redirect: %s", err)
+				}
+			}
 			return http.ErrUseLastResponse
 		},
 	}

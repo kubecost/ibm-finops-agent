@@ -85,6 +85,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	// Set defaults
 	viper.SetDefault("HTTPS_CLIENT_TIMEOUT", 60) // Note for readme: In seconds
 	viper.SetDefault("UPLOAD_RETRY_COUNT", 5)
+	viper.SetDefault("UPLOAD_RECOVERY_PERIOD", defaultRecoveryPeriod)
 	viper.SetDefault("OUTBOUND_PROXY_INSECURE", false)
 	viper.SetDefault("UPLOAD_REGION", "us")
 	viper.SetDefault("SCRATCH_DIR", "/opt/finops-agent")
@@ -148,6 +149,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
 		UploadFrequency:                 time.Minute * time.Duration(UPLOAD_FREQUENCY),
 		ScratchDir:                      viper.GetString("SCRATCH_DIR"),
+		RecoveryPeriod:                  viper.GetDuration("UPLOAD_RECOVERY_PERIOD"),
 		EmitAsJson:                      viper.GetBool("EMIT_AS_JSON"),
 		ParseMetricData:                 viper.GetBool("PARSE_METRIC_DATA"),
 		EmissionInterval:                viper.GetDuration("EMISSION_INTERVAL"),
