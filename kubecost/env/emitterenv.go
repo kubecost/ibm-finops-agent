@@ -21,8 +21,15 @@ const (
 	KubeModelExportIntervalEnvVar         = "KUBEMODEL_EXPORT_INTERVAL"
 	HeartbeatExportIntervalEnvVar         = "HEARTBEAT_EXPORT_INTERVAL"
 	DiagnosticsExportIntervalEnvVar       = "DIAGNOSTICS_EXPORT_INTERVAL"
+	HeartbeatStorageRetentionEnvVar       = "HEARTBEAT_STORAGE_RETENTION"
+	DiagnosticsStorageRetentionEnvVar     = "DIAGNOSTICS_STORAGE_RETENTION"
+	StorageCleanupIntervalEnvVar          = "STORAGE_CLEANUP_INTERVAL"
 	StreamingExportEnabledEnvVar          = "STREAMING_EXPORT_ENABLED"
 	StreamingExportCompressionLevelEnvVar = "STREAMING_EXPORT_COMPRESSION_LEVEL"
+
+	DefaultHeartbeatStorageRetention   = 7 * 24 * time.Hour
+	DefaultDiagnosticsStorageRetention = 7 * 24 * time.Hour
+	DefaultStorageCleanupInterval      = 1 * time.Hour
 )
 
 // IsMinuteMetricsEnabled returns true if the 10m resolution emitter for kubecost
@@ -69,6 +76,36 @@ func GetDiagnosticsExportInterval() time.Duration {
 // IsDiagnosticsExportEnabled returns true if the diagnostics export is enabled.
 func IsDiagnosticsExportEnabled() bool {
 	return coreenv.GetBool(DiagnosticsExportEnabledEnvVar, true)
+}
+
+// GetHeartbeatStorageRetention returns how long heartbeat objects are retained
+// in federated storage before the agent deletes them. A value of 0 disables cleanup.
+func GetHeartbeatStorageRetention() time.Duration {
+	return getStorageRetention(HeartbeatStorageRetentionEnvVar, DefaultHeartbeatStorageRetention)
+}
+
+// GetDiagnosticsStorageRetention returns how long diagnostics objects are retained
+// in federated storage before the agent deletes them. A value of 0 disables cleanup.
+func GetDiagnosticsStorageRetention() time.Duration {
+	return getStorageRetention(DiagnosticsStorageRetentionEnvVar, DefaultDiagnosticsStorageRetention)
+}
+
+// GetStorageCleanupInterval returns how often the agent scans federated storage
+// for expired heartbeat and diagnostics objects.
+func GetStorageCleanupInterval() time.Duration {
+	return coreenv.GetDuration(StorageCleanupIntervalEnvVar, DefaultStorageCleanupInterval)
+}
+
+func getStorageRetention(envVar string, defaultValue time.Duration) time.Duration {
+	raw := coreenv.Get(envVar, "")
+	if raw == "" {
+		return defaultValue
+	}
+	// Allow a bare "0" to disable cleanup; duration parsers require a unit.
+	if raw == "0" {
+		return 0
+	}
+	return coreenv.GetDuration(envVar, defaultValue)
 }
 
 // IsStreamingExportEnabled returns true if the bingen pipeline exporters should use a streaming io.Writer
