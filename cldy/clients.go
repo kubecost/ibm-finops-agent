@@ -20,10 +20,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/aws/aws-sdk-go/aws"                  //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
-	"github.com/aws/aws-sdk-go/aws/session"          //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
-	"github.com/aws/aws-sdk-go/service/s3"           //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
-	"github.com/aws/aws-sdk-go/service/s3/s3manager" //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
@@ -503,26 +502,29 @@ func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageSer
 }
 
 type CustomS3UploadService interface {
-	Do(sampleToUpload *s3manager.UploadInput) error
+	Do(sampleToUpload *s3.PutObjectInput) error
 }
 
+// CustomS3Uploader wraps the S3 transfer manager. feature/s3/manager is deprecated in favor of
+// feature/s3/transfermanager, which is still v0.x with an unstable API, so staticcheck's SA1019
+// is suppressed at each use site until the successor reaches v1.
 type CustomS3Uploader struct {
-	Uploader *s3manager.Uploader
+	Uploader *manager.Uploader //nolint:staticcheck
 }
 
 func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
-	sess, err := session.NewSession(&aws.Config{
-		Region:     new(s3Region),
-		MaxRetries: new(3)},
+	cfg, err := config.LoadDefaultConfig(context.Background(),
+		config.WithRegion(s3Region),
+		config.WithRetryMaxAttempts(4),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("could not establish AWS Session, "+
+		return nil, fmt.Errorf("could not load AWS configuration, "+
 			"ensure Cloudability AWS environment variables are set correctly: %s", err)
 	}
-	svc := s3.New(sess)
+	svc := s3.NewFromConfig(cfg)
 
 	return &CustomS3Uploader{
-		Uploader: s3manager.NewUploaderWithClient(svc),
+		Uploader: manager.NewUploader(svc), //nolint:staticcheck
 	}, nil
 }
 
@@ -538,7 +540,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 		return err
 	}
 
-	sampleToUpload := &s3manager.UploadInput{
+	sampleToUpload := &s3.PutObjectInput{
 		Bucket: new(cs3c.S3Bucket),
 		Key:    new(key),
 		Body:   fileReader,
@@ -554,8 +556,9 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 	return nil
 }
 
-func (cs3u CustomS3Uploader) Do(sampleToUpload *s3manager.UploadInput) error {
-	_, err := cs3u.Uploader.Upload(sampleToUpload)
+func (cs3u CustomS3Uploader) Do(sampleToUpload *s3.PutObjectInput) error {
+	// StorageService.Upload takes no context, so there is none to inherit here.
+	_, err := cs3u.Uploader.Upload(context.TODO(), sampleToUpload) //nolint:staticcheck
 	return err
 }
 
