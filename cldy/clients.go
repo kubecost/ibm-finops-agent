@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -324,7 +323,7 @@ func (s *ApptioServiceImpl) testUpload() error {
 	request.Header.Set(contentMD5, testUpload.UploadHash)
 
 	// Allow multiple attempts for test upload
-	for i := 1; i < 4; i++ {
+	for i := 1; i <= maxAttempts; i++ {
 		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
 		// Should return 403 with improper url
 		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
@@ -337,7 +336,9 @@ func (s *ApptioServiceImpl) testUpload() error {
 		if resp != nil {
 			log.Warnf("Cloudability test upload %d failed with status code: %s", i, resp.Status)
 		}
-		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
+		if i < maxAttempts {
+			time.Sleep(retryBackoff(i))
+		}
 	}
 
 	return fmt.Errorf("bucket upload exceeded max amount of failures")
@@ -409,7 +410,18 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) er
 }
 
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
-	for i := 1; i < 4; i++ {
+	for i := 1; i <= maxAttempts; i++ {
+		// http.Client.Do always closes the request body, so every retry needs a fresh one.
+		if i > 1 && req.Body != nil && req.Body != http.NoBody {
+			if req.GetBody == nil {
+				return nil, fmt.Errorf("cannot retry request with non-rewindable body: %s", requestDescription)
+			}
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, fmt.Errorf("failed to reset request body for retry: %w", err)
+			}
+			req.Body = body
+		}
 		log.Debugf("Attempt %d: %s", i, requestDescription)
 		resp, err := ac.client.Do(req)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
@@ -420,8 +432,12 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		}
 		if resp != nil {
 			log.Warnf("Request failed with status code: %s", resp.Status)
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
 		}
-		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
+		if i < maxAttempts {
+			time.Sleep(retryBackoff(i))
+		}
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
 }
