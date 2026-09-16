@@ -148,17 +148,9 @@ func buildStorageServices(config UploaderConfig) []StorageService {
 	return storageServices
 }
 
-// ensureStorageServices returns the uploader's storage services, re-attempting construction
-// when there are none. A retry is only allowed once a full UploadFrequency has elapsed since
-// the end of the previous attempt, so a persistently broken configuration cannot hammer the
-// upload endpoints.
-//
-// Note that this is a floor on the gap between attempts, not a guarantee of one attempt per
-// cycle. The cooldown is stamped when the build finishes (see below), so a build lasting d
-// leaves only UploadFrequency-d on the clock at the next tick and that tick's retry is
-// skipped. A slow failing build therefore recovers in at least two cycles rather than one.
-// That is the deliberate trade: the alternative, stamping at the start, makes the cooldown
-// already expired by the time a slow build returns and so gates nothing at all.
+// ensureStorageServices returns the storage services, rebuilding them when there are none. A
+// rebuild is allowed once UploadFrequency has passed since the previous build finished, so a
+// broken configuration cannot hammer the upload endpoints.
 func (cu *CldyUploader) ensureStorageServices() []StorageService {
 	cu.servicesMutex.RLock()
 	if len(cu.StorageServices) > 0 {
@@ -182,11 +174,8 @@ func (cu *CldyUploader) ensureStorageServices() []StorageService {
 		log.Infof("Re-attempting creation of cloudability upload services")
 	}
 	cu.StorageServices = buildStorageServices(cu.config)
-	// stamp the cooldown from when the attempt finished, not when it started. A build can
-	// easily outlast UploadFrequency (each request is retried three times against a 60s
-	// client timeout, and a full connectivity test is login + presign + probe), and a
-	// start-stamped cooldown has already elapsed by the time the build returns, making the
-	// next attempt immediately eligible and defeating the gate exactly when it matters.
+	// stamp when the build finished: a build can outlast UploadFrequency, and a start-stamped
+	// cooldown would already have expired by the time it returns
 	cu.lastServiceBuild = time.Now()
 	if retry && len(cu.StorageServices) > 0 {
 		log.Infof("Successfully created %d cloudability upload service(s) on retry", len(cu.StorageServices))
@@ -360,20 +349,9 @@ func (cu *CldyUploader) PendingUploads() []string {
 	return cu.uploadSet.contents()
 }
 
-// drainBudgetDivisor is the fraction of an upload cycle a single drain may spend. The drain
-// has to leave room in the tick for the rest of the loop: ConstructPayload, and a storage
-// service rebuild, which is minutes in the worst case. It also has to absorb the one upload
-// that is still in flight when the budget runs out, since that upload cannot be interrupted.
-//
-// That in-flight upload is the reason the budget bounds the number of entries, not the length
-// of the pass. One entry is a whole Upload: for the Apptio path that is up to three
-// doWithRetry chains (login, getUploadURL, sendData), each three attempts against a 60s client
-// timeout plus 2s+4s of backoff, so ~558s worst case - and if the services have to be rebuilt
-// first, that rebuild is another ~558s inside the same entry. The real bound is therefore
-// "budget + one entry", which is O(1) entries instead of O(len(queue)). It does not guarantee
-// the pass fits inside the tick; that only holds today because one entry happens to be shorter
-// than a 600s cycle. Raising HTTPS_CLIENT_TIMEOUT breaks that coincidence, and bounding a pass
-// properly would need a context deadline plumbed through the client.
+// drainBudgetDivisor is the fraction of an upload cycle a single drain may spend, leaving room
+// in the tick for ConstructPayload and a possible storage service rebuild. The budget is checked
+// between entries, not during one, so a pass costs up to budget + one in-flight upload.
 const drainBudgetDivisor = 2
 
 // drainBudget is the wall clock a single DrainUploads pass may spend. A non-positive
@@ -385,27 +363,17 @@ func (cu *CldyUploader) drainBudget() time.Duration {
 	return cu.config.UploadFrequency / drainBudgetDivisor
 }
 
-// destinationUnavailable reports whether err means the upload destination as a whole is
-// unusable, so every other tar in the same batch would fail identically and attempting them
-// only burns the cycle. Only errors that are provably not about one particular tar qualify:
-// a per-tar failure - a corrupt file, a vanished file, a filename the destination cannot
-// parse - must never abandon the batch, or one bad entry starves everything behind it.
+// destinationUnavailable reports whether err means the destination as a whole is unusable, so
+// the rest of the batch would fail identically. Per-tar failures must never qualify, or one bad
+// entry starves everything behind it.
 func destinationUnavailable(err error) bool {
 	return errors.Is(err, ErrNoStorageServices)
 }
 
-// DrainUploads attempts to ship the queued tars, removing each one that is shipped (or that
-// no longer exists) from the queue. Tars whose upload failed, and tars the pass never reached,
-// stay queued for the next cycle.
-//
-// The pass starts no new entry once drainBudget is spent, and gives up on the rest of the
-// batch as soon as the destination itself is known to be unavailable. That bounds the pass at
-// budget + one in-flight entry - see drainBudgetDivisor. Without those bounds the pass costs one full
-// upload attempt per queued tar; during an outage each of those is the client timeout plus its
-// retries, so a handful of retained tars is enough to outlast the tick. Overrunning the tick
-// is not merely slow: uploadLoop's ticker has a one-slot buffer, so the ticks missed during an
-// overrun are dropped, ConstructPayload stops running on schedule, and the backlog that builds
-// makes the next pass longer still.
+// DrainUploads ships the queued tars, dropping each one that is shipped or no longer exists from
+// the queue; failed and unreached tars stay queued. The pass starts no new entry once drainBudget
+// is spent and stops once the destination is known to be unavailable: unbounded, a pass costs one
+// full upload attempt per queued tar, and overrunning the tick drops ticks and stalls the loop.
 func (cu *CldyUploader) DrainUploads() error {
 	return cu.uploadSet.operateAndRemove(cu.UploadData, cu.drainBudget(), destinationUnavailable)
 }

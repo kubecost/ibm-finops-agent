@@ -27,10 +27,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
-// frontdoorBaseURL and cloudabilityBaseURL are the upload endpoint templates, formatted with
-// the region suffix by formatFrontdoorAndCloudabilityURLs. They are vars rather than consts so
-// that the test suite can redirect every upload path at a local server: a unit test must not
-// depend on outbound network access, and an unreachable host now costs seconds of retry backoff.
+// Vars rather than consts so the test suite can point every upload path at a local server.
 var frontdoorBaseURL = "https://frontdoor%s.apptio.com"
 var cloudabilityBaseURL = "https://api%s.cloudability.com"
 
@@ -38,9 +35,15 @@ const contentTypeHeader = "Content-Type"
 const contentMD5 = "Content-MD5"
 const defaultTimeout = time.Second * 10
 const defaultRetries = 3
-
-// testUploadAttempts is the number of times testUpload probes the presigned URL before giving up
 const testUploadAttempts = 3
+
+// retryBackoff is the wait after a failed attempt: 2s, 4s, ... The test suite overrides it.
+var retryBackoff = exponentialBackoff
+
+func exponentialBackoff(attempt int) time.Duration {
+	return time.Duration(1<<attempt) * time.Second
+}
+
 const proxyAuthHeader = "Proxy-Authorization"
 
 const frontDoorLoginDescription = "performing login request to FrontDoor using KeyAccess and KeySecret"
@@ -55,17 +58,9 @@ type StorageService interface {
 	Upload(payload UploadPayload) error
 }
 
-// ClientService performs an HTTP request on behalf of one of the upload paths.
-//
-// Ownership contract, which every implementation - including test doubles - has to honour:
-//   - The implementation owns r.Body and must close it exactly once, on success and on failure
-//     alike. Callers hand over live descriptors: uploadPayloadToPresignedURL passes an *os.File
-//     as the request body and deliberately stops closing it the moment Do is called, so an
-//     implementation that does not close leaks a file descriptor per upload. net/http's Transport
-//     already does this, so clients built on it get it for free; fakes must do it explicitly.
-//     Implementations that retry must rebuild the body from r.GetBody rather than reuse the
-//     consumed one, since each attempt closes what it was handed.
-//   - The caller owns the returned response and closes resp.Body.
+// ClientService performs an HTTP request for one of the upload paths. The implementation owns
+// r.Body and closes it (net/http already does; fakes must too), rebuilding it from r.GetBody on
+// retry. The caller owns and closes the returned response body.
 type ClientService interface {
 	Do(r *http.Request, requestDescription string) (*http.Response, error)
 }
@@ -90,19 +85,6 @@ type ApptioServiceImpl struct {
 	CloudabilityURL  string
 	validTil         time.Time
 	CldyUploadClient ClientService
-	// sleepFunc allows tests to observe retry backoff without incurring real delays.
-	// When nil, time.Sleep is used.
-	sleepFunc func(d time.Duration)
-}
-
-// sleepOrDefault waits for d using the injected sleepFunc when one is set, and time.Sleep
-// otherwise. Tests inject a recorder so that retry backoff is asserted without real delays.
-func sleepOrDefault(sleepFunc func(d time.Duration), d time.Duration) {
-	if sleepFunc != nil {
-		sleepFunc(d)
-		return
-	}
-	time.Sleep(d)
 }
 
 // drainAndClose releases an HTTP response body so that the underlying connection is returned
@@ -168,14 +150,6 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 type ApptioClient struct {
 	client     *http.Client
 	maxRetries int
-	// sleepFunc allows tests to observe retry backoff without incurring real delays.
-	// When nil, time.Sleep is used.
-	sleepFunc func(d time.Duration)
-}
-
-// sleep waits for the given duration, using the injected sleepFunc when one is set
-func (ac ApptioClient) sleep(d time.Duration) {
-	sleepOrDefault(ac.sleepFunc, d)
 }
 
 // NewApptioClient creates a client with support for various customer configurations
@@ -217,14 +191,9 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 	httpClient := http.Client{
 		Timeout:   config.Timeout,
 		Transport: netTransport,
-		// Never follow a redirect. This client carries the API key to Frontdoor and PUTs the
-		// whole sample tar to a presigned S3 URL, and since those requests set GetBody so the
-		// retry loop can replay them, net/http would otherwise happily replay the body to
-		// whatever host a 307 or 308 names - including over plain http, since the stdlib does
-		// not block a scheme downgrade on redirect. A redirected upload that answered 200 would
-		// also be recorded as a successful upload, and the local tar deleted. Handing the 3xx
-		// back to the caller instead fails closed: it is not a 200, so the upload is retried
-		// against the original host.
+		// Never follow redirects: requests carry the API key and the whole sample tar with GetBody
+		// set, so net/http would replay them to whatever host a 307/308 named. Returning the 3xx
+		// fails closed and the upload is retried against the original host.
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -389,9 +358,8 @@ func (s *ApptioServiceImpl) testUpload() error {
 
 	// Allow multiple attempts for test upload
 	return uploadProbe{
-		client:    s.CldyUploadClient.(ApptioClient).client,
-		request:   request,
-		sleepFunc: s.sleepFunc,
+		client:  s.CldyUploadClient.(ApptioClient).client,
+		request: request,
 		requestErrFormat: "Cloudability test HTTPS request failed with error: %s. Please ensure " +
 			"agent is configured to have access to external resources",
 		statusFormat: "Cloudability test upload %d failed with status code: %s",
@@ -399,25 +367,15 @@ func (s *ApptioServiceImpl) testUpload() error {
 	}.run()
 }
 
-// uploadProbe is the connectivity check both upload paths run at start-up: it sends the same
-// request to a deliberately broken presigned URL a few times and treats the 403 that a live
-// bucket returns for a malformed key as proof that the agent can reach the destination.
-//
-// It exists so that the Cloudability and metrics-collector paths cannot drift apart again - they
-// were line-for-line copies, and a backoff fix applied to one of them left the other sleeping
-// nanoseconds and leaking a connection per attempt. Only the operator-facing wording differs
-// between the two, so that is all either call site supplies.
+// uploadProbe is the start-up connectivity check shared by both upload paths: it sends a request
+// to a deliberately broken presigned URL and treats the 403 a live bucket returns as proof the
+// destination is reachable. Only the operator-facing wording differs per path.
 type uploadProbe struct {
-	client  *http.Client
-	request *http.Request
-	// sleepFunc lets tests observe the backoff without incurring real delays; nil means time.Sleep
-	sleepFunc func(d time.Duration)
-	// requestErrFormat logs a transport-level failure and takes the error string
-	requestErrFormat string
-	// statusFormat logs an unexpected response and takes the attempt number and the status
-	statusFormat string
-	// exhaustedErr is returned once every attempt has failed
-	exhaustedErr string
+	client           *http.Client
+	request          *http.Request
+	requestErrFormat string // transport failure; takes the error string
+	statusFormat     string // unexpected response; takes the attempt number and status
+	exhaustedErr     string // returned once every attempt has failed
 }
 
 func (p uploadProbe) run() error {
@@ -428,7 +386,6 @@ func (p uploadProbe) run() error {
 		}
 		if resp != nil {
 			statusCode, status := resp.StatusCode, resp.Status
-			// close the body on every attempt, otherwise connections leak across retries
 			drainAndClose(resp.Body)
 			// Should return 403 with improper url
 			if err == nil && statusCode == http.StatusForbidden {
@@ -436,10 +393,8 @@ func (p uploadProbe) run() error {
 			}
 			log.Warnf(p.statusFormat, i, status)
 		}
-		// exponential backoff between attempts: 2s, 4s, ... a bare time.Duration is nanoseconds,
-		// so the delay has to be scaled by time.Second. No point sleeping after the final attempt.
 		if i < testUploadAttempts {
-			sleepOrDefault(p.sleepFunc, time.Duration(1<<i)*time.Second)
+			time.Sleep(retryBackoff(i))
 		}
 	}
 
@@ -517,23 +472,17 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		attempts = defaultRetries
 	}
 
-	// Retrying means handing the *same* *http.Request to the client again, and the transport has
-	// already consumed and closed req.Body by then. A request whose body cannot be rebuilt must
-	// therefore never be retried: attempt 2 would put an empty (or already-closed) body on the
-	// wire, which for a presigned S3 PUT means silently storing a truncated object. Failing after
-	// a single attempt is the safe choice - a caller that wants retries opts in by setting
-	// req.GetBody (see login, getUploadURL and uploadPayloadToPresignedURL).
+	// The transport consumes and closes req.Body on every attempt. A body that cannot be rebuilt
+	// from GetBody is attempted once: retrying it would put an empty body on the wire, which for a
+	// presigned S3 PUT means storing a truncated object.
 	replayable := req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
 	if !replayable && attempts > 1 {
-		log.Warnf("%s: request body cannot be replayed because req.GetBody is nil, so this "+
-			"request will be attempted once instead of %d times. Set req.GetBody on requests "+
-			"that carry a body to make them retryable.", requestDescription, attempts)
+		log.Warnf("%s: request body cannot be replayed (GetBody is nil), attempting once instead of %d times",
+			requestDescription, attempts)
 		attempts = 1
 	}
 
 	for i := 1; i <= attempts; i++ {
-		// Rebuild the body before every retry. GetBody has to return a fresh, unread reader:
-		// the transport owns and closes whatever body it was handed on the previous attempt.
 		if i > 1 && req.Body != nil && req.GetBody != nil {
 			body, err := req.GetBody()
 			if err != nil {
@@ -544,7 +493,6 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		}
 		log.Debugf("Attempt %d: %s", i, requestDescription)
 		resp, err := ac.client.Do(req)
-		// the caller owns a successful response and is responsible for closing its body
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
 			return resp, nil
 		}
@@ -553,13 +501,10 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		}
 		if resp != nil {
 			log.Warnf("Request failed with status code: %s", resp.Status)
-			// close the failed response, otherwise connections leak across retries
 			drainAndClose(resp.Body)
 		}
-		// exponential backoff between attempts: 2s, 4s, ... a bare time.Duration is nanoseconds,
-		// so the delay has to be scaled by time.Second. No point sleeping after the final attempt.
 		if i < attempts {
-			ac.sleep(time.Duration(1<<i) * time.Second)
+			time.Sleep(retryBackoff(i))
 		}
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries")

@@ -10,7 +10,6 @@ import (
 	"path"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -47,9 +46,6 @@ type MetricsCollectorServiceImpl struct {
 	BaseURL          string
 	UserAgent        string
 	CldyUploadClient ClientService
-	// sleepFunc allows tests to observe retry backoff without incurring real delays.
-	// When nil, time.Sleep is used.
-	sleepFunc func(d time.Duration)
 }
 
 type metricsCollectorUploadResponse struct {
@@ -179,11 +175,9 @@ func (s *MetricsCollectorServiceImpl) testUpload() error {
 	request.Header.Set(contentTypeHeader, "multipart/form-data")
 	request.Header.Set(contentMD5, testUpload.UploadHash)
 
-	// the shared probe owns the retry loop, the seconds-scale backoff and closing every response
 	return uploadProbe{
 		client:           s.CldyUploadClient.(ApptioClient).client,
 		request:          request,
-		sleepFunc:        s.sleepFunc,
 		requestErrFormat: "Cloudability metrics-collector test HTTPS request failed with error: %s",
 		statusFormat:     "Cloudability metrics-collector test upload %d failed with status code: %s",
 		exhaustedErr:     "metrics-collector test upload exceeded max amount of failures",
@@ -229,9 +223,8 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 		return fmt.Errorf("error in opening file to upload: %w", err)
 	}
 
-	// The HTTP transport closes whatever body it is handed, so ownership of the descriptor moves
-	// to the request the moment client.Do is called. Until then this function owns it and has to
-	// close it on every early return, otherwise the descriptor leaks once per failed upload.
+	// The transport closes whatever body it is handed, so the descriptor is ours to close only
+	// until client.Do is called.
 	fileOwnedHere := true
 	defer func() {
 		if fileOwnedHere {
@@ -251,41 +244,18 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 		return err
 	}
 
-	// Make the body replayable. doWithRetry re-issues this same *http.Request, and the transport
-	// consumes and closes the *os.File on the first attempt; without GetBody every later attempt
-	// would put a zero-byte body on the wire against a live presigned S3 URL. GetBody must hand
-	// back a genuinely fresh descriptor (not a re-seek of the closed one) for that reason, so it
-	// reopens the same path by name.
-	//
-	// The invariant is therefore "every attempt sends the file that is on disk at that moment",
-	// NOT "ContentLength always matches the body": ContentLength is measured once, below, from the
-	// descriptor opened above and is never recomputed. A file that changed size between attempts
-	// would be sent against the original declared length - the transport rejects a body longer
-	// than ContentLength outright, and a shorter one is sent as an under-length request. That is
-	// acceptable because a sample tar is written once and then only read or deleted, never
-	// rewritten in place, and because the mismatch fails closed rather than silently: S3 does not
-	// store an object whose declared length is unmet, and the Content-MD5 set below would not
-	// match the altered bytes either. Recomputing the size per attempt is therefore not worth the
-	// extra stat-per-retry machinery.
-	//
-	// Deletion between attempts is likewise not guarded here, deliberately. The only in-process
-	// deleter of upload tars, ClearOldUploadSamples, runs via ConstructPayload on the same upload
-	// goroutine as this retry loop and strictly before DrainUploads in the same tick, so it can
-	// never fire between attempts of one upload. If the file vanishes anyway (deleted from
-	// outside the agent), the reopen fails, doWithRetry aborts with a rewind error, and the next
-	// cycle's fs.ErrNotExist check in UploadData drops the queue entry - one noisy log line, then
-	// self-healed.
+	// doWithRetry re-issues this request and the transport closes the *os.File after each attempt,
+	// so GetBody reopens the file by path. ContentLength is measured once: a tar is never rewritten
+	// in place, and a mismatch fails closed (S3 rejects it, and Content-MD5 would not match).
 	request.GetBody = func() (io.ReadCloser, error) {
 		return os.Open(payload.FilePath)
 	}
 
 	request.Header.Set(contentTypeHeader, "multipart/form-data")
 	request.Header.Set(contentMD5, payload.UploadHash)
-	// measured once, from the descriptor opened above; see the GetBody note about retries
 	request.ContentLength = fi.Size()
 
-	// From here on the request (and therefore the transport) owns the descriptor: closing it here
-	// as well would be a double close.
+	// the request owns the descriptor from here
 	fileOwnedHere = false
 	resp, err := client.Do(request, s3UploadDescription)
 	if err != nil {

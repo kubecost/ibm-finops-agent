@@ -19,17 +19,13 @@ func TestResourcesPackage(t *testing.T) {
 	RunSpecs(t, "resources Package Suite")
 }
 
-// presignedUploadPath is the path the fake Cloudability API hands back as the presigned
-// upload location, and testUploadProbeSuffix is what testUpload appends to deliberately
-// break it before probing for the expected 403.
+// presignedUploadPath is the presigned location the fake Cloudability API hands back, and
+// testUploadProbeSuffix is what testUpload appends to break it before probing for a 403.
 const presignedUploadPath = "/presigned-upload"
 const testUploadProbeSuffix = "testUpload"
 
-// startFakeCloudability stands up a local stand-in for the Frontdoor and Cloudability upload
-// endpoints. Specs that construct a real ApptioService would otherwise resolve and dial
-// frontdoor.apptio.com; in a sandboxed or offline environment every one of those requests
-// fails and burns the full exponential retry backoff (2s + 4s per request), which is both slow
-// and a dependency a unit test should not have.
+// startFakeCloudability stands in for the Frontdoor and Cloudability upload endpoints, so specs
+// that construct a real ApptioService neither dial frontdoor.apptio.com nor burn retry backoff.
 func startFakeCloudability() *httptest.Server {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +43,6 @@ func startFakeCloudability() *httptest.Server {
 				},
 			})
 		case r.URL.Path == presignedUploadPath+testUploadProbeSuffix:
-			// the connectivity probe expects a 403 back from the intentionally broken URL
 			w.WriteHeader(http.StatusForbidden)
 		default:
 			w.WriteHeader(http.StatusOK)
@@ -57,12 +52,14 @@ func startFakeCloudability() *httptest.Server {
 }
 
 var _ = BeforeSuite(func() {
+	// retries in the suite must not sleep for real
+	retryBackoff = func(int) time.Duration { return 0 }
+
 	server := startFakeCloudability()
 	DeferCleanup(server.Close)
 
 	originalFrontdoor, originalCloudability := frontdoorBaseURL, cloudabilityBaseURL
-	// "%.0s" swallows the region suffix so that every region resolves to the local server
-	// rather than producing an unroutable host such as "http://127.0.0.1:1234-eu".
+	// "%.0s" swallows the region suffix so every region resolves to the local server
 	frontdoorBaseURL = strings.ReplaceAll(server.URL, "%", "%%") + "%.0s"
 	cloudabilityBaseURL = frontdoorBaseURL
 	DeferCleanup(func() {

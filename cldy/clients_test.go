@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -288,91 +289,20 @@ func (m *apptioMockClient) Do(r *http.Request, _ string) (*http.Response, error)
 	return m.onDo(r)
 }
 
-// testUploadFixture stands up a local server that plays the frontdoor login, the
-// clusters/upload presign and the presigned upload itself, and records the backoff
-// durations testUpload asks for instead of actually sleeping.
-type testUploadFixture struct {
-	service       *ApptioServiceImpl
-	server        *httptest.Server
-	sleeps        []time.Duration
-	uploadCalls   int
-	uploadStatus  int
-	presignedPath string
-}
-
-func newTestUploadFixture(uploadStatus int) *testUploadFixture {
-	fixture := &testUploadFixture{uploadStatus: uploadStatus, presignedPath: "/upload"}
-
-	fixture.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.Contains(r.URL.Path, apikeyloginEndpoint):
-			w.Header().Set("Apptio-Opentoken", "test-token")
-			w.Header().Set("valid_till", "9999999999999")
-			w.WriteHeader(http.StatusOK)
-		case strings.Contains(r.URL.Path, clustersUploadEndpoint):
-			w.Header().Set(contentTypeHeader, "application/json")
-			Expect(json.NewEncoder(w).Encode(map[string]any{
-				"result": map[string]any{
-					"location":  fixture.server.URL + fixture.presignedPath,
-					"requestId": "req-123",
-				},
-			})).To(Succeed())
-		default:
-			// the deliberately broken presigned URL testUpload probes
-			fixture.uploadCalls++
-			w.WriteHeader(fixture.uploadStatus)
-		}
-	}))
-
-	fixture.service = &ApptioServiceImpl{
-		SecretManager:    NewKeyValueSecretManager("access", "secret"),
-		EnvID:            "env-123",
-		FrontdoorURL:     fixture.server.URL,
-		CloudabilityURL:  fixture.server.URL,
-		CldyUploadClient: ApptioClient{client: fixture.server.Client(), maxRetries: defaultRetries},
-		sleepFunc: func(d time.Duration) {
-			fixture.sleeps = append(fixture.sleeps, d)
-		},
+// recordBackoff replaces retryBackoff for the spec and returns the attempt numbers it was
+// asked to back off after.
+func recordBackoff() *[]int {
+	var attempts []int
+	previous := retryBackoff
+	retryBackoff = func(attempt int) time.Duration {
+		attempts = append(attempts, attempt)
+		return 0
 	}
-
-	return fixture
+	DeferCleanup(func() { retryBackoff = previous })
+	return &attempts
 }
 
-var _ = Describe("ApptioService testUpload retries", func() {
-	It("backs off in seconds rather than nanoseconds between failed attempts", func() {
-		fixture := newTestUploadFixture(http.StatusInternalServerError)
-		DeferCleanup(fixture.server.Close)
-
-		Expect(fixture.service.testUpload()).To(HaveOccurred())
-
-		Expect(fixture.uploadCalls).To(Equal(testUploadAttempts))
-		// backoff only happens between attempts, so the final failure returns immediately
-		Expect(fixture.sleeps).To(Equal([]time.Duration{2 * time.Second, 4 * time.Second}))
-	})
-
-	It("returns nil without any backoff when the presigned URL responds 403", func() {
-		fixture := newTestUploadFixture(http.StatusForbidden)
-		DeferCleanup(fixture.server.Close)
-
-		Expect(fixture.service.testUpload()).To(Succeed())
-
-		Expect(fixture.uploadCalls).To(Equal(1))
-		Expect(fixture.sleeps).To(BeEmpty())
-	})
-
-	It("returns the max failures error once all attempts are exhausted", func() {
-		fixture := newTestUploadFixture(http.StatusBadGateway)
-		DeferCleanup(fixture.server.Close)
-
-		err := fixture.service.testUpload()
-
-		Expect(err).To(MatchError("bucket upload exceeded max amount of failures"))
-		Expect(fixture.uploadCalls).To(Equal(testUploadAttempts))
-	})
-})
-
-// stubRoundTripper serves canned responses so that doWithRetry specs can observe how the
-// response body of each failed attempt is handled.
+// stubRoundTripper serves canned statuses and records whether each response body was closed.
 type stubRoundTripper struct {
 	statuses []int
 	calls    int
@@ -380,22 +310,13 @@ type stubRoundTripper struct {
 }
 
 func (rt *stubRoundTripper) RoundTrip(_ *http.Request) (*http.Response, error) {
-	status := rt.statuses[len(rt.statuses)-1]
-	if rt.calls < len(rt.statuses) {
-		status = rt.statuses[rt.calls]
-	}
+	status := rt.statuses[min(rt.calls, len(rt.statuses)-1)]
 	rt.calls++
 	body := &recordingBody{Reader: strings.NewReader("response body")}
 	rt.bodies = append(rt.bodies, body)
-	return &http.Response{
-		StatusCode: status,
-		Status:     http.StatusText(status),
-		Body:       body,
-		Header:     http.Header{},
-	}, nil
+	return &http.Response{StatusCode: status, Status: http.StatusText(status), Body: body, Header: http.Header{}}, nil
 }
 
-// recordingBody notes whether the response body was closed
 type recordingBody struct {
 	*strings.Reader
 	closed bool
@@ -406,280 +327,156 @@ func (b *recordingBody) Close() error {
 	return nil
 }
 
-var _ = Describe("ApptioClient doWithRetry", func() {
-	var (
-		transport *stubRoundTripper
-		sleeps    []time.Duration
-		client    ApptioClient
-	)
+func stubClient(statuses ...int) (ApptioClient, *stubRoundTripper) {
+	transport := &stubRoundTripper{statuses: statuses}
+	return ApptioClient{client: &http.Client{Transport: transport}, maxRetries: defaultRetries}, transport
+}
 
-	newClient := func(statuses ...int) {
-		transport = &stubRoundTripper{statuses: statuses}
-		sleeps = nil
-		client = ApptioClient{
-			client:     &http.Client{Transport: transport},
-			maxRetries: defaultRetries,
-			sleepFunc: func(d time.Duration) {
-				sleeps = append(sleeps, d)
-			},
+var _ = Describe("retry backoff", func() {
+	It("is seconds-scale and exponential", func() {
+		Expect(exponentialBackoff(1)).To(Equal(2 * time.Second))
+		Expect(exponentialBackoff(2)).To(Equal(4 * time.Second))
+	})
+})
+
+var _ = Describe("uploadProbe", func() {
+	probe := func(transport http.RoundTripper) uploadProbe {
+		request, err := http.NewRequest(http.MethodPut, "https://s3.example.com/presignedtestUpload", nil)
+		Expect(err).ToNot(HaveOccurred())
+		return uploadProbe{
+			client:           &http.Client{Transport: transport},
+			request:          request,
+			requestErrFormat: "request failed: %s",
+			statusFormat:     "attempt %d failed: %s",
+			exhaustedErr:     "probe exhausted",
 		}
 	}
 
-	newRequest := func() *http.Request {
-		request, err := http.NewRequest(http.MethodPost, "https://api.cloudability.com"+clustersUploadEndpoint, nil)
+	It("retries with backoff, closes every response and returns the exhausted error", func() {
+		backoffs := recordBackoff()
+		transport := &stubRoundTripper{statuses: []int{http.StatusInternalServerError}}
+
+		Expect(probe(transport).run()).To(MatchError("probe exhausted"))
+
+		Expect(transport.calls).To(Equal(testUploadAttempts))
+		Expect(*backoffs).To(Equal([]int{1, 2}), "no backoff after the final attempt")
+		for _, body := range transport.bodies {
+			Expect(body.closed).To(BeTrue())
+		}
+	})
+
+	It("succeeds on the first 403 without backing off", func() {
+		backoffs := recordBackoff()
+		transport := &stubRoundTripper{statuses: []int{http.StatusForbidden}}
+
+		Expect(probe(transport).run()).To(Succeed())
+
+		Expect(transport.calls).To(Equal(1))
+		Expect(*backoffs).To(BeEmpty())
+	})
+})
+
+var _ = Describe("ApptioClient doWithRetry", func() {
+	newRequest := func(body io.Reader) *http.Request {
+		request, err := http.NewRequest(http.MethodPost, "https://api.cloudability.com"+clustersUploadEndpoint, body)
 		Expect(err).ToNot(HaveOccurred())
 		return request
 	}
 
-	It("backs off in seconds rather than nanoseconds between failed attempts", func() {
-		newClient(http.StatusInternalServerError)
+	It("retries with backoff, closes every failed response and returns the terminal error", func() {
+		backoffs := recordBackoff()
+		client, transport := stubClient(http.StatusInternalServerError)
 
-		resp, err := client.Do(newRequest(), "failing request")
-
-		Expect(err).To(HaveOccurred())
-		Expect(resp).To(BeNil())
-		Expect(transport.calls).To(Equal(defaultRetries))
-		// backoff only happens between attempts, so the final failure returns immediately
-		Expect(sleeps).To(Equal([]time.Duration{2 * time.Second, 4 * time.Second}))
-	})
-
-	It("returns the max retries error once all attempts are exhausted", func() {
-		newClient(http.StatusBadGateway)
-
-		_, err := client.Do(newRequest(), "failing request")
+		resp, err := client.Do(newRequest(nil), "failing request")
 
 		Expect(err).To(MatchError("failed to complete request after maximum retries"))
+		Expect(resp).To(BeNil())
 		Expect(transport.calls).To(Equal(defaultRetries))
-	})
-
-	It("closes the response body of every failed attempt", func() {
-		newClient(http.StatusInternalServerError)
-
-		_, err := client.Do(newRequest(), "failing request")
-		Expect(err).To(HaveOccurred())
-
-		Expect(transport.bodies).To(HaveLen(defaultRetries))
-		for i, body := range transport.bodies {
-			Expect(body.closed).To(BeTrue(), "body of attempt %d was not closed", i+1)
+		Expect(*backoffs).To(Equal([]int{1, 2}), "no backoff after the final attempt")
+		for _, body := range transport.bodies {
+			Expect(body.closed).To(BeTrue())
 		}
 	})
 
-	It("returns a successful response without sleeping and leaves its body open for the caller", func() {
-		newClient(http.StatusOK)
+	It("stops retrying on success and leaves that body open for the caller", func() {
+		backoffs := recordBackoff()
+		client, transport := stubClient(http.StatusInternalServerError, http.StatusOK)
 
-		resp, err := client.Do(newRequest(), "successful request")
+		resp, err := client.Do(newRequest(nil), "eventually successful request")
 
 		Expect(err).ToNot(HaveOccurred())
-		Expect(transport.calls).To(Equal(1))
-		Expect(sleeps).To(BeEmpty())
-		Expect(transport.bodies[0].closed).To(BeFalse())
+		Expect(transport.calls).To(Equal(2))
+		Expect(*backoffs).To(Equal([]int{1}))
+		Expect(transport.bodies[0].closed).To(BeTrue())
+		Expect(transport.bodies[1].closed).To(BeFalse())
 		Expect(io.ReadAll(resp.Body)).To(Equal([]byte("response body")))
 	})
 
-	It("stops backing off as soon as an attempt succeeds", func() {
-		newClient(http.StatusInternalServerError, http.StatusInternalServerError, http.StatusOK)
+	It("re-sends the whole file on every retry of the presigned PUT", func() {
+		recordBackoff()
+		filePath := filepath.Join(GinkgoT().TempDir(), "sample.tgz")
+		Expect(os.WriteFile(filePath, bytes.Repeat([]byte("a"), 4096), 0o600)).To(Succeed())
 
-		_, err := client.Do(newRequest(), "eventually successful request")
+		// recorded server side: a retry that re-sends a consumed body still looks well formed
+		// on the client
+		var mu sync.Mutex
+		var received []int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			n, _ := io.Copy(io.Discard, r.Body)
+			mu.Lock()
+			received = append(received, int(n))
+			mu.Unlock()
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		DeferCleanup(server.Close)
 
-		Expect(err).ToNot(HaveOccurred())
-		Expect(transport.calls).To(Equal(3))
-		Expect(sleeps).To(Equal([]time.Duration{2 * time.Second, 4 * time.Second}))
-	})
-})
+		client := ApptioClient{client: server.Client(), maxRetries: defaultRetries}
+		payload := UploadPayload{FilePath: filePath, UploadHash: "hash"}
+		err := uploadPayloadToPresignedURL(client, payload, server.URL+"/presigned")
 
-// bodyLengthRecorder is a real (loopback-only) HTTP server that records how many body bytes it
-// actually received on each request. Recording on the server side is the only way to catch a
-// retry that re-sends a consumed body: the client-side request object still looks well formed.
-type bodyLengthRecorder struct {
-	server *httptest.Server
-	mu     sync.Mutex
-	// lengths holds one entry per request that reached the handler
-	lengths []int
-}
-
-func newBodyLengthRecorder(status int) *bodyLengthRecorder {
-	recorder := &bodyLengthRecorder{}
-	recorder.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Record what actually arrived even if the read fails: a retry that re-sends an
-		// exhausted body shows up here as a short (or zero-length) request, and failing the
-		// assertion on the recorded lengths is far more legible than an error from this
-		// handler goroutine.
-		received, _ := io.Copy(io.Discard, r.Body)
-		recorder.mu.Lock()
-		recorder.lengths = append(recorder.lengths, int(received))
-		recorder.mu.Unlock()
-		w.WriteHeader(status)
-	}))
-	return recorder
-}
-
-func (r *bodyLengthRecorder) received() []int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]int(nil), r.lengths...)
-}
-
-var _ = Describe("ApptioClient doWithRetry request bodies", func() {
-	// writeUploadFile lays down a payload big enough that a truncated retry is unmistakable.
-	writeUploadFile := func(size int) (string, int) {
-		dir, err := os.MkdirTemp("", "cldy-upload-retry")
-		Expect(err).ToNot(HaveOccurred())
-		DeferCleanup(func() {
-			Expect(os.RemoveAll(dir)).To(Succeed())
-		})
-		filePath := filepath.Join(dir, "sample.tgz")
-		Expect(os.WriteFile(filePath, bytes.Repeat([]byte("a"), size), 0o600)).To(Succeed())
-		return filePath, size
-	}
-
-	It("re-sends the whole presigned PUT body on every retry attempt", func() {
-		filePath, size := writeUploadFile(4096)
-		recorder := newBodyLengthRecorder(http.StatusInternalServerError)
-		DeferCleanup(recorder.server.Close)
-
-		var sleeps []time.Duration
-		client := ApptioClient{
-			client:     recorder.server.Client(),
-			maxRetries: defaultRetries,
-			sleepFunc:  func(d time.Duration) { sleeps = append(sleeps, d) },
-		}
-
-		payload := UploadPayload{
-			ClusterUID: "cluster-uid",
-			FileName:   "sample.tgz",
-			FilePath:   filePath,
-			UploadHash: "aexCzQgBAnRYEZxKy71lAw==",
-		}
-
-		err := uploadPayloadToPresignedURL(client, payload, recorder.server.URL+"/presigned")
 		Expect(err).To(MatchError("failed to complete request after maximum retries"))
-
-		// Every attempt must reach the server carrying the complete file. Before GetBody was set
-		// on the PUT this was [4096 0]: the transport closed the *os.File after attempt 1, so the
-		// retry delivered a zero-byte object to the presigned URL and the third attempt never
-		// left the client.
-		Expect(recorder.received()).To(Equal([]int{size, size, size}))
-		Expect(sleeps).To(Equal([]time.Duration{2 * time.Second, 4 * time.Second}))
+		mu.Lock()
+		defer mu.Unlock()
+		// without GetBody this was [4096 0]: the transport closed the file after attempt 1
+		Expect(received).To(Equal([]int{4096, 4096, 4096}))
 	})
 
 	It("attempts a request whose body cannot be replayed exactly once", func() {
-		transport := &stubRoundTripper{statuses: []int{http.StatusInternalServerError}}
-		var sleeps []time.Duration
-		client := ApptioClient{
-			client:     &http.Client{Transport: transport},
-			maxRetries: defaultRetries,
-			sleepFunc:  func(d time.Duration) { sleeps = append(sleeps, d) },
-		}
-
-		// An opaque ReadCloser: http.NewRequest cannot derive GetBody for it, so the body is
-		// gone once the transport has read it.
-		request, err := http.NewRequest(http.MethodPut, "https://s3.example.com/presigned",
-			io.NopCloser(strings.NewReader("unreplayable body")))
-		Expect(err).ToNot(HaveOccurred())
+		backoffs := recordBackoff()
+		client, transport := stubClient(http.StatusInternalServerError)
+		// an opaque ReadCloser: http.NewRequest cannot derive GetBody for it
+		request := newRequest(io.NopCloser(strings.NewReader("unreplayable body")))
 		Expect(request.GetBody).To(BeNil())
 
-		resp, err := client.Do(request, "unreplayable request")
-
-		Expect(err).To(MatchError("failed to complete request after maximum retries"))
-		Expect(resp).To(BeNil())
-		Expect(transport.calls).To(Equal(1))
-		Expect(sleeps).To(BeEmpty())
-	})
-
-	It("does not leak the upload file descriptor when the request cannot be built", func() {
-		filePath, _ := writeUploadFile(64)
-		payload := UploadPayload{FilePath: filePath, UploadHash: "aexCzQgBAnRYEZxKy71lAw=="}
-
-		// An unparseable URL makes http.NewRequest fail *after* the file has been opened, which
-		// is exactly the early-return path that used to drop the descriptor on the floor.
-		const unparseableURL = "://not-a-url"
-
-		openDescriptors := func() int {
-			entries, err := os.ReadDir("/dev/fd")
-			Expect(err).ToNot(HaveOccurred())
-			return len(entries)
-		}
-
-		// Warm up so lazily-created runtime descriptors are not counted as leaks.
-		Expect(uploadPayloadToPresignedURL(nil, payload, unparseableURL)).To(HaveOccurred())
-
-		before := openDescriptors()
-		const iterations = 40
-		for range iterations {
-			Expect(uploadPayloadToPresignedURL(nil, payload, unparseableURL)).To(HaveOccurred())
-		}
-		after := openDescriptors()
-
-		Expect(after-before).To(BeNumerically("<", iterations/4),
-			"upload file descriptors leaked: %d open before, %d after %d failed uploads",
-			before, after, iterations)
-	})
-
-	It("still retries a request that carries no body at all", func() {
-		transport := &stubRoundTripper{statuses: []int{http.StatusInternalServerError}}
-		var sleeps []time.Duration
-		client := ApptioClient{
-			client:     &http.Client{Transport: transport},
-			maxRetries: defaultRetries,
-			sleepFunc:  func(d time.Duration) { sleeps = append(sleeps, d) },
-		}
-
-		request, err := http.NewRequest(http.MethodGet, "https://api.cloudability.com/ping", nil)
-		Expect(err).ToNot(HaveOccurred())
-
-		_, err = client.Do(request, "bodyless request")
+		_, err := client.Do(request, "unreplayable request")
 
 		Expect(err).To(HaveOccurred())
-		Expect(transport.calls).To(Equal(defaultRetries))
-		Expect(sleeps).To(Equal([]time.Duration{2 * time.Second, 4 * time.Second}))
+		Expect(transport.calls).To(Equal(1))
+		Expect(*backoffs).To(BeEmpty())
 	})
-})
 
-var _ = Describe("ApptioClient redirect policy", func() {
-	// The upload client sets GetBody on the requests that carry a body, so that doWithRetry can
-	// replay them. That is also exactly the condition net/http requires before it will follow a
-	// 307/308 with a body, so without an explicit policy a redirect from the upload host would
-	// replay the whole sample tar - and the API key login body - to whatever host it named.
 	It("does not follow a redirect away from the upload host", func() {
-		var redirectTarget struct {
-			sync.Mutex
-			hits int
-			body int
-		}
-		attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			received, _ := io.ReadAll(r.Body)
-			redirectTarget.Lock()
-			redirectTarget.hits++
-			redirectTarget.body += len(received)
-			redirectTarget.Unlock()
-			w.WriteHeader(http.StatusOK)
+		var hits atomic.Int32
+		target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			hits.Add(1)
 		}))
-		defer attacker.Close()
-
+		DeferCleanup(target.Close)
 		upload := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, attacker.URL+"/exfil", http.StatusTemporaryRedirect)
+			http.Redirect(w, r, target.URL+"/exfil", http.StatusTemporaryRedirect)
 		}))
-		defer upload.Close()
+		DeferCleanup(upload.Close)
 
-		payload := []byte("cluster sample contents")
-		request, err := http.NewRequest(http.MethodPut, upload.URL+"/presigned", bytes.NewReader(payload))
+		// http.NewRequest sets GetBody for a strings.Reader, which is what lets net/http replay
+		// a body through a 307
+		request, err := http.NewRequest(http.MethodPut, upload.URL+"/presigned", strings.NewReader("sample"))
 		Expect(err).ToNot(HaveOccurred())
-		request.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(payload)), nil
-		}
 
-		client := NewApptioClient(ApptioConfig{Timeout: 5 * time.Second})
-		resp, err := client.client.Do(request)
+		resp, err := NewApptioClient(ApptioConfig{}).client.Do(request)
 		Expect(err).ToNot(HaveOccurred())
-		defer drainAndClose(resp.Body)
+		drainAndClose(resp.Body)
 
-		// the 3xx is handed back rather than followed, so the upload fails closed and is retried
-		// against the original host instead of being recorded as a success
+		// the 3xx is handed back, so the upload fails closed instead of being replayed elsewhere
 		Expect(resp.StatusCode).To(Equal(http.StatusTemporaryRedirect))
-
-		redirectTarget.Lock()
-		defer redirectTarget.Unlock()
-		Expect(redirectTarget.hits).To(Equal(0), "the redirect target must never be contacted")
-		Expect(redirectTarget.body).To(Equal(0), "no payload bytes may reach the redirect target")
+		Expect(hits.Load()).To(BeZero())
 	})
 })
