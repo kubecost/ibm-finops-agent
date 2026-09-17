@@ -3,6 +3,7 @@ package cldy
 import (
 	"crypto/md5"
 	"encoding/base64"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/opencost/opencost/core/pkg/log"
 )
@@ -59,22 +61,52 @@ func (s *set) length() int {
 	return len(s.data)
 }
 
-func (s *set) operateAndRemove(f func(string) error) error {
-	toRemove := make([]string, 0)
+// operateAndRemove applies f to a snapshot of the set and removes every entry f succeeded on, so
+// partial progress is kept even when a later entry fails. Errors are joined and returned.
+//
+//   - budget, when positive, is the wall clock after which no further entry is started; it does
+//     not interrupt a running entry.
+//   - abandon, when non-nil, marks an error every remaining entry would hit identically, so the
+//     rest of the pass is skipped. Other errors do not stop the pass.
+//
+// f runs outside the lock: holding it would deadlock if f touched the set, and would pin a read
+// lock across a whole network upload per entry.
+func (s *set) operateAndRemove(f func(string) error, budget time.Duration, abandon func(error) bool) error {
 	s.mutex.RLock()
+	keys := make([]string, 0, len(s.data))
 	for k := range s.data {
-		err := f(k)
-		if err != nil {
-			s.mutex.RUnlock()
-			return err
+		keys = append(keys, k)
+	}
+	s.mutex.RUnlock()
+
+	var deadline time.Time
+	if budget > 0 {
+		deadline = time.Now().Add(budget)
+	}
+
+	toRemove := make([]string, 0, len(keys))
+	errs := make([]error, 0)
+	for i, k := range keys {
+		if !deadline.IsZero() && !time.Now().Before(deadline) {
+			log.Warnf("operation exhausted its %s budget after %d of %d entries, retaining the "+
+				"remaining %d for the next pass", budget, i, len(keys), len(keys)-i)
+			break
+		}
+		if err := f(k); err != nil {
+			errs = append(errs, err)
+			if abandon != nil && abandon(err) {
+				log.Warnf("abandoning the remaining %d of %d entries, every one of them would "+
+					"fail the same way: %v", len(keys)-i-1, len(keys), err)
+				break
+			}
+			continue
 		}
 		toRemove = append(toRemove, k)
 	}
-	s.mutex.RUnlock()
 	for _, k := range toRemove {
 		s.remove(k)
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func newSet() *set {

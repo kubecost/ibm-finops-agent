@@ -6,9 +6,9 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,13 +27,23 @@ import (
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
-const frontdoorBaseURL = "https://frontdoor%s.apptio.com"
-const cloudabilityBaseURL = "https://api%s.cloudability.com"
+// Vars rather than consts so the test suite can point every upload path at a local server.
+var frontdoorBaseURL = "https://frontdoor%s.apptio.com"
+var cloudabilityBaseURL = "https://api%s.cloudability.com"
 
 const contentTypeHeader = "Content-Type"
 const contentMD5 = "Content-MD5"
 const defaultTimeout = time.Second * 10
 const defaultRetries = 3
+const testUploadAttempts = 3
+
+// retryBackoff is the wait after a failed attempt: 2s, 4s, ... The test suite overrides it.
+var retryBackoff = exponentialBackoff
+
+func exponentialBackoff(attempt int) time.Duration {
+	return time.Duration(1<<attempt) * time.Second
+}
+
 const proxyAuthHeader = "Proxy-Authorization"
 
 const frontDoorLoginDescription = "performing login request to FrontDoor using KeyAccess and KeySecret"
@@ -48,6 +58,9 @@ type StorageService interface {
 	Upload(payload UploadPayload) error
 }
 
+// ClientService performs an HTTP request for one of the upload paths. The implementation owns
+// r.Body and closes it (net/http already does; fakes must too), rebuilding it from r.GetBody on
+// retry. The caller owns and closes the returned response body.
 type ClientService interface {
 	Do(r *http.Request, requestDescription string) (*http.Response, error)
 }
@@ -72,6 +85,20 @@ type ApptioServiceImpl struct {
 	CloudabilityURL  string
 	validTil         time.Time
 	CldyUploadClient ClientService
+}
+
+// drainAndClose releases an HTTP response body so that the underlying connection is returned
+// to the pool instead of leaking. There is no recovery action, so failures are logged only.
+func drainAndClose(body io.ReadCloser) {
+	if body == nil {
+		return
+	}
+	if _, err := io.Copy(io.Discard, body); err != nil {
+		log.Debugf("error draining response body: %s", err)
+	}
+	if err := body.Close(); err != nil {
+		log.Debugf("error closing response body: %s", err)
+	}
 }
 
 type CloudabilityClustersUploadResponse struct {
@@ -164,6 +191,12 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 	httpClient := http.Client{
 		Timeout:   config.Timeout,
 		Transport: netTransport,
+		// Never follow redirects: requests carry the API key and the whole sample tar with GetBody
+		// set, so net/http would replay them to whatever host a 307/308 named. Returning the 3xx
+		// fails closed and the upload is retried against the original host.
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 	return ApptioClient{
 		client:     &httpClient,
@@ -324,23 +357,48 @@ func (s *ApptioServiceImpl) testUpload() error {
 	request.Header.Set(contentMD5, testUpload.UploadHash)
 
 	// Allow multiple attempts for test upload
-	for i := 1; i < 4; i++ {
-		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
-		// Should return 403 with improper url
-		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
-			return nil
-		}
+	return uploadProbe{
+		client:  s.CldyUploadClient.(ApptioClient).client,
+		request: request,
+		requestErrFormat: "Cloudability test HTTPS request failed with error: %s. Please ensure " +
+			"agent is configured to have access to external resources",
+		statusFormat: "Cloudability test upload %d failed with status code: %s",
+		exhaustedErr: "bucket upload exceeded max amount of failures",
+	}.run()
+}
+
+// uploadProbe is the start-up connectivity check shared by both upload paths: it sends a request
+// to a deliberately broken presigned URL and treats the 403 a live bucket returns as proof the
+// destination is reachable. Only the operator-facing wording differs per path.
+type uploadProbe struct {
+	client           *http.Client
+	request          *http.Request
+	requestErrFormat string // transport failure; takes the error string
+	statusFormat     string // unexpected response; takes the attempt number and status
+	exhaustedErr     string // returned once every attempt has failed
+}
+
+func (p uploadProbe) run() error {
+	for i := 1; i <= testUploadAttempts; i++ {
+		resp, err := p.client.Do(p.request)
 		if err != nil {
-			log.Warnf("Cloudability test HTTPS request failed with error: %s. Please ensure agent "+
-				"is configured to have access to external resources", err.Error())
+			log.Warnf(p.requestErrFormat, err.Error())
 		}
 		if resp != nil {
-			log.Warnf("Cloudability test upload %d failed with status code: %s", i, resp.Status)
+			statusCode, status := resp.StatusCode, resp.Status
+			drainAndClose(resp.Body)
+			// Should return 403 with improper url
+			if err == nil && statusCode == http.StatusForbidden {
+				return nil
+			}
+			log.Warnf(p.statusFormat, i, status)
 		}
-		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
+		if i < testUploadAttempts {
+			time.Sleep(retryBackoff(i))
+		}
 	}
 
-	return fmt.Errorf("bucket upload exceeded max amount of failures")
+	return errors.New(p.exhaustedErr)
 }
 
 // getUploadURL request to Cloudability to gather the presigned s3 URL that allows the agent to
@@ -409,7 +467,30 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) er
 }
 
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
-	for i := 1; i < 4; i++ {
+	attempts := ac.maxRetries
+	if attempts <= 0 {
+		attempts = defaultRetries
+	}
+
+	// The transport consumes and closes req.Body on every attempt. A body that cannot be rebuilt
+	// from GetBody is attempted once: retrying it would put an empty body on the wire, which for a
+	// presigned S3 PUT means storing a truncated object.
+	replayable := req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
+	if !replayable && attempts > 1 {
+		log.Warnf("%s: request body cannot be replayed (GetBody is nil), attempting once instead of %d times",
+			requestDescription, attempts)
+		attempts = 1
+	}
+
+	for i := 1; i <= attempts; i++ {
+		if i > 1 && req.Body != nil && req.GetBody != nil {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, fmt.Errorf("unable to rewind request body before attempt %d of %s: %w",
+					i, requestDescription, err)
+			}
+			req.Body = body
+		}
 		log.Debugf("Attempt %d: %s", i, requestDescription)
 		resp, err := ac.client.Do(req)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
@@ -420,8 +501,11 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		}
 		if resp != nil {
 			log.Warnf("Request failed with status code: %s", resp.Status)
+			drainAndClose(resp.Body)
 		}
-		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
+		if i < attempts {
+			time.Sleep(retryBackoff(i))
+		}
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
 }
