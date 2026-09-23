@@ -35,6 +35,19 @@ var _ = Describe("Uploader", func() {
 		err := os.RemoveAll(tempDir)
 		Expect(err).ToNot(HaveOccurred())
 	})
+	Context("LastLoopProgress", func() {
+		It("advances each time the upload loop handles a tick", func() {
+			config := defaultConfig(tempDir)
+			config.UploadFrequency = 20 * time.Millisecond
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh).(*cldy.CldyUploader)
+
+			Eventually(uploader.LastLoopProgress).ShouldNot(BeZero())
+			first := uploader.LastLoopProgress()
+			Eventually(uploader.LastLoopProgress).Should(BeTemporally(">", first))
+		})
+	})
 	Context("TestBuildTar", func() {
 		It("should build Tar", func() {
 			config := defaultConfig(tempDir)
