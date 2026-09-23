@@ -10,9 +10,19 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/opencost/opencost/core/pkg/log"
 )
+
+// maxAttempts is the number of times an HTTP request is attempted before giving up.
+const maxAttempts = 3
+
+// retryBackoff returns the wait before the next attempt: 2s, 4s, ...
+// It is a variable so tests can shorten it.
+var retryBackoff = func(attempt int) time.Duration {
+	return time.Duration(1<<attempt) * time.Second
+}
 
 func safeClose(closer func() error, err *error) {
 	if closeErr := closer(); closeErr != nil && *err == nil {
