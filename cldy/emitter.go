@@ -91,6 +91,9 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
 	viper.SetDefault("EMISSION_INTERVAL", "3m")
+	// Pending samples and uploads older than this are discarded on startup, and uploads older
+	// than half of it are cleared when disk space runs low.
+	viper.SetDefault("RECOVERY_PERIOD", "48h")
 	viper.SetDefault("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY", false)
 
 	var outboundProxyUrl *url.URL
@@ -148,6 +151,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
 		UploadFrequency:                 time.Minute * time.Duration(UPLOAD_FREQUENCY),
 		ScratchDir:                      viper.GetString("SCRATCH_DIR"),
+		RecoveryPeriod:                  viper.GetDuration("RECOVERY_PERIOD"),
 		EmitAsJson:                      viper.GetBool("EMIT_AS_JSON"),
 		ParseMetricData:                 viper.GetBool("PARSE_METRIC_DATA"),
 		EmissionInterval:                viper.GetDuration("EMISSION_INTERVAL"),
