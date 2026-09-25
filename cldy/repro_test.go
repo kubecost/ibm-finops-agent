@@ -45,7 +45,7 @@ func TestReproF38MetricsOutageKeepsLiveness(t *testing.T) {
 	data := loadTestSnapshot(t)
 	clock := newFakeClock(time.Now())
 	config := cldy.EmitterConfig{
-		UploaderConfig:   cldy.UploaderConfig{ScratchDir: t.TempDir()},
+		ScratchDir:       t.TempDir(),
 		EmitAsJson:       true,
 		EmissionInterval: 3 * time.Minute,
 	}
@@ -62,7 +62,13 @@ func TestReproF38MetricsOutageKeepsLiveness(t *testing.T) {
 
 	// The agent's health model, wired as main does.
 	registry := health.NewRegistry()
-	registry.Register("exporter", emitter.HealthComponent(exp))
+	// The outage's 45 min pass on the emitter's fake clock, which the registry uses; the exporter
+	// runs its 5ms ticks on the real clock, so its component is checked against that.
+	registry.SetClock(clock.Now)
+	exporterHealth := emitter.HealthComponent(exp)
+	registry.Register("exporter", health.ComponentFunc(func(ctx context.Context, _ time.Time) health.Report {
+		return exporterHealth.HealthCheck(ctx, time.Now())
+	}))
 	if !registry.RegisterAny(string(ce.ID()), ce) {
 		t.Fatal("the Cloudability emitter doesn't implement a health interface")
 	}

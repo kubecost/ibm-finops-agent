@@ -72,7 +72,7 @@ func FormatResources(gvrs []schema.GroupVersionResource) string {
 // InformersUnsyncedMessage describes unsynced informers and their likely cause.
 func InformersUnsyncedMessage(unsynced []schema.GroupVersionResource) string {
 	return fmt.Sprintf("informers not synced for %s; the usual cause is a missing list or watch permission on these "+
-		"resources in the agent's ClusterRole. They keep retrying, and snapshots fail until they sync", FormatResources(unsynced))
+		"resources in the agent's ClusterRole. They keep retrying, and snapshots leave these resources out until they sync", FormatResources(unsynced))
 }
 
 // SyncComponent returns the informers' health component: always live, and not ready

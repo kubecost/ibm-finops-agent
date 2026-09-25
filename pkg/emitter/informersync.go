@@ -1,74 +1,78 @@
 package emitter
 
 import (
-	"fmt"
-
 	clustercache "github.com/ibm/finops-agent/pkg/cluster"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// checkInformersSynced fails when an informer for a resource the snapshot needs hasn't synced.
-// Until it has, its list is empty or partial, and emitting it would report objects as absent.
-// Informers for resources no emitter needs don't block (F-12, D9).
-func checkInformersSynced(cluster clustercache.ClusterCache, config *SnapshotConfig) error {
+// omitUnsynced returns config with the snapshot of every resource whose informer hasn't synced
+// turned off, and the names of the resources it turned off. Until an informer syncs its list is
+// empty or partial, so the snapshot leaves that resource empty and says so
+// (KubernetesSnapshot.UnsyncedResources) rather than passing a partial list off as complete. The
+// other resources are snapshotted as usual, so one missing RBAC permission doesn't stop every
+// emitter (F-12, D9).
+func omitUnsynced(cluster clustercache.ClusterCache, config *SnapshotConfig) (*SnapshotConfig, []string) {
 	sr, ok := cluster.(clustercache.SyncReporter)
 	if !ok {
-		return nil
+		return config, nil
 	}
 	unsynced := sr.UnsyncedResources()
 	if len(unsynced) == 0 {
-		return nil
+		return config, nil
 	}
-	kconfig := config.KubernetesSnapshot
-	if kconfig == nil {
-		kconfig = NewKubernetesSnapshotConfig().EnableAll()
+	kconfig := NewKubernetesSnapshotConfig().EnableAll()
+	if config.KubernetesSnapshot != nil {
+		copied := *config.KubernetesSnapshot
+		kconfig = &copied
 	}
-	var needed []schema.GroupVersionResource
+	var omitted []string
 	for _, gvr := range unsynced {
-		if snapshotNeeds(kconfig, gvr) {
-			needed = append(needed, gvr)
+		name := clustercache.FormatResource(gvr)
+		if flag := snapshotFlag(kconfig, name); flag != nil && *flag {
+			*flag = false
+			omitted = append(omitted, name)
 		}
 	}
-	if len(needed) == 0 {
-		return nil
+	if len(omitted) == 0 {
+		return config, nil
 	}
-	return fmt.Errorf("%s", clustercache.InformersUnsyncedMessage(needed))
+	copied := *config
+	copied.KubernetesSnapshot = kconfig
+	return &copied, omitted
 }
 
-// snapshotNeeds reports whether a snapshot under kconfig lists gvr. Pods are always needed:
-// short-lived pods are captured from the pod informer.
-func snapshotNeeds(kconfig *KubernetesSnapshotConfig, gvr schema.GroupVersionResource) bool {
-	switch clustercache.FormatResource(gvr) {
+// snapshotFlag returns kconfig's flag for the named resource, or nil if it has none.
+func snapshotFlag(kconfig *KubernetesSnapshotConfig, resource string) *bool {
+	switch resource {
 	case "nodes":
-		return kconfig.Nodes
+		return &kconfig.Nodes
 	case "pods":
-		return true
+		return &kconfig.Pods
 	case "namespaces":
-		return kconfig.Namespaces
+		return &kconfig.Namespaces
 	case "services":
-		return kconfig.Services
+		return &kconfig.Services
 	case "apps/daemonsets":
-		return kconfig.DaemonSets
+		return &kconfig.DaemonSets
 	case "apps/deployments":
-		return kconfig.Deployments
+		return &kconfig.Deployments
 	case "apps/statefulsets":
-		return kconfig.StatefulSets
+		return &kconfig.StatefulSets
 	case "apps/replicasets":
-		return kconfig.ReplicaSets
+		return &kconfig.ReplicaSets
 	case "persistentvolumes":
-		return kconfig.PersistentVolumes
+		return &kconfig.PersistentVolumes
 	case "persistentvolumeclaims":
-		return kconfig.PersistentVolumeClaims
+		return &kconfig.PersistentVolumeClaims
 	case "storage.k8s.io/storageclasses":
-		return kconfig.StorageClasses
+		return &kconfig.StorageClasses
 	case "batch/jobs":
-		return kconfig.Jobs
+		return &kconfig.Jobs
 	case "policy/poddisruptionbudgets":
-		return kconfig.PodDisruptionBudgets
+		return &kconfig.PodDisruptionBudgets
 	case "replicationcontrollers":
-		return kconfig.ReplicationControllers
+		return &kconfig.ReplicationControllers
 	case "resourcequotas":
-		return kconfig.ResourceQuotas
+		return &kconfig.ResourceQuotas
 	}
-	return false
+	return nil
 }

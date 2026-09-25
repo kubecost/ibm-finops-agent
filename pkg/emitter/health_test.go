@@ -107,25 +107,37 @@ func (f *fakeSyncCache) UnsyncedResources() []schema.GroupVersionResource { retu
 
 var _ clustercache.SyncReporter = (*fakeSyncCache)(nil)
 
-// F-12, D9: a snapshot fails while an informer it needs is unsynced, since its list would be empty
-// or partial, and doesn't drain short-lived pods; an unsynced informer no emitter needs doesn't
-// block it.
-func TestSnapshotWaitsForNeededInformers(t *testing.T) {
+// F-12, D9: a resource whose informer hasn't synced is left out of the snapshot and named in
+// UnsyncedResources; every other resource is still snapshotted, so one missing RBAC permission
+// doesn't stop every emitter. Resources the snapshot doesn't take aren't reported.
+func TestSnapshotOmitsUnsyncedResources(t *testing.T) {
 	pdbs := schema.GroupVersionResource{Group: "policy", Version: "v1", Resource: "poddisruptionbudgets"}
 	deployments := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	kconfig := NewKubernetesSnapshotConfig()
 	kconfig.Deployments = true
+	kconfig.Namespaces = true
 	config := &SnapshotConfig{KubernetesSnapshot: kconfig}
 
 	cache := &fakeSyncCache{MockClusterCache: mocks.NewMockClusterCache(), unsynced: []schema.GroupVersionResource{pdbs}}
-	if _, err := snapshotKubernetes(cache, config); err != nil {
-		t.Errorf("an unsynced informer for a resource no emitter needs failed the snapshot: %v", err)
+	snap, err := snapshotKubernetes(cache, config)
+	if err != nil || len(snap.UnsyncedResources) != 0 {
+		t.Errorf("an unsynced informer for a resource not snapshotted: err %v, unsynced %v", err, snap.UnsyncedResources)
 	}
 
 	cache.unsynced = []schema.GroupVersionResource{deployments, pdbs}
-	_, err := snapshotKubernetes(cache, config)
-	if err == nil || !strings.Contains(err.Error(), "apps/deployments") || strings.Contains(err.Error(), "poddisruptionbudgets") {
-		t.Errorf("snapshot with the deployments informer unsynced: err = %v, want one naming apps/deployments only", err)
+	before := cache.Calls["GetAllDeployments"]
+	snap, err = snapshotKubernetes(cache, config)
+	if err != nil {
+		t.Fatalf("an unsynced informer failed the snapshot: %v", err)
+	}
+	if strings.Join(snap.UnsyncedResources, ",") != "apps/deployments" {
+		t.Errorf("UnsyncedResources = %v, want [apps/deployments]", snap.UnsyncedResources)
+	}
+	if cache.Calls["GetAllDeployments"] != before || cache.Calls["GetAllNamespaces"] == 0 {
+		t.Errorf("deployments listed from an unsynced informer, or namespaces not listed: %v", cache.Calls)
+	}
+	if !kconfig.Deployments {
+		t.Error("the caller's snapshot config was modified")
 	}
 }
 

@@ -35,6 +35,10 @@ type KubernetesSnapshot struct {
 	PodDisruptionBudgets   []*policyv1.PodDisruptionBudget
 	ReplicationControllers []*v1.ReplicationController
 	ResourceQuotas         []*v1.ResourceQuota
+
+	// UnsyncedResources names the resources left empty because their informers haven't synced
+	// (e.g. "pods", "apps/deployments"). Their lists are unknown, not empty.
+	UnsyncedResources []string
 }
 
 // NodeStatsSummary contains summary data sets

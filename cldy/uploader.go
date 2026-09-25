@@ -304,7 +304,6 @@ func (cu *CldyUploader) uploadCycle() {
 	defer func() {
 		files, bytes := cu.queue.stats(clusterID)
 		cu.hbMu.Lock()
-		defer cu.hbMu.Unlock()
 		cu.heartbeat.LastCycleEnd = cu.clock()
 		cu.heartbeat.BacklogFiles, cu.heartbeat.BacklogBytes = files, bytes
 		if failed {
@@ -312,6 +311,9 @@ func (cu *CldyUploader) uploadCycle() {
 		} else {
 			cu.heartbeat.ConsecutiveFailures = 0
 		}
+		hb := cu.heartbeat
+		cu.hbMu.Unlock()
+		cu.checkUploadsFailing(hb)
 	}()
 
 	cu.checkConfigured()

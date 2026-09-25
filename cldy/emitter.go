@@ -83,6 +83,10 @@ type Emitter struct {
 	// lastSampleBytes is the size of the last finalised sample, the disk budget for the next.
 	lastSampleBytes int64
 
+	// unsyncedResources are the resources the sample being written leaves out because their
+	// informers haven't synced, reported in agent-measurement.json (I6).
+	unsyncedResources []string
+
 	// events receives drops, discards, emit outcomes and condition changes; conditions holds
 	// the active conditions for edge-triggered logging and health checks. Both are the
 	// uploader's, when the uploader is a *CldyUploader.
@@ -307,9 +311,10 @@ func (ce *Emitter) recordNodeStats(ns *emitter.NodeStatsSummary) {
 		return
 	}
 	if len(ns.Stats) > 0 {
-		collected := ns.CollectedAt
-		if collected.IsZero() {
-			collected = ce.clock()
+		// CollectedAt is on the wall clock; carry its age over to the emitter's clock.
+		collected := ce.clock()
+		if !ns.CollectedAt.IsZero() {
+			collected = collected.Add(-max(time.Since(ns.CollectedAt), 0))
 		}
 		ce.lastSuccessfulNodeCollection = collected.UTC()
 	}
@@ -584,6 +589,7 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	if snapshot == nil {
 		return fmt.Errorf("k8s snapshot was nil")
 	}
+	ce.unsyncedResources = snapshot.UnsyncedResources
 	for name, objs := range metadataToObj(snapshot, ce.pendingShortLivedPods, ce.clock()) {
 		err := ce.writeObjects(name, objs)
 		if err != nil {
@@ -748,6 +754,13 @@ func (ce *Emitter) writeAgentFile() (err error) {
 
 	nodeErrors := unwrapNodeErrors(collectionErr)
 	metrics["nodes_failed"] = len(nodeErrors)
+
+	// Resources this sample leaves out because their informers haven't synced (F-12, D9), usually
+	// for want of an RBAC permission. Their files are empty because they are unknown.
+	if len(ce.unsyncedResources) > 0 {
+		metrics["unsynced_resources"] = len(ce.unsyncedResources)
+		values["unsynced_resources"] = strings.Join(ce.unsyncedResources, ",")
+	}
 
 	agent := agentData{
 		Name:    "cldy_agent_status",

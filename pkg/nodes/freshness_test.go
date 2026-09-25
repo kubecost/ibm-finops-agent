@@ -34,12 +34,16 @@ func TestReproF21BackgroundStatsReportTheirAge(t *testing.T) {
 		t.Fatal("provider did not start")
 	}
 	defer provider.Stop()
-	collected := provider.LastCollection()
-	if collected.IsZero() {
+	if provider.LastCollection().IsZero() {
 		t.Fatal("the initial collection was not recorded")
 	}
 
 	client.failing.Store(true)
+	// one full collection after the switch, so none that succeeded is still in flight
+	for start := client.calls.Load(); client.calls.Load() < start+2; {
+		time.Sleep(time.Millisecond)
+	}
+	collected := provider.LastCollection()
 	for start := client.calls.Load(); client.calls.Load() < start+3; {
 		time.Sleep(time.Millisecond)
 	}

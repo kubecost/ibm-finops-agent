@@ -13,8 +13,7 @@ import (
 )
 
 // conditionUploadsFailing: the last uploadsFailingCycles upload cycles stopped on a failed
-// upload while payloads were queued. It is computed from the upload heartbeat by HealthCheck, so
-// it is not in the EventSink; chunk 09 exports it with the other readiness conditions.
+// upload while payloads were queued. The upload loop sets it at the end of each cycle.
 const conditionUploadsFailing = "uploads_failing"
 
 // uploadsFailingCycles is how many upload cycles in a row may fail, with a backlog, before the
@@ -86,24 +85,16 @@ func (ce *Emitter) Conditions() []condition.Condition {
 // pressure, an uninitialised emitter, or uploads failing with a backlog for uploadsFailingCycles
 // cycles. None of those make it not live (I4).
 func (ce *Emitter) HealthCheck(_ context.Context, now time.Time) health.Report {
-	report := health.Report{Live: true, Conditions: ce.Conditions()}
+	// The emitter and uploader log their conditions' transitions themselves.
+	report := health.Report{Live: true, Conditions: ce.Conditions(), ConditionsLogged: true}
 	cu, ok := ce.Uploader.(*CldyUploader)
 	if !ok {
 		return report
 	}
-	hb := cu.UploadHeartbeat()
-	report.Status = hb
+	report.Status = cu.UploadHeartbeat()
 	if stalled, reason := cu.UploadStalled(now); stalled {
 		report.Live = false
 		report.NotLiveReason = reason
-	}
-	if hb.ConsecutiveFailures >= uploadsFailingCycles && hb.BacklogFiles > 0 {
-		report.Conditions = append(report.Conditions, condition.Condition{
-			Type: conditionUploadsFailing,
-			Message: fmt.Sprintf("the last %d upload cycles failed with %d files (%d bytes) queued; last delivery %s",
-				hb.ConsecutiveFailures, hb.BacklogFiles, hb.BacklogBytes, formatSince(now, hb.LastSuccess)),
-		})
-		slices.SortFunc(report.Conditions, func(a, b condition.Condition) int { return strings.Compare(a.Type, b.Type) })
 	}
 	return report
 }
@@ -143,14 +134,28 @@ func (cu *CldyUploader) UploadStalled(now time.Time) (bool, string) {
 }
 
 // uploadAttemptBudget is the longest one payload's upload can take when every request uses its
-// timeout: three stages (login, presign, put), each tried maxAttempts times with backoff, plus a
-// minute of margin. Custom S3 and Azure uploads have no deadline of their own yet (F-13), so a
-// hang there is caught here.
+// timeout: five stages (login, presign, put, and presign and put again after a 403), each tried
+// maxAttempts times with backoff, plus a minute of margin. It is at least minUploadAttemptBudget:
+// custom S3 and Azure uploads have no deadline of their own yet (F-13), and a connection that a
+// remote fault black-holes can hang for ~15 min before the kernel gives up (tcp_retries2), which
+// is a remote fault, not a wedge (I4).
 func uploadAttemptBudget(timeout time.Duration) time.Duration {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	return 3*time.Duration(maxAttempts)*timeout + time.Minute
+	return max(5*time.Duration(maxAttempts)*timeout+time.Minute, minUploadAttemptBudget)
+}
+
+// minUploadAttemptBudget is the floor of uploadAttemptBudget.
+const minUploadAttemptBudget = 30 * time.Minute
+
+// checkUploadsFailing raises uploads_failing when the last uploadsFailingCycles cycles failed with
+// a backlog, and clears it otherwise. The upload loop calls it at the end of each cycle.
+func (cu *CldyUploader) checkUploadsFailing(hb UploadHeartbeat) {
+	failing := hb.ConsecutiveFailures >= uploadsFailingCycles && hb.BacklogFiles > 0
+	cu.setCondition(conditionUploadsFailing, failing,
+		fmt.Sprintf("the last %d upload cycles failed with %d files (%d bytes) queued; last delivery %s",
+			hb.ConsecutiveFailures, hb.BacklogFiles, hb.BacklogBytes, formatSince(hb.LastCycleEnd, hb.LastSuccess)))
 }
 
 func formatSince(now, t time.Time) string {

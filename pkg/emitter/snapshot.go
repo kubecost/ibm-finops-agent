@@ -198,9 +198,7 @@ func snapshotClusterInfo(infoProvider clusters.ClusterInfoProvider) (*clusters.C
 }
 
 func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfig) (*KubernetesSnapshot, error) {
-	if err := checkInformersSynced(cluster, config); err != nil {
-		return nil, err
-	}
+	config, unsynced := omitUnsynced(cluster, config)
 	// if we get here, and a kubernetes snapshot config hasn't been provided, enable all resource snapshots by
 	// default
 	kconfig := config.KubernetesSnapshot
@@ -208,7 +206,7 @@ func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfi
 		kconfig = NewKubernetesSnapshotConfig().EnableAll()
 	}
 
-	return &KubernetesSnapshot{
+	snapshot := &KubernetesSnapshot{
 		Nodes:                  snapshotResource(kconfig.Nodes, cluster.GetAllNodes),
 		Pods:                   snapshotResource(kconfig.Pods, cluster.GetAllPods),
 		ShortLivedPods:         cluster.GetAllShortLivedPods(), // always snapshot short-lived pods to reset buffer
@@ -225,7 +223,9 @@ func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfi
 		PodDisruptionBudgets:   snapshotResource(kconfig.PodDisruptionBudgets, cluster.GetAllPodDisruptionBudgets),
 		ReplicationControllers: snapshotResource(kconfig.ReplicationControllers, cluster.GetAllReplicationControllers),
 		ResourceQuotas:         snapshotResource(kconfig.ResourceQuotas, cluster.GetAllResourceQuotas),
-	}, nil
+	}
+	snapshot.UnsyncedResources = unsynced
+	return snapshot, nil
 }
 
 // if the error returned from node stats summary is a multi-error, unwrap and return the inner errors,

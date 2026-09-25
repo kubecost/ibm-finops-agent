@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +33,9 @@ type Report struct {
 	// Conditions are the component's active degraded conditions. Any one makes it not ready.
 	// A zero Since is filled in with when the registry first saw the condition.
 	Conditions []condition.Condition
+	// ConditionsLogged says the component logs its own conditions' transitions, so the registry
+	// logs only its liveness.
+	ConditionsLogged bool
 	// Status is component-specific progress for /status: last-success times and backlog counts.
 	// It must marshal to JSON and must not hold secrets or configuration values.
 	Status any
@@ -52,7 +54,7 @@ type ComponentFunc func(ctx context.Context, now time.Time) Report
 func (f ComponentFunc) HealthCheck(ctx context.Context, now time.Time) Report { return f(ctx, now) }
 
 // ConditionReporter is a component whose health is its active conditions: it is always live, and
-// ready when it has none. The Kubecost emitter and the collector WAL implement it.
+// ready when it has none. It logs its own condition transitions, as a condition.Set does. Chunk 07's Kubecost emitter and collector WAL are meant to implement it.
 type ConditionReporter interface {
 	Conditions() []condition.Condition
 }
@@ -103,9 +105,9 @@ type call struct {
 }
 
 type loggedState struct {
+	at         time.Time
 	live       bool
-	ready      bool
-	conditions string
+	conditions map[string]string // type -> message
 }
 
 // NewRegistry returns a registry in PhaseStarting with no components: live, and not ready.
@@ -155,7 +157,7 @@ func (r *Registry) Register(name string, c Component) {
 // conditions.
 func (r *Registry) RegisterConditions(name string, c ConditionReporter) {
 	r.Register(name, ComponentFunc(func(context.Context, time.Time) Report {
-		return Report{Live: true, Conditions: c.Conditions()}
+		return Report{Live: true, Conditions: c.Conditions(), ConditionsLogged: true}
 	}))
 }
 
@@ -204,7 +206,9 @@ func (r *Registry) Check(ctx context.Context) Result {
 	r.mu.Unlock()
 
 	now := r.now()
-	ctx, cancel := context.WithTimeout(ctx, r.checkTimeout)
+	// Only the check timeout decides a verdict: a probe whose client went away mustn't report
+	// components not live.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.checkTimeout)
 	defer cancel()
 
 	calls := make([]*call, len(entries))
@@ -232,7 +236,7 @@ func (r *Registry) Check(ctx context.Context) Result {
 	for i, e := range entries {
 		c := &results[i]
 		e.fillSince(c, now)
-		e.logTransition(*c)
+		e.logTransition(*c, now)
 		if !c.Live {
 			result.Live = false
 		}
@@ -302,35 +306,48 @@ func (e *entry) fillSince(c *ComponentResult, now time.Time) {
 	c.Conditions = conditions
 }
 
-// logTransition logs a change in the component's liveness, readiness or set of conditions.
-func (e *entry) logTransition(c ComponentResult) {
-	types := make([]string, 0, len(c.Conditions))
+// logTransition logs a change in the component's liveness, and each condition raised or cleared
+// unless the component logs its own (ConditionsLogged). A result older than the last one logged,
+// from an overlapping probe, is ignored.
+func (e *entry) logTransition(c ComponentResult, at time.Time) {
+	state := loggedState{at: at, live: c.Live, conditions: map[string]string{}}
 	for _, cond := range c.Conditions {
-		types = append(types, cond.Type)
+		state.conditions[cond.Type] = cond.Message
 	}
-	state := loggedState{live: c.Live, ready: c.Ready(), conditions: strings.Join(types, ",")}
 
 	e.mu.Lock()
 	prev := e.logged
+	if prev != nil && at.Before(prev.at) {
+		e.mu.Unlock()
+		return
+	}
 	e.logged = &state
 	e.mu.Unlock()
 
-	if prev != nil && *prev == state {
-		return
-	}
-	if prev == nil && state.live && state.ready {
-		return
-	}
 	switch {
-	case !state.live:
+	case !state.live && (prev == nil || prev.live):
 		log.Errorf("health: component %s is not live: %s", c.Name, c.NotLiveReason)
-	case prev != nil && !prev.live:
+	case state.live && prev != nil && !prev.live:
 		log.Infof("health: component %s is live again", c.Name)
 	}
-	switch {
-	case !state.ready && state.conditions != "":
-		log.Warnf("health: component %s is not ready: %s", c.Name, state.conditions)
-	case state.ready && prev != nil && !prev.ready:
-		log.Infof("health: component %s is ready again", c.Name)
+	if c.ConditionsLogged {
+		return
 	}
+	for typ, msg := range state.conditions {
+		if prev == nil || !hasKey(prev.conditions, typ) {
+			log.Warnf("health: component %s condition=%s active: %s", c.Name, typ, msg)
+		}
+	}
+	if prev != nil {
+		for typ := range prev.conditions {
+			if !hasKey(state.conditions, typ) {
+				log.Infof("health: component %s condition=%s cleared", c.Name, typ)
+			}
+		}
+	}
+}
+
+func hasKey(m map[string]string, k string) bool {
+	_, ok := m[k]
+	return ok
 }
