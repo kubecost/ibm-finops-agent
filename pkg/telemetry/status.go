@@ -35,17 +35,27 @@ var (
 		"Active degraded conditions of each health component, by type: the number active, 0 once cleared.", []string{"component", "type"}, nil)
 
 	descKubecostWrites = prometheus.NewDesc(prefix+"kubecost_export_writes_total",
-		"Kubecost export writes to the bucket, by result.", []string{"result"}, nil)
-	descKubecostCanary = prometheus.NewDesc(prefix+"kubecost_bucket_canary_total",
-		"Kubecost bucket canary probes, by result.", []string{"result"}, nil)
+		"Kubecost export writes to the bucket, failed or not.", nil, nil)
+	descKubecostWriteFailures = prometheus.NewDesc(prefix+"kubecost_export_write_failures_total",
+		"Kubecost export writes to the bucket that failed.", nil, nil)
+	descKubecostRejectedAfterStop = prometheus.NewDesc(prefix+"kubecost_export_rejected_after_stop_total",
+		"Kubecost export writes refused because the emitter had stopped.", nil, nil)
+	descKubecostCanary = prometheus.NewDesc(prefix+"kubecost_bucket_canary_runs_total",
+		"Kubecost bucket canary probes, failed or not.", nil, nil)
+	descKubecostCanaryFailures = prometheus.NewDesc(prefix+"kubecost_bucket_canary_failures_total",
+		"Kubecost bucket canary probes that failed.", nil, nil)
 	descKubecostCanaryLastSuccess = prometheus.NewDesc(prefix+"kubecost_bucket_canary_last_success_timestamp_seconds",
 		"When the Kubecost bucket canary last succeeded, or when the agent started if it hasn't.", nil, nil)
 	descKubecostForcedSwaps = prometheus.NewDesc(prefix+"kubecost_forced_snapshot_swaps_total",
 		"Snapshots published to the Kubecost adapters under a computation pinned for too long.", nil, nil)
 	descWALWrites = prometheus.NewDesc(prefix+"collector_wal_writes_total",
-		"Collector write-ahead log writes, by result.", []string{"result"}, nil)
+		"Collector write-ahead log writes, failed or not.", nil, nil)
+	descWALWriteFailures = prometheus.NewDesc(prefix+"collector_wal_write_failures_total",
+		"Collector write-ahead log writes that failed.", nil, nil)
 	descWALStoreAttempts = prometheus.NewDesc(prefix+"collector_wal_store_attempts_total",
-		"Attempts to build the collector write-ahead log's bucket store, by result.", []string{"result"}, nil)
+		"Attempts to build the collector write-ahead log's bucket store, failed or not.", nil, nil)
+	descWALStoreFailures = prometheus.NewDesc(prefix+"collector_wal_store_failures_total",
+		"Attempts to build the collector write-ahead log's bucket store that failed.", nil, nil)
 	descWALRestoreErrors = prometheus.NewDesc(prefix+"collector_wal_restore_errors_total",
 		"Bucket List and Read failures while the collector write-ahead log was replayed.", nil, nil)
 )
@@ -66,8 +76,9 @@ func (c *statusCollector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{
 		descCycleLastEnd, descCycleOverruns, descSnapshotTimeouts, descEmitTimeouts, descEmitterReady,
 		descUploadLastSuccess, descBacklogFiles, descBacklogBytes, descHealthCondition,
-		descKubecostWrites, descKubecostCanary, descKubecostCanaryLastSuccess, descKubecostForcedSwaps,
-		descWALWrites, descWALStoreAttempts, descWALRestoreErrors,
+		descKubecostWrites, descKubecostWriteFailures, descKubecostRejectedAfterStop, descKubecostCanary,
+		descKubecostCanaryFailures, descKubecostCanaryLastSuccess, descKubecostForcedSwaps,
+		descWALWrites, descWALWriteFailures, descWALStoreAttempts, descWALStoreFailures, descWALRestoreErrors,
 	} {
 		ch <- d
 	}
@@ -112,21 +123,23 @@ func (c *statusCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	if kubecostExport != nil {
 		s := kubecostExport()
-		counter(descKubecostWrites, s.WritesTotal-min(s.WriteFailuresTotal, s.WritesTotal), "ok")
-		counter(descKubecostWrites, s.WriteFailuresTotal, "error")
-		counter(descKubecostWrites, s.WritesRejectedAfterStopTotal, "rejected_after_stop")
-		counter(descKubecostCanary, s.CanaryRunsTotal-min(s.CanaryFailuresTotal, s.CanaryRunsTotal), "ok")
-		counter(descKubecostCanary, s.CanaryFailuresTotal, "error")
+		// Totals and failures are separate counters: a difference of two counters read one after
+		// the other can go backwards.
+		counter(descKubecostWrites, s.WritesTotal)
+		counter(descKubecostWriteFailures, s.WriteFailuresTotal)
+		counter(descKubecostRejectedAfterStop, s.WritesRejectedAfterStopTotal)
+		counter(descKubecostCanary, s.CanaryRunsTotal)
+		counter(descKubecostCanaryFailures, s.CanaryFailuresTotal)
 		gauge(descKubecostCanaryLastSuccess, m.timestamp(s.LastCanarySuccess))
 		counter(descKubecostForcedSwaps, s.ForcedSnapshotSwapsTotal)
 	}
 	if walCounters != nil {
 		s := walCounters()
 		if s.Configured {
-			counter(descWALWrites, s.WritesTotal-min(s.WriteFailuresTotal, s.WritesTotal), "ok")
-			counter(descWALWrites, s.WriteFailuresTotal, "error")
-			counter(descWALStoreAttempts, s.StoreAttemptsTotal-min(s.StoreFailuresTotal, s.StoreAttemptsTotal), "ok")
-			counter(descWALStoreAttempts, s.StoreFailuresTotal, "error")
+			counter(descWALWrites, s.WritesTotal)
+			counter(descWALWriteFailures, s.WriteFailuresTotal)
+			counter(descWALStoreAttempts, s.StoreAttemptsTotal)
+			counter(descWALStoreFailures, s.StoreFailuresTotal)
 			counter(descWALRestoreErrors, s.RestoreErrorsTotal)
 		}
 	}

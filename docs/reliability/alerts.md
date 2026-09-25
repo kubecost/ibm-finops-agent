@@ -76,14 +76,22 @@ closed label sets are exported at 0 from the start, so `increase()` sees their f
 Exported once chunk 07's counters are wired in (see `telemetry.Metrics.SetKubecostExport` and
 `SetWAL`).
 
+Totals and failures are separate counters (a failure rate is
+`rate(..._failures_total) / rate(..._total)`).
+
 | Metric | Type | Labels |
 |---|---|---|
-| `kubecost_export_writes_total` | counter | `result` (`ok`, `error`, `rejected_after_stop`) |
-| `kubecost_bucket_canary_total` | counter | `result` (`ok`, `error`) |
+| `kubecost_export_writes_total` | counter | |
+| `kubecost_export_write_failures_total` | counter | |
+| `kubecost_export_rejected_after_stop_total` | counter | |
+| `kubecost_bucket_canary_runs_total` | counter | |
+| `kubecost_bucket_canary_failures_total` | counter | |
 | `kubecost_bucket_canary_last_success_timestamp_seconds` | gauge | |
 | `kubecost_forced_snapshot_swaps_total` | counter | |
-| `collector_wal_writes_total` | counter | `result` (`ok`, `error`) |
-| `collector_wal_store_attempts_total` | counter | `result` (`ok`, `error`) |
+| `collector_wal_writes_total` | counter | |
+| `collector_wal_write_failures_total` | counter | |
+| `collector_wal_store_attempts_total` | counter | |
+| `collector_wal_store_failures_total` | counter | |
 | `collector_wal_restore_errors_total` | counter | |
 
 `kubecost_export_last_success_timestamp_seconds{pipeline,resolution}` waits for OpenCost's
