@@ -35,10 +35,51 @@ const (
 	DropReasonInvalidSample         = dropReasonInvalidSample
 	DropReasonInvalidPayload        = dropReasonInvalidPayload
 	DropReasonQuarantineEvicted     = dropReasonQuarantineEvicted
+	DropReasonRejectedByBackend     = dropReasonRejectedByBackend
+	DropReasonUndeliverable         = dropReasonUndeliverable
+	DropReasonNoUploader            = dropReasonNoUploader
+	DropReasonBacklogBytes          = dropReasonBacklogBytes
+	DropReasonBacklogAge            = dropReasonBacklogAge
 	ConditionDiskPressure           = conditionDiskPressure
 	ConditionDiskSpaceUnknown       = conditionDiskSpaceUnknown
 	ConditionUninitialised          = conditionUninitialised
+
+	ConditionUploaderUnconfigured     = conditionUploaderUnconfigured
+	ConditionUploaderMisconfigured    = conditionUploaderMisconfigured
+	ConditionUploadConnectivityFailed = conditionUploadConnectivityFailed
+	ConditionUploadAuthFailed         = conditionUploadAuthFailed
+
+	UploadResultOK        = uploadResultOK
+	UploadResultRetryable = uploadResultRetryable
+	UploadResultTimeout   = uploadResultTimeout
+	UploadResultAuth      = uploadResultAuth
+	UploadResultRejected  = uploadResultRejected
 )
+
+// ClassifyUploadForTest returns the upload_attempts_total result for a StorageService.Upload
+// error, and whether the uploader deletes (delivered), keeps (retry, auth) or quarantines
+// (rejected) the payload.
+func ClassifyUploadForTest(err error) (result string, action string) {
+	switch classifyUpload(err) {
+	case uploadDelivered:
+		action = "delete"
+	case uploadRejected:
+		action = "quarantine"
+	case uploadAuthFailed:
+		action = "stop-auth"
+	default:
+		action = "stop"
+	}
+	return uploadResult(err), action
+}
+
+// SetRetryBackoffForTest replaces the HTTP retry backoff and returns a func restoring it. Tests
+// that set it must not run in parallel.
+func SetRetryBackoffForTest(f func(attempt int) time.Duration) (restore func()) {
+	prev := retryBackoff
+	retryBackoff = f
+	return func() { retryBackoff = prev }
+}
 
 // MaxPendingShortLivedPods is the emitter's short-lived pod bound.
 const MaxPendingShortLivedPods = maxPendingShortLivedPods

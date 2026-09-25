@@ -42,10 +42,45 @@ const s3UploadDescription = "uploading sample to Cloudability S3 using presigned
 const clustersUploadEndpoint = "/v3/internal/containers/clusters/upload"
 const apikeyloginEndpoint = "/service/apikeylogin"
 
-// StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob
+// StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob. Upload
+// returns an *UploadError naming the stage that failed, so the uploader can tell a refused
+// credential from a refused payload (classifyUpload).
 type StorageService interface {
 	Upload(payload UploadPayload) error
 }
+
+// Upload stages, for UploadError.
+const (
+	// UploadStageLogin is the Frontdoor login.
+	UploadStageLogin = "login"
+	// UploadStagePresign is the request for a presigned URL, to Cloudability or the
+	// metrics-collector.
+	UploadStagePresign = "presign"
+	// UploadStagePresignedPut is the PUT of the payload to a presigned URL.
+	UploadStagePresignedPut = "presigned_put"
+	// UploadStageStore is an authenticated write to the customer's own S3 bucket or Azure
+	// container.
+	UploadStageStore = "store"
+)
+
+// UploadError is a failed upload and the stage it failed at. The HTTP status, when the server
+// answered, is in the wrapped error (see uploadStatusCode).
+type UploadError struct {
+	Stage string
+	Err   error
+}
+
+func (e *UploadError) Error() string { return fmt.Sprintf("upload failed at %s: %v", e.Stage, e.Err) }
+
+func (e *UploadError) Unwrap() error { return e.Err }
+
+// HTTPStatusError is a request the server answered with a status other than 200.
+type HTTPStatusError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *HTTPStatusError) Error() string { return e.Message }
 
 type ClientService interface {
 	Do(r *http.Request, requestDescription string) (*http.Response, error)

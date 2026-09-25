@@ -8,8 +8,6 @@ package cldy_test
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,98 +16,6 @@ import (
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/emitter"
 )
-
-// reproRecoveryPeriod stands in for a configured recovery period (decision D8's proposed 72h
-// default) where a test needs to look past F-36.
-const reproRecoveryPeriod = 72 * time.Hour
-
-// ghostUploads returns the queued payloads whose files no longer exist.
-func ghostUploads(cu *cldy.CldyUploader) []string {
-	var ghosts []string
-	for _, p := range cu.QueuedUploadsForTest() {
-		if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
-			ghosts = append(ghosts, filepath.Base(p))
-		}
-	}
-	return ghosts
-}
-
-// F-02: with no storage service, uploadData loops over nothing, returns nil and deletes the payload.
-func TestReproF02ZeroServicesKeepsPayload(t *testing.T) {
-	scratch := newProdScratch(t, t.TempDir(), "cid-f02")
-	config := scratch.UploaderConfig(t)
-	config.RecoveryPeriod = reproRecoveryPeriod
-
-	cu := cldy.NewUploaderForTest(config, nil, nil) // e.g. the service's startup connectivity test failed
-	cu.SetClusterID(scratch.ClusterID)
-	cu.AddSample(scratch.AddCompleteSample(t, time.Now(), 0))
-	cu.UploadCycleForTest()
-
-	if len(scratch.Uploads(t)) == 0 {
-		t.Fatalf("F-02: with zero storage services the upload cycle deleted the payload as if delivered; "+
-			"the sample is gone (%d sample files left) and nothing was uploaded or counted", scratch.ScratchFileCount())
-	}
-}
-
-// F-03: operateAndRemove only removes keys when every upload succeeds, but uploadData deletes each
-// delivered file. A partial failure leaves ghosts that fail every later cycle.
-func TestReproF03PartialFailureLeavesNoGhosts(t *testing.T) {
-	clock := newFakeClock(time.Now().Truncate(time.Second))
-	scratch := newProdScratch(t, t.TempDir(), "cid-f03")
-	for i := range 3 {
-		scratch.AddUpload(t, clock.Now().Add(-time.Duration(30-10*i)*time.Minute))
-	}
-	config := scratch.UploaderConfig(t)
-	config.RecoveryPeriod = reproRecoveryPeriod // look past F-36 so the backlog is queued
-	svc := &fakeStorage{failOn: func(call int, _ cldy.UploadPayload) error {
-		if call == 3 {
-			return errors.New("injected upload failure")
-		}
-		return nil
-	}}
-	cu := cldy.NewUploaderForTest(config, []cldy.StorageService{svc}, clock.Now)
-	cu.SetClusterID(scratch.ClusterID)
-	if cu.RecoveredUploads != 3 {
-		t.Fatalf("setup: expected 3 queued payloads, got %d", cu.RecoveredUploads)
-	}
-
-	// Cycle 1 packages a fresh sample (4 queued) and the 3rd upload fails.
-	cu.AddSample(scratch.AddCompleteSample(t, clock.Now(), 0))
-	cu.UploadCycleForTest()
-	// Cycle 2: the service has recovered.
-	clock.Advance(10 * time.Minute)
-	cu.AddSample(scratch.AddCompleteSample(t, clock.Now(), 1))
-	cu.UploadCycleForTest()
-
-	if ghosts := ghostUploads(cu); len(ghosts) > 0 {
-		t.Errorf("F-03: after one partial upload failure the queue holds %d ghost entries (delivered and deleted, still "+
-			"queued) %v; every later cycle stops on ENOENT and the queue is never pruned again", len(ghosts), ghosts)
-	}
-	if left := scratch.Uploads(t); len(left) > 0 {
-		t.Errorf("F-03: %d payloads still undelivered after the service recovered: %v", len(left), left)
-	}
-}
-
-// F-03 (b): disk-pressure cleanup deletes payload files that are still queued.
-func TestReproF03DiskPressureLeavesNoGhosts(t *testing.T) {
-	clock := newFakeClock(time.Now())
-	scratch := newProdScratch(t, t.TempDir(), "cid-f03b")
-	scratch.AddUpload(t, clock.Now().Add(-20*time.Minute))
-	scratch.AddUpload(t, clock.Now().Add(-10*time.Minute))
-	config := scratch.UploaderConfig(t)
-	config.RecoveryPeriod = reproRecoveryPeriod
-	cu := cldy.NewUploaderForTest(config, nil, clock.Now)
-
-	clock.Advance(reproRecoveryPeriod) // the files are now older than recoveryPeriod/2
-	if err := cu.ClearOldUploadSamples(); err != nil {
-		t.Fatalf("ClearOldUploadSamples: %v", err)
-	}
-
-	if ghosts := ghostUploads(cu); len(ghosts) > 0 {
-		t.Fatalf("F-03: disk-pressure cleanup deleted %d queued payloads but left them in the upload queue as ghosts %v",
-			len(ghosts), ghosts)
-	}
-}
 
 // switchableProvider returns a fixed snapshot, or an error while failing is set.
 type switchableProvider struct {

@@ -165,8 +165,12 @@ type UploaderConfig struct {
 	UploadFrequency time.Duration
 	ScratchDir      string
 	// RecoveryPeriod is how old pending data may be at startup and still be uploaded
-	// (CLOUDABILITY_RECOVERY_PERIOD). Zero means defaultRecoveryPeriod.
+	// (CLOUDABILITY_RECOVERY_PERIOD). Zero means defaultRecoveryPeriod. Queued data older than
+	// this is also evicted at runtime.
 	RecoveryPeriod time.Duration
+	// BacklogMaxBytes caps the bytes queued for upload, samples and payloads together
+	// (CLOUDABILITY_BACKLOG_MAX_MB). Zero means defaultBacklogMaxBytes.
+	BacklogMaxBytes int64
 }
 
 func (cu *CldyUploader) AddSample(sample string) {
@@ -527,4 +531,56 @@ func (cu *CldyUploader) ClearOldUploadSamples() error {
 	}
 
 	return nil
+}
+
+// uploadOutcome is what an upload attempt means for the payload and the rest of the cycle.
+type uploadOutcome int
+
+const (
+	// uploadDelivered: every service accepted the payload. It is removed.
+	uploadDelivered uploadOutcome = iota
+	// uploadRetryable: stop the cycle and keep the order; the next tick retries.
+	uploadRetryable
+	// uploadAuthFailed: the backend refused the credentials. Stop the cycle and raise
+	// upload_auth_failed.
+	uploadAuthFailed
+	// uploadRejected: the backend will never accept this payload. Quarantine it and carry on.
+	uploadRejected
+)
+
+// classifyUpload decides what a StorageService.Upload error means.
+func classifyUpload(err error) uploadOutcome {
+	if err == nil {
+		return uploadDelivered
+	}
+	return uploadRetryable
+}
+
+// uploadResult is the upload_attempts_total result label for an attempt.
+func uploadResult(err error) string {
+	if err == nil {
+		return uploadResultOK
+	}
+	return uploadResultRetryable
+}
+
+// UploadHeartbeat is the upload loop's progress, for readiness and /status (chunk 08) and
+// metrics (chunk 09).
+type UploadHeartbeat struct {
+	LastCycleStart      time.Time
+	LastCycleEnd        time.Time
+	LastSuccess         time.Time
+	ConsecutiveFailures int
+	BacklogFiles        int
+	BacklogBytes        int64
+}
+
+// UploadHeartbeatSource is implemented by *CldyUploader.
+type UploadHeartbeatSource interface {
+	UploadHeartbeat() UploadHeartbeat
+}
+
+// UploadHeartbeat returns the upload loop's progress. It is safe to call from any goroutine.
+func (cu *CldyUploader) UploadHeartbeat() UploadHeartbeat {
+	return UploadHeartbeat{}
 }
