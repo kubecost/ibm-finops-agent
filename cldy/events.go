@@ -82,6 +82,10 @@ const (
 	// conditionUploadAuthFailed: the backend refused the agent's credentials (401 or 403 on login
 	// or presign). It clears on the next delivered payload.
 	conditionUploadAuthFailed = "upload_auth_failed"
+	// conditionUploadsRejected: the backend rejected several payloads in a row (400 or 413), so
+	// the fault is taken to be the backend's and nothing is quarantined. It clears on the next
+	// delivered payload.
+	conditionUploadsRejected = "upload_rejected"
 )
 
 // Upload attempt results for finops_agent_cldy_upload_attempts_total{result}.

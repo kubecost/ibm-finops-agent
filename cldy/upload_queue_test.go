@@ -49,6 +49,8 @@ const (
 // recorded, in order, as delivered.
 type scriptedClient struct {
 	status func(stage, fileName string) (int, error)
+	// errBody, if set, is the body of every non-200 response.
+	errBody string
 
 	mu        sync.Mutex
 	calls     map[string]int
@@ -90,6 +92,7 @@ func (c *scriptedClient) Do(r *http.Request, _ string) (*http.Response, error) {
 	resp := &http.Response{StatusCode: code, Status: fmt.Sprintf("%d %s", code, http.StatusText(code)),
 		Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(nil))}
 	if code != http.StatusOK {
+		resp.Body = io.NopCloser(strings.NewReader(c.errBody))
 		return resp, nil
 	}
 	switch stage {
@@ -644,9 +647,28 @@ func TestHeadOfLineDeferredThenQuarantined(t *testing.T) {
 		t.Errorf("drops %v on the first deferral", got)
 	}
 
-	for _, step := range []time.Duration{10 * time.Minute, 3 * time.Hour, 3*time.Hour + time.Minute} {
-		clock.Advance(step)
-		cu.UploadCycleForTest()
+	deferredPath := filepath.Join(scratch.UploadDir(), "deferred", stuck)
+	if info, err := os.Stat(deferredPath); err != nil || !info.ModTime().Equal(clock.Now()) {
+		t.Fatalf("deferred payload not stamped with the deferral time: %v", err)
+	}
+	stuckFor6h := func() {
+		for _, step := range []time.Duration{10 * time.Minute, 3 * time.Hour, 3*time.Hour + time.Minute} {
+			clock.Advance(step)
+			cu.UploadCycleForTest()
+		}
+	}
+
+	// Nothing was delivered after the deferral, so failing again proves nothing: it is kept.
+	stuckFor6h()
+	if got := cu.EventsForTest().Dropped; len(got) != 0 {
+		t.Fatalf("drops %v with no delivery after the deferral", got)
+	}
+
+	// Once another payload is delivered after the deferral, the next 6h of failures quarantine it.
+	late := filepath.Base(scratch.AddUpload(t, clock.Now()))
+	stuckFor6h()
+	if got := client.Delivered(); !slices.Contains(got, late) {
+		t.Fatalf("the later payload %s was not delivered: %v", late, got)
 	}
 	if got := cu.EventsForTest().Dropped; got[cldy.DropReasonUndeliverable] != 1 || len(got) != 1 {
 		t.Errorf("drops %v, want %s=1", got, cldy.DropReasonUndeliverable)
@@ -805,6 +827,29 @@ func TestClassifyUpload(t *testing.T) {
 		{"S3 400 (a region or signing problem, not this payload)", func(t *testing.T) error {
 			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("AuthorizationHeaderMalformed", "region", nil), 400, "r")}}.Upload(testPayload(t))
 		}, cldy.UploadResultRetryable, "stop"},
+		{"presigned PUT 400 ExpiredToken (the URL's credentials, not this payload)", func(t *testing.T) error {
+			client := &scriptedClient{status: stageStatus(stagePut, http.StatusBadRequest),
+				errBody: "<Error><Code>ExpiredToken</Code><Message>The provided token has expired.</Message></Error>"}
+			return apptioService(client).Upload(testPayload(t))
+		}, cldy.UploadResultRetryable, "stop"},
+		{"presigned PUT 400 ExpiredToken through the real client", func(t *testing.T) error {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				if r.URL.Path == "/metricsample" {
+					_ = json.NewEncoder(w).Encode(map[string]string{"location": "http://" + r.Host + "/put"})
+					return
+				}
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, "<Error><Code>ExpiredToken</Code></Error>")
+			}))
+			defer server.Close()
+			svc := &cldy.MetricsCollectorServiceImpl{APIKey: "key", BaseURL: server.URL + "/metricsample",
+				CldyUploadClient: cldy.NewApptioClient(cldy.ApptioConfig{Timeout: time.Second})}
+			return svc.Upload(testPayload(t))
+		}, cldy.UploadResultRetryable, "stop"},
+		{"S3 400 ExpiredToken", func(t *testing.T) error {
+			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("ExpiredToken", "expired", nil), 400, "r")}}.Upload(testPayload(t))
+		}, cldy.UploadResultRetryable, "stop"},
 		{"S3 413", func(t *testing.T) error {
 			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("EntityTooLarge", "big", nil), 413, "r")}}.Upload(testPayload(t))
 		}, cldy.UploadResultRejected, "quarantine"},
@@ -871,3 +916,131 @@ func (s s3Failing) Do(*s3manager.UploadInput) error { return s.err }
 type blobFailing struct{ err error }
 
 func (b blobFailing) Do(*cldy.BlobUploadInput) error { return b.err }
+
+// A backend that rejects every payload (a 400 on something they all share) quarantines
+// nothing: after maxConsecutiveRejections in a row the cycle stops, a condition is raised and
+// the payloads are kept.
+func TestSystemicRejectionQuarantinesNothing(t *testing.T) {
+	clock := newFakeClock(time.Now().Truncate(time.Second))
+	scratch := newProdScratch(t, t.TempDir(), "cid-400-all")
+	for i := range 5 {
+		scratch.AddUpload(t, clock.Now().Add(time.Duration(i-5)*time.Hour))
+	}
+	var rejecting atomic.Bool
+	rejecting.Store(true)
+	client := &scriptedClient{status: func(stage, _ string) (int, error) {
+		if rejecting.Load() && stage == stagePresign {
+			return http.StatusBadRequest, nil
+		}
+		return http.StatusOK, nil
+	}}
+	cu := newQueueUploader(t, scratch, []cldy.StorageService{apptioService(client)}, clock)
+	for range 3 {
+		clock.Advance(10 * time.Minute)
+		cu.UploadCycleForTest()
+	}
+	ev := cu.EventsForTest()
+	if len(ev.Dropped) != 0 || len(scratch.Quarantined(t)) != 0 {
+		t.Errorf("a backend rejecting everything quarantined payloads: drops %v, quarantine %v", ev.Dropped, scratch.Quarantined(t))
+	}
+	if !ev.Conditions[cldy.ConditionUploadsRejected] {
+		t.Errorf("condition %s not raised", cldy.ConditionUploadsRejected)
+	}
+	if got := len(scratch.Uploads(t)); got != 5 {
+		t.Errorf("upload/ holds %d payloads, want all 5", got)
+	}
+
+	rejecting.Store(false)
+	clock.Advance(10 * time.Minute)
+	cu.UploadCycleForTest()
+	if got := client.Delivered(); len(got) != 5 {
+		t.Errorf("delivered %v once the backend accepted payloads again, want all 5", got)
+	}
+	if cu.EventsForTest().Conditions[cldy.ConditionUploadsRejected] {
+		t.Errorf("condition %s still set after a delivery", cldy.ConditionUploadsRejected)
+	}
+}
+
+// A lone rejected payload at the end of the queue is kept until another payload is accepted
+// after it; only then is it quarantined.
+func TestRejectedTailWaitsForEvidence(t *testing.T) {
+	clock := newFakeClock(time.Now().Truncate(time.Second))
+	scratch := newProdScratch(t, t.TempDir(), "cid-400-tail")
+	bad := filepath.Base(scratch.AddUpload(t, clock.Now().Add(-time.Hour)))
+	client := &scriptedClient{status: func(stage, file string) (int, error) {
+		if stage == stagePresign && file == bad {
+			return http.StatusBadRequest, nil
+		}
+		return http.StatusOK, nil
+	}}
+	cu := newQueueUploader(t, scratch, []cldy.StorageService{apptioService(client)}, clock)
+	cu.UploadCycleForTest()
+	if got := cu.EventsForTest().Dropped; len(got) != 0 {
+		t.Fatalf("drops %v with no evidence the backend accepts anything", got)
+	}
+	scratch.AddUpload(t, clock.Now())
+	clock.Advance(10 * time.Minute)
+	cu.UploadCycleForTest()
+	if got := cu.EventsForTest().Dropped; got[cldy.DropReasonRejectedByBackend] != 1 {
+		t.Errorf("drops %v, want %s=1 once another payload was accepted", got, cldy.DropReasonRejectedByBackend)
+	}
+}
+
+// Under disk pressure the quarantine is evicted before any data that can still be delivered.
+func TestDiskBudgetEvictsQuarantineFirst(t *testing.T) {
+	clock := newFakeClock(time.Now().Truncate(time.Second))
+	scratch := newProdScratch(t, t.TempDir(), "cid-quarantine-first")
+	payload := scratch.AddUpload(t, clock.Now().Add(-2*time.Hour))
+	if err := os.MkdirAll(scratch.QuarantineDir(), os.ModePerm); err != nil {
+		t.Fatal(err)
+	}
+	junk := filepath.Join(scratch.QuarantineDir(), "1_rejected_by_backend_old.tgz")
+	if err := os.WriteFile(junk, []byte("rejected"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := &fakeStorage{failOn: func(int, cldy.UploadPayload) error { return errConnRefused }}
+	cu := newQueueUploader(t, scratch, []cldy.StorageService{svc}, clock)
+	restore := cldy.SetDiskAvailableForTest(func(string) (uint64, error) {
+		if _, err := os.Stat(junk); err == nil {
+			return 0, nil
+		}
+		return 1 << 40, nil
+	})
+	defer restore()
+	scratch.AddCompleteSample(t, clock.Now(), 0)
+	cu.UploadCycleForTest()
+
+	if _, err := os.Stat(payload); err != nil {
+		t.Errorf("a deliverable payload was evicted while the quarantine held data: %v", err)
+	}
+	if got := cu.EventsForTest().Dropped; got[cldy.DropReasonQuarantineEvicted] != 1 || len(got) != 1 {
+		t.Errorf("drops %v, want only %s=1", got, cldy.DropReasonQuarantineEvicted)
+	}
+}
+
+// A presigned URL's query string is a credential: it is stripped from the transport error,
+// which doWithRetry logs on every attempt and the uploader logs when the cycle stops. (The
+// global logger isn't swapped to capture the logs: leaked uploader loops in other specs write
+// to it concurrently.)
+func TestPresignedURLQueryNotInErrors(t *testing.T) {
+	restoreBackoff := cldy.SetRetryBackoffForTest(func(int) time.Duration { return 0 })
+	defer restoreBackoff()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if r.URL.Path == "/metricsample" {
+			_ = json.NewEncoder(w).Encode(map[string]string{"location": "http://" + r.Host + "/put/p.tgz?X-Amz-Signature=sekrit"})
+			return
+		}
+		<-r.Context().Done() // the PUT hangs until the client gives up
+	}))
+	defer server.Close()
+	svc := &cldy.MetricsCollectorServiceImpl{APIKey: "key", BaseURL: server.URL + "/metricsample",
+		CldyUploadClient: cldy.NewApptioClient(cldy.ApptioConfig{Timeout: 100 * time.Millisecond})}
+	err := svc.Upload(testPayload(t))
+	if err == nil || !strings.Contains(err.Error(), "/put/p.tgz") {
+		t.Fatalf("want a transport error naming the PUT, got %v", err)
+	}
+	if strings.Contains(err.Error(), "sekrit") || strings.Contains(err.Error(), "X-Amz-Signature") {
+		t.Errorf("a presigned URL's query string is in the error: %v", err)
+	}
+}

@@ -110,6 +110,20 @@ func uploadStatusCode(err error) (int, bool) {
 	return 0, false
 }
 
+// s3ErrorCode returns " (<Code>...</Code>)" from an S3 XML error body, or "". Only the code is
+// kept: the rest of an S3 error can echo the request, credential scope included.
+func s3ErrorCode(body []byte) string {
+	_, rest, ok := strings.Cut(string(body), "<Code>")
+	if !ok {
+		return ""
+	}
+	code, _, ok := strings.Cut(rest, "</Code>")
+	if !ok || len(code) > 64 {
+		return ""
+	}
+	return " (<Code>" + code + "</Code>)"
+}
+
 // errConnectivityTest marks a failed startup connectivity test. The service is still usable:
 // the test is advisory.
 var errConnectivityTest = errors.New("connectivity test failed")
@@ -315,12 +329,6 @@ func putWithPresign(payload UploadPayload, presign func() (string, error), put f
 		err = put(presignedURL)
 		if err == nil {
 			return nil
-		}
-		// The presigned URL's query string is a credential: keep it out of logs and quarantine
-		// names.
-		var urlErr *url.Error
-		if errors.As(err, &urlErr) {
-			urlErr.URL = removeQueryParameters(urlErr.URL)
 		}
 		if code, _ := uploadStatusCode(err); code != http.StatusForbidden || attempt > 1 {
 			return &UploadError{Stage: UploadStagePresignedPut, Err: err}
@@ -528,14 +536,21 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 			return resp, nil
 		}
 		if err != nil {
+			// A presigned URL's query string is a credential: keep it out of the error, which
+			// is logged here and by the uploader.
+			var urlErr *url.Error
+			if errors.As(err, &urlErr) {
+				urlErr.URL = removeQueryParameters(urlErr.URL)
+			}
 			log.Warnf("HTTPS request failed with error: %s", err.Error())
 			lastErr = err
 		}
 		if resp != nil {
-			log.Warnf("Request failed with status code: %s", resp.Status)
+			head, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
-			lastErr = statusErrorf(resp.StatusCode, "status %s", resp.Status)
+			lastErr = statusErrorf(resp.StatusCode, "status %s%s", resp.Status, s3ErrorCode(head))
+			log.Warnf("Request failed with status code: %s", lastErr)
 		}
 		if i < maxAttempts {
 			time.Sleep(retryBackoff(i))

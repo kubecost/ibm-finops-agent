@@ -63,6 +63,10 @@ type CldyUploader struct {
 	// head-of-line rule. Only the upload loop touches it.
 	head headOfLine
 
+	// payloadRatio is the last payload's size over its samples' size, for payloadRoom. Guarded
+	// by queue.mu.
+	payloadRatio float64
+
 	hbMu      sync.Mutex
 	heartbeat UploadHeartbeat
 
@@ -362,7 +366,7 @@ func (cu *CldyUploader) packageSamplesLocked(clusterID string, ts time.Time) (st
 	}
 	quarantined := len(invalid) > 0
 	var paths []string
-	var need uint64
+	var sampleBytes int64
 	for _, s := range samples {
 		// The last check before the files leave the sample: the hashes, not only the sizes.
 		if _, err := validateSample(s.Path, true); err != nil {
@@ -371,7 +375,7 @@ func (cu *CldyUploader) packageSamplesLocked(clusterID string, ts time.Time) (st
 			continue
 		}
 		paths = append(paths, s.Path)
-		need += uint64(s.Manifest.totalBytes())
+		sampleBytes += s.Manifest.totalBytes()
 	}
 	if quarantined {
 		cu.trimQuarantine()
@@ -379,20 +383,21 @@ func (cu *CldyUploader) packageSamplesLocked(clusterID string, ts time.Time) (st
 	if len(paths) == 0 {
 		return "", nil
 	}
-	return cu.buildPayload(clusterID, ts, paths, need)
+	return cu.buildPayload(clusterID, ts, paths, sampleBytes)
 }
 
 // buildPayload packages samples into upload/<clusterID>_<YYYY-MM-DD-HH-MM-SS>.tgz for ts and
-// returns its path. It first makes need bytes of room, evicting the oldest queued data; with no
-// room even then, the samples stay queued. The payload is written to upload/.<name>.partial,
+// returns its path. It first makes room for the payload (payloadRoom), evicting the oldest
+// queued data; with no room even then, the samples stay queued. The payload is written to upload/.<name>.partial,
 // closed and fsynced, then renamed into place and the directory fsynced (F-04). The samples are
 // removed only after the rename; on any error before it the temporary file is removed and the
 // samples are kept (F-50). A name already taken moves ts on by a second, so no payload is
 // overwritten. The caller holds cu.queue.mu, or is startup recovery.
-func (cu *CldyUploader) buildPayload(clusterID string, ts time.Time, samples []string, need uint64) (string, error) {
+func (cu *CldyUploader) buildPayload(clusterID string, ts time.Time, samples []string, sampleBytes int64) (string, error) {
 	if clusterID == "" {
 		return "", errors.New("no cluster ID: refusing to build a payload")
 	}
+	need := cu.payloadRoom(sampleBytes)
 	_, ok, err := cu.queue.makeRoomLocked(clusterID, need)
 	if err != nil {
 		log.Errorf("cannot read free space on the Cloudability scratch volume, not evicting anything: %v", err)
@@ -437,8 +442,27 @@ func (cu *CldyUploader) buildPayload(clusterID string, ts time.Time, samples []s
 	if err := syncDir(cu.UploadPathDir); err != nil {
 		log.Errorf("payload %s is written but syncing %s failed; it may not survive a node crash: %v", final, cu.UploadPathDir, err)
 	}
+	if info, err := os.Stat(final); err == nil && sampleBytes > 0 {
+		cu.payloadRatio = float64(info.Size()) / float64(sampleBytes)
+	}
 	removeSamples(samples)
 	return final, nil
+}
+
+// defaultPayloadRatio is the assumed payload size as a fraction of its samples' size before the
+// first payload is built. JSON under gzip -9 is usually much smaller.
+const defaultPayloadRatio = 0.25
+
+// payloadRoom is the free space to make before packaging sampleBytes of samples: twice the size
+// the last payload's compression ratio predicts. Asking for the samples' own size would evict
+// far more than the payload needs; if the estimate is short, the write fails and the samples
+// stay queued for the next cycle.
+func (cu *CldyUploader) payloadRoom(sampleBytes int64) uint64 {
+	ratio := cu.payloadRatio
+	if ratio <= 0 {
+		ratio = defaultPayloadRatio
+	}
+	return uint64(2 * ratio * float64(sampleBytes))
 }
 
 // existingPaths returns the paths that still exist.
@@ -482,12 +506,24 @@ func (cu *CldyUploader) createPayloadFile(clusterID string, ts time.Time) (final
 	return "", "", nil, fmt.Errorf("no free payload name within %d seconds of %s", maxPayloadNameAttempts, ts.UTC().Format(payloadTimeFormat))
 }
 
-// removeSamples removes samples that are packaged in a payload. A sample that can't be removed
-// is packaged and uploaded again, which at-least-once delivery allows.
+// removeSamples removes samples that are packaged in a payload. Each is first renamed back to a
+// staging name, so a kill part-way through the removal leaves a staging directory, which is
+// discarded as unfinalised, not a torn sample that would be quarantined and counted as a drop.
+// A sample that can't be renamed is packaged and uploaded again, which at-least-once delivery
+// allows.
 func removeSamples(samples []string) {
 	for _, sample := range samples {
-		if err := os.RemoveAll(sample); err != nil {
+		dir := filepath.Clean(sample)
+		doomed := filepath.Join(filepath.Dir(dir), stagingPrefix+filepath.Base(dir))
+		if err := os.Rename(dir, doomed); err != nil {
 			log.Errorf("failed to remove packaged Cloudability sample %s; it will be uploaded again: %v", sample, err)
+			continue
+		}
+		if err := crashPoint(crashPackagedSampleRenamed); err != nil {
+			continue
+		}
+		if err := os.RemoveAll(doomed); err != nil {
+			log.Errorf("failed to remove packaged Cloudability sample %s; it is discarded later as unfinalised: %v", doomed, err)
 		}
 	}
 }
@@ -510,6 +546,19 @@ func (cu *CldyUploader) uploadQueued(clusterID string) bool {
 			cu.queue.withLock(cu.trimQuarantine)
 		}
 	}()
+	// rejected is the current run of consecutive rejections, not yet quarantined. Only a run
+	// ended by a delivery is quarantined: that delivery shows the backend accepts payloads, so
+	// the fault is in these. A run of maxConsecutiveRejections is taken to be the backend
+	// refusing everything: it stops the cycle and nothing is quarantined. A run at the end of
+	// the queue waits for the next cycle.
+	var rejected []rejection
+	quarantineRejected := func() {
+		for _, r := range rejected {
+			cu.queue.withLock(func() { cu.quarantine(r.path, dropReasonRejectedByBackend, r.detail) })
+			quarantined = true
+		}
+		rejected = nil
+	}
 	for _, path := range invalid {
 		cu.queue.withLock(func() { cu.quarantine(path, dropReasonInvalidPayload, "not a <clusterID>_<timestamp>.tgz payload") })
 		quarantined = true
@@ -547,20 +596,25 @@ func (cu *CldyUploader) uploadQueued(clusterID string) bool {
 		cu.events.UploadAttempt(uploadResult(err))
 		outcome := classifyUpload(err)
 		cu.queue.finishUpload(func() {
-			switch outcome {
-			case uploadDelivered:
-				if err := os.Remove(p.path); err != nil {
-					log.Errorf("delivered Cloudability payload %s could not be removed; it will be uploaded again: %v", name, err)
-				}
-			case uploadRejected:
-				cu.quarantine(p.path, dropReasonRejectedByBackend, err.Error())
+			if outcome != uploadDelivered {
+				return
+			}
+			if err := os.Remove(p.path); err != nil {
+				log.Errorf("delivered Cloudability payload %s could not be removed; it will be uploaded again: %v", name, err)
 			}
 		})
 		switch outcome {
 		case uploadDelivered:
+			quarantineRejected()
 			cu.delivered()
 		case uploadRejected:
-			quarantined = true
+			rejected = append(rejected, rejection{path: p.path, detail: err.Error()})
+			if len(rejected) < maxConsecutiveRejections {
+				continue
+			}
+			cu.setCondition(conditionUploadsRejected, true, fmt.Sprintf("the Cloudability backend rejected %d payloads in a row, so the "+
+				"fault is probably not in the payloads; keeping them and retrying next cycle: %v", len(rejected), err))
+			return false
 		case uploadAuthFailed:
 			cu.setCondition(conditionUploadAuthFailed, true, fmt.Sprintf("the Cloudability backend refused the agent's credentials; nothing is deleted: %v", err))
 			return false
@@ -573,7 +627,22 @@ func (cu *CldyUploader) uploadQueued(clusterID string) bool {
 			return false
 		}
 	}
+	if len(rejected) > 0 {
+		// Nothing was delivered after them, so there is no evidence yet that the backend
+		// accepts anything: keep them for the next cycle.
+		log.Warnf("the Cloudability backend rejected the last %d payloads in the queue; keeping them until another payload is accepted", len(rejected))
+	}
 	return true
+}
+
+// maxConsecutiveRejections is how many payloads in a row the backend may reject before the
+// uploader treats the rejections as the backend's fault rather than the payloads'.
+const maxConsecutiveRejections = 3
+
+// rejection is a payload the backend rejected, waiting to be quarantined.
+type rejection struct {
+	path   string
+	detail string
 }
 
 // delivered records a delivered payload.
@@ -583,6 +652,7 @@ func (cu *CldyUploader) delivered() {
 	cu.hbMu.Unlock()
 	cu.setCondition(conditionUploadAuthFailed, false, "the Cloudability backend accepted a payload")
 	cu.setCondition(conditionUploadConnectivityFailed, false, "the Cloudability backend accepted a payload")
+	cu.setCondition(conditionUploadsRejected, false, "the Cloudability backend accepted a payload")
 }
 
 // headFailed applies the head-of-line rule to a retryable failure of p, the head of the queue.
@@ -617,7 +687,7 @@ func (cu *CldyUploader) headFailed(p queuedPayload, err error) bool {
 	cu.hbMu.Lock()
 	lastSuccess := cu.heartbeat.LastSuccess
 	cu.hbMu.Unlock()
-	if lastSuccess.IsZero() || lastSuccess.Before(p.mod) {
+	if !lastSuccess.After(p.mod) {
 		log.Warnf("Cloudability payload %s keeps failing at the head of the upload queue, but nothing was delivered since it was "+
 			"moved behind the rest, so the backend may be down; keeping it", name)
 		return false
@@ -629,20 +699,21 @@ func (cu *CldyUploader) headFailed(p queuedPayload, err error) bool {
 	return true
 }
 
-// deferPayload moves a payload to upload/deferred/, stamped with when it was moved. The
-// caller holds cu.queue.mu.
+// deferPayload moves a payload to upload/deferred/, stamped with when it was moved. The stamp
+// comes first, so a deferred payload always carries it: the head-of-line rule quarantines one
+// only after a delivery later than the stamp. The caller holds cu.queue.mu.
 func (cu *CldyUploader) deferPayload(path string, now time.Time) bool {
 	dest := filepath.Join(cu.queue.deferredDir(), filepath.Base(path))
-	err := os.MkdirAll(cu.queue.deferredDir(), os.ModePerm)
+	err := os.Chtimes(path, now, now)
+	if err == nil {
+		err = os.MkdirAll(cu.queue.deferredDir(), os.ModePerm)
+	}
 	if err == nil {
 		err = os.Rename(path, dest)
 	}
 	if err != nil {
 		log.Errorf("failed to move Cloudability payload %s behind the rest of the upload queue: %v", path, err)
 		return false
-	}
-	if err := os.Chtimes(dest, now, now); err != nil {
-		log.Warnf("failed to stamp deferred payload %s: %v", dest, err)
 	}
 	return true
 }
@@ -694,7 +765,11 @@ const (
 //	401 or 403 at login, presign or store          auth: the credentials were refused
 //	403 on a presigned PUT                         retryable: the URL expired (the service has
 //	                                               already presigned again once)
-//	400 or 413 at presign or on a presigned PUT    rejected: this payload will never be accepted
+//	400 or 413 at presign or on a presigned PUT    rejected: this payload will never be accepted,
+//	                                               unless S3 says the URL's token expired
+//	                                               (retryable). uploadQueued quarantines a
+//	                                               rejection only once another payload is
+//	                                               accepted after it
 //	413 at store                                   rejected
 //	400 at store (S3, Azure)                       retryable: those use 400 for configuration
 //	                                               faults such as a wrong region
@@ -723,11 +798,25 @@ func classifyUpload(err error) uploadOutcome {
 		return uploadAuthFailed
 	case stage == UploadStageLogin:
 		return uploadRetryable
+	case code == 400 && stage == UploadStagePresignedPut && s3TokenExpired(err):
+		return uploadRetryable
 	case code == 413 || (code == 400 && stage != UploadStageStore):
 		return uploadRejected
 	default:
 		return uploadRetryable
 	}
+}
+
+// s3TokenExpired reports whether a 400 from S3 on a presigned PUT says the credentials behind
+// the URL expired, which is the backend's fault and passes, not the payload's.
+func s3TokenExpired(err error) bool {
+	msg := err.Error()
+	for _, code := range []string{"ExpiredToken", "InvalidToken", "TokenRefreshRequired"} {
+		if strings.Contains(msg, "<Code>"+code+"</Code>") {
+			return true
+		}
+	}
+	return false
 }
 
 // uploadResult is the upload_attempts_total result label for an attempt.

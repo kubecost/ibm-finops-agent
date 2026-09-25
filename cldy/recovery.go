@@ -205,7 +205,7 @@ func (cu *CldyUploader) recoverClusterSamples(clusterID, clusterDir string) erro
 				fmt.Sprintf("sample %s is %s old, past the recovery period of %s", name, age.Round(time.Second), cu.recoveryPeriod))
 			continue
 		}
-		payload, err := cu.buildPayload(clusterID, m.Timestamp, []string{path + string(filepath.Separator)}, uint64(m.totalBytes()))
+		payload, err := cu.buildPayload(clusterID, m.Timestamp, []string{path + string(filepath.Separator)}, m.totalBytes())
 		if err != nil {
 			// Left in place: the next packaging cycle, or the next start, retries it.
 			errs = errors.Join(errs, fmt.Errorf("packaging sample %s: %w", name, err))
@@ -226,11 +226,17 @@ func (cu *CldyUploader) quarantineDir() string {
 }
 
 // quarantine moves path into the quarantine and counts a drop for reason: the data is not
-// uploaded. If it can't be moved it is removed. Callers bound the quarantine afterwards with
-// trimQuarantine.
+// uploaded. If it can't be moved it is removed. The drop is counted before the move, so a kill
+// in between over-counts rather than losing data silently. A path already gone was evicted, and
+// counted, by someone else. Callers bound the quarantine afterwards with trimQuarantine.
 func (cu *CldyUploader) quarantine(path, reason, detail string) {
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		log.Infof("%s left the Cloudability queue before it could be quarantined", path)
+		return
+	}
 	now := cu.clock()
 	dest := filepath.Join(cu.quarantineDir(), fmt.Sprintf("%d_%s_%s", now.UnixNano(), reason, filepath.Base(path)))
+	dropData(cu.events, reason, 1, fmt.Sprintf("%s: %s; quarantining to %s", filepath.Base(path), detail, dest))
 	err := os.MkdirAll(cu.quarantineDir(), os.ModePerm)
 	if err == nil {
 		err = os.Rename(path, dest)
@@ -240,12 +246,10 @@ func (cu *CldyUploader) quarantine(path, reason, detail string) {
 		if rmErr := os.RemoveAll(path); rmErr != nil {
 			log.Errorf("failed to remove %s: %v", path, rmErr)
 		}
-		dest = "nowhere"
 	} else if err := os.Chtimes(dest, now, now); err != nil {
 		// The quarantine's age bound counts from the move.
 		log.Warnf("failed to stamp quarantined %s: %v", dest, err)
 	}
-	dropData(cu.events, reason, 1, fmt.Sprintf("%s: %s; quarantined to %s", filepath.Base(path), detail, dest))
 }
 
 // trimQuarantine evicts the oldest quarantined items until none is older than quarantineMaxAge
@@ -283,13 +287,14 @@ func (cu *CldyUploader) trimQuarantine() {
 		if !expired && total <= quarantineMaxBytes {
 			break
 		}
+		// Counted first: a kill before the removal over-counts rather than losing silently.
+		dropData(cu.events, dropReasonQuarantineEvicted, 1,
+			fmt.Sprintf("evicting %s from the quarantine (%d bytes, quarantined %s ago)", it.name, it.size, now.Sub(it.mod).Round(time.Second)))
 		if err := os.RemoveAll(filepath.Join(dir, it.name)); err != nil {
 			log.Errorf("failed to evict %s from the Cloudability quarantine: %v", it.name, err)
 			continue
 		}
 		total -= it.size
-		dropData(cu.events, dropReasonQuarantineEvicted, 1,
-			fmt.Sprintf("evicted %s from the quarantine (%d bytes, quarantined %s ago)", it.name, it.size, now.Sub(it.mod).Round(time.Second)))
 	}
 }
 

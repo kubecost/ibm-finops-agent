@@ -13,6 +13,8 @@ const (
 	CrashAfterRename  = crashAfterRename
 	CrashAfterUpload  = crashAfterUpload
 
+	CrashPackagedSampleRenamed = crashPackagedSampleRenamed
+
 	CrashSampleFileWritten  = crashSampleFileWritten
 	CrashSampleBeforeRename = crashSampleBeforeRename
 	CrashSampleAfterRename  = crashSampleAfterRename
@@ -48,6 +50,7 @@ const (
 	ConditionUploaderMisconfigured    = conditionUploaderMisconfigured
 	ConditionUploadConnectivityFailed = conditionUploadConnectivityFailed
 	ConditionUploadAuthFailed         = conditionUploadAuthFailed
+	ConditionUploadsRejected          = conditionUploadsRejected
 
 	UploadResultOK        = uploadResultOK
 	UploadResultRetryable = uploadResultRetryable

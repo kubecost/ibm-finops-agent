@@ -759,6 +759,7 @@ func TestCrashPointMatrixNoSilentLoss(t *testing.T) {
 	sequence := run(t, 0)
 	for _, point := range []string{
 		cldy.CrashAfterCreate, cldy.CrashMidTar, cldy.CrashBeforeRename, cldy.CrashAfterRename, cldy.CrashAfterUpload,
+		cldy.CrashPackagedSampleRenamed,
 		cldy.CrashSampleFileWritten, cldy.CrashSampleBeforeRename, cldy.CrashSampleAfterRename,
 	} {
 		if !slices.Contains(sequence, point) {
