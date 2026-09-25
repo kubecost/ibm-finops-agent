@@ -815,8 +815,7 @@ func classifyUpload(err error) uploadOutcome {
 		return uploadRetryable
 	}
 	stage := ""
-	var uploadErr *UploadError
-	if errors.As(err, &uploadErr) {
+	if uploadErr, ok := errors.AsType[*UploadError](err); ok {
 		stage = uploadErr.Stage
 	}
 	switch {

@@ -107,8 +107,7 @@ func uploadStatusCode(err error) (int, bool) {
 	if err == nil {
 		return 0, false
 	}
-	var statusErr *HTTPStatusError
-	if errors.As(err, &statusErr) {
+	if statusErr, ok := errors.AsType[*HTTPStatusError](err); ok {
 		return statusErr.StatusCode, true
 	}
 	var awsErr interface{ StatusCode() int } // awserr.RequestFailure
@@ -650,8 +649,7 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		if err != nil {
 			// A presigned URL's query string is a credential: keep it out of the error, which
 			// is logged here and by the uploader.
-			var urlErr *url.Error
-			if errors.As(err, &urlErr) {
+			if urlErr, ok := errors.AsType[*url.Error](err); ok {
 				urlErr.URL = removeQueryParameters(urlErr.URL)
 			}
 			log.Warnf("HTTPS request failed with error: %s", err.Error())
