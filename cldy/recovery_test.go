@@ -636,7 +636,7 @@ func TestCrashPointMatrixNoSilentLoss(t *testing.T) {
 	start := time.Now().Truncate(time.Minute)
 	emitterConfig := func(dir string) cldy.EmitterConfig {
 		return cldy.EmitterConfig{
-			UploaderConfig:   cldy.UploaderConfig{ScratchDir: dir, RecoveryPeriod: testRecoveryPeriod, UploadFrequency: 10 * time.Minute},
+			ScratchDir: dir, RecoveryPeriod: testRecoveryPeriod, UploadFrequency: 10 * time.Minute,
 			EmitAsJson:       true,
 			EmissionInterval: productionInterval,
 		}

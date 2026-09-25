@@ -304,8 +304,7 @@ func verifyPayload(path string) (rerr error) {
 	}
 	defer safeClose(f.Close, &rerr)
 	corrupt := func(err error) error {
-		var pathErr *fs.PathError
-		if errors.As(err, &pathErr) {
+		if _, ok := errors.AsType[*fs.PathError](err); ok {
 			return err
 		}
 		return fmt.Errorf("%w: %v", errCorruptPayload, err)
