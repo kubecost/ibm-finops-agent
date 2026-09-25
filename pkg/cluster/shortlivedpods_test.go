@@ -5,14 +5,13 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // F-25 / I7: the short-lived-pod buffer is capped; overflow drops the oldest and counts it.
 func TestShortLivedPodBufferCap(t *testing.T) {
 	dcc := &DynamicClusterCache{slpCap: 3}
 	for i := range 5 {
-		dcc.addShortLivedPod(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: fmt.Sprintf("pod-%d", i)}})
+		dcc.addShortLivedPod(&corev1.Pod{Namespace: "ns", Name: fmt.Sprintf("pod-%d", i)})
 	}
 
 	var names []string
@@ -27,7 +26,7 @@ func TestShortLivedPodBufferCap(t *testing.T) {
 	}
 
 	// A drained buffer accepts pods again without dropping.
-	dcc.addShortLivedPod(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod-5"}})
+	dcc.addShortLivedPod(&corev1.Pod{Name: "pod-5"})
 	if got := len(dcc.GetAllShortLivedPods()); got != 1 {
 		t.Errorf("got %d pods after drain; want 1", got)
 	}

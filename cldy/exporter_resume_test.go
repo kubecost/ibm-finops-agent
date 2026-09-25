@@ -44,7 +44,7 @@ func TestReproF38ExporterResumesAfterOutageRestart(t *testing.T) {
 	}
 	clock := newFakeClock(time.Now())
 	config := cldy.EmitterConfig{
-		UploaderConfig:   cldy.UploaderConfig{ScratchDir: t.TempDir()},
+		ScratchDir:       t.TempDir(),
 		EmitAsJson:       true,
 		EmissionInterval: 3 * time.Minute,
 	}

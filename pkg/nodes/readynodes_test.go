@@ -11,7 +11,6 @@ import (
 
 	"github.com/ibm/finops-agent/pkg/cluster"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // staticNodeCache serves a fixed node list.
@@ -24,7 +23,7 @@ func (c staticNodeCache) GetAllNodes() []*v1.Node { return c.nodes }
 
 func fakeNode(i int, ready v1.ConditionStatus) *v1.Node {
 	return &v1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("node-%03d", i)},
+		Name: fmt.Sprintf("node-%03d", i),
 		Status: v1.NodeStatus{
 			Conditions: []v1.NodeCondition{
 				{Type: v1.NodeMemoryPressure, Status: v1.ConditionFalse},
