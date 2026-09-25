@@ -178,7 +178,10 @@ func main() {
 	publishHealthCheckers(&healthCheckers, emitters)
 
 	snapshotProvider := emitter.NewConcurrentSnapshotProvider(snapshotConfig)
-	exporter := emitter.NewExporter(dataSource, snapshotProvider, emitters...)
+	exporter := emitter.NewExporterWithConfig(dataSource, snapshotProvider, emitter.ExporterConfig{
+		SnapshotTimeout: env.GetExporterSnapshotTimeout(),
+		EmitTimeout:     env.GetExporterEmitTimeout(),
+	}, emitters...)
 
 	if ok := exporter.Start(emissionInterval); !ok {
 		panic("Failed to start exporter")

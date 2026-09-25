@@ -10,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ibm/finops-agent/internal/mocks"
 	"github.com/ibm/finops-agent/pkg/core"
+	"github.com/ibm/finops-agent/pkg/nodes"
+	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 // waitFor polls cond every 5ms until it holds or timeout elapses, and reports whether it held.
@@ -263,5 +266,227 @@ func TestExporterStopWaitsForLoop(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if after := em.emits.Load(); after != n {
 		t.Errorf("Emit called %d more times after Stop returned", after-n)
+	}
+}
+
+// hangAllProvider blocks every snapshot, ignoring any deadline, until release is closed.
+type hangAllProvider struct {
+	calls   atomic.Int32
+	release chan struct{}
+}
+
+func (p *hangAllProvider) SnapshotOf(core.DataSource) (*ClusterSnapshot, error) {
+	p.calls.Add(1)
+	<-p.release
+	return nil, errors.New("released")
+}
+
+// A hung snapshot ends each cycle at its deadline, the heartbeat shows the failure, cycles keep
+// running, the loop is not Stalled, and at most two snapshots are ever in flight.
+func TestExporterHungSnapshotHeartbeat(t *testing.T) {
+	provider := &hangAllProvider{release: make(chan struct{})}
+	t.Cleanup(func() { close(provider.release) })
+
+	exporter := NewExporterWithConfig(newEmptyDataSource(), provider, ExporterConfig{
+		SnapshotTimeout: 30 * time.Millisecond,
+		InitialBackoff:  5 * time.Millisecond,
+	}, newCountingEmitter("x"))
+	if !exporter.Start(20 * time.Millisecond) {
+		t.Fatal("failed to start exporter")
+	}
+	defer exporter.Stop()
+
+	if !waitFor(3*time.Second, func() bool { return exporter.Status().CyclesTotal >= 6 }) {
+		t.Fatalf("cycles stopped while snapshots hung: %+v", exporter.Status())
+	}
+	status := exporter.Status()
+	if status.SnapshotTimeoutsTotal < 2 {
+		t.Errorf("SnapshotTimeoutsTotal = %d; want every hung snapshot counted", status.SnapshotTimeoutsTotal)
+	}
+	if status.LastSnapshotError == nil || status.ConsecutiveSnapshotFailures < 6 {
+		t.Errorf("heartbeat doesn't show the failing snapshots: err=%v failures=%d", status.LastSnapshotError, status.ConsecutiveSnapshotFailures)
+	}
+	if !status.LastSnapshotSuccess.IsZero() {
+		t.Errorf("LastSnapshotSuccess = %s; no snapshot succeeded", status.LastSnapshotSuccess)
+	}
+	if got := provider.calls.Load(); got > maxSnapshotsInFlight {
+		t.Errorf("%d snapshots started while earlier ones were still hung; want at most %d", got, maxSnapshotsInFlight)
+	}
+	if exporter.Stalled(time.Now()) {
+		t.Error("Stalled() is true, but the loop is cycling; a failing snapshot must not fail liveness")
+	}
+}
+
+// slowEmitter takes d per Emit.
+type slowEmitter struct {
+	d     time.Duration
+	emits atomic.Int32
+}
+
+func (e *slowEmitter) ID() EmitterID               { return "slow" }
+func (e *slowEmitter) Init(*ClusterSnapshot) error { return nil }
+func (e *slowEmitter) Emit(ctx context.Context, _ *ClusterSnapshot) error {
+	e.emits.Add(1)
+	select {
+	case <-time.After(e.d):
+	case <-ctx.Done():
+	}
+	return nil
+}
+
+// A cycle longer than the interval counts the missed ticks and doesn't run them back to back.
+func TestExporterCountsCycleOverruns(t *testing.T) {
+	const interval = 20 * time.Millisecond
+	em := &slowEmitter{d: 3 * interval}
+	exporter := NewExporter(newEmptyDataSource(), newEmptySnapshotProvider(), em)
+	if !exporter.Start(interval) {
+		t.Fatal("failed to start exporter")
+	}
+	time.Sleep(500 * time.Millisecond)
+	exporter.Stop()
+
+	status := exporter.Status()
+	if status.CycleOverrunsTotal == 0 {
+		t.Errorf("CycleOverrunsTotal = 0 after cycles of 3 intervals each")
+	}
+	// Each emitting cycle takes ≥ 60ms plus the wait for the next tick, so ≤ ~500/80 emits.
+	if got := em.emits.Load(); got > 8 {
+		t.Errorf("%d emits in 500ms of 60ms cycles; missed ticks were run back to back", got)
+	}
+}
+
+// The per-emitter status tracks the lifecycle: uninitialised with an Init error, then ready
+// with emit successes; a hung emitter is busy with a deadline error.
+func TestExporterEmitterStatus(t *testing.T) {
+	flaky := &lifecycleCheckingEmitter{id: "flaky", failInits: 2}
+	hung := &blockingEmitter{release: make(chan struct{})}
+	t.Cleanup(func() { close(hung.release) })
+
+	exporter := NewExporterWithConfig(newEmptyDataSource(), newEmptySnapshotProvider(), ExporterConfig{
+		EmitTimeout: 30 * time.Millisecond,
+	}, flaky, hung)
+	if !exporter.Start(20 * time.Millisecond) {
+		t.Fatal("failed to start exporter")
+	}
+	defer exporter.Stop()
+
+	byID := func(id EmitterID) EmitterStatus {
+		for _, es := range exporter.Status().Emitters {
+			if es.ID == id {
+				return es
+			}
+		}
+		t.Fatalf("no status for %s", id)
+		return EmitterStatus{}
+	}
+
+	if !waitFor(2*time.Second, func() bool { return byID("flaky").LastInitError != nil }) {
+		t.Fatal("flaky emitter's Init error never showed in its status")
+	}
+	if es := byID("flaky"); es.State != EmitterUninitialised {
+		t.Errorf("flaky state = %s while Init is failing", es.State)
+	}
+	if !waitFor(2*time.Second, func() bool { return !byID("flaky").LastEmitSuccess.IsZero() }) {
+		t.Fatal("flaky emitter never recorded an emit success")
+	}
+	if es := byID("flaky"); es.State != EmitterReady || es.LastInitError != nil || es.ConsecutiveFailures != 0 {
+		t.Errorf("flaky status after recovery = %+v", es)
+	}
+
+	if !waitFor(2*time.Second, func() bool {
+		es := byID("blocking")
+		return es.Busy && es.ConsecutiveFailures >= 2
+	}) {
+		t.Errorf("hung emitter status doesn't show the deadline: %+v", byID("blocking"))
+	}
+	if st := exporter.Status(); st.EmitTimeoutsTotal == 0 {
+		t.Errorf("EmitTimeoutsTotal = 0 with a hung emitter")
+	}
+}
+
+func TestExporterStalled(t *testing.T) {
+	const interval = time.Minute
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	cfg := ExporterConfig{SnapshotTimeout: 5 * time.Minute, EmitTimeout: 5 * time.Minute}.withDefaults(interval)
+	// cycle deadline: 5m + 5m + 1m slack; gap limit: 2m + 1m slack
+
+	tests := []struct {
+		name       string
+		running    bool
+		inCycle    bool
+		cycleStart time.Time
+		cycleEnd   time.Time
+		now        time.Time
+		want       bool
+	}{
+		{name: "not running", running: false, now: base.Add(time.Hour), want: false},
+		{name: "just started, no cycle yet", running: true, now: base.Add(time.Minute), want: false},
+		{name: "no cycle since start", running: true, now: base.Add(3*time.Minute + time.Second), want: true},
+		{name: "cycle in progress within deadline", running: true, inCycle: true, cycleStart: base.Add(time.Minute), now: base.Add(11 * time.Minute), want: false},
+		{name: "cycle in progress past deadline", running: true, inCycle: true, cycleStart: base.Add(time.Minute), now: base.Add(12*time.Minute + time.Second), want: true},
+		{name: "cycle ended recently", running: true, cycleStart: base.Add(time.Minute), cycleEnd: base.Add(2 * time.Minute), now: base.Add(4 * time.Minute), want: false},
+		{name: "long cycle just ended", running: true, cycleStart: base.Add(time.Minute), cycleEnd: base.Add(10 * time.Minute), now: base.Add(11 * time.Minute), want: false},
+		{name: "no cycle since last ended", running: true, cycleStart: base.Add(time.Minute), cycleEnd: base.Add(2 * time.Minute), now: base.Add(5*time.Minute + time.Second), want: true},
+		{name: "heartbeats from before a restart are ignored", running: true, cycleStart: base.Add(-time.Hour), cycleEnd: base.Add(-time.Hour), now: base.Add(time.Minute), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			de := &defaultExporter{
+				running:        tt.running,
+				inCycle:        tt.inCycle,
+				interval:       interval,
+				effective:      cfg,
+				startedAt:      base,
+				lastCycleStart: tt.cycleStart,
+				lastCycleEnd:   tt.cycleEnd,
+			}
+			if got := de.Stalled(tt.now); got != tt.want {
+				t.Errorf("Stalled(%s) = %v; want %v", tt.now.Sub(base), got, tt.want)
+			}
+		})
+	}
+}
+
+// ctxStatsClient records whether it was called through the context-aware interface.
+type ctxStatsClient struct {
+	gotDeadline atomic.Bool
+	plainCalls  atomic.Int32
+}
+
+func (c *ctxStatsClient) GetNodeData() ([]*stats.Summary, error) {
+	c.plainCalls.Add(1)
+	return []*stats.Summary{{}}, nil
+}
+
+func (c *ctxStatsClient) GetNodeDataContext(ctx context.Context) ([]*stats.Summary, error) {
+	_, ok := ctx.Deadline()
+	c.gotDeadline.Store(ok)
+	return []*stats.Summary{{}}, nil
+}
+
+type ctxStatsDataSource struct {
+	*mocks.MockDataSource
+	stats *ctxStatsClient
+}
+
+func (ds ctxStatsDataSource) StatsSummary() nodes.StatSummaryClient { return ds.stats }
+
+// The exporter's snapshot deadline reaches the node-stats fan-out.
+func TestSnapshotDeadlineReachesNodeStats(t *testing.T) {
+	ds := ctxStatsDataSource{MockDataSource: mocks.NewMockDataSource(), stats: &ctxStatsClient{}}
+	provider := NewConcurrentSnapshotProvider(DefaultSnapshotConfig())
+	em := newCountingEmitter("x")
+	exporter := NewExporter(ds, provider, em)
+	if !exporter.Start(20 * time.Millisecond) {
+		t.Fatal("failed to start exporter")
+	}
+	defer exporter.Stop()
+
+	if !waitFor(2*time.Second, func() bool { return em.count.Load() > 0 }) {
+		t.Fatalf("no emission: %+v", exporter.Status())
+	}
+	if !ds.stats.gotDeadline.Load() || ds.stats.plainCalls.Load() != 0 {
+		t.Errorf("node stats weren't collected under the snapshot deadline (deadline=%v, context-free calls=%d)",
+			ds.stats.gotDeadline.Load(), ds.stats.plainCalls.Load())
 	}
 }
