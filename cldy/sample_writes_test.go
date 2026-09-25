@@ -45,7 +45,7 @@ func loadTestSnapshot(t *testing.T) *emitter.ClusterSnapshot {
 func TestReproF08InitRejectsMissingClusterID(t *testing.T) {
 	dir := t.TempDir()
 	config := cldy.EmitterConfig{
-		UploaderConfig:   cldy.UploaderConfig{ScratchDir: dir},
+		ScratchDir:       dir,
 		EmitAsJson:       true,
 		EmissionInterval: 3 * time.Minute,
 	}
@@ -110,8 +110,8 @@ var _ core.DataSource = (*drainingDataSource)(nil)
 func shortLivedPod(name string) *v1.Pod {
 	now := metav1.Now()
 	return &v1.Pod{
-		TypeMeta:   metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID("uid-" + name)},
+		Kind: "Pod", APIVersion: "v1",
+		Name: name, Namespace: "default", UID: types.UID("uid-" + name),
 		Status: v1.PodStatus{
 			Phase:     v1.PodSucceeded,
 			StartTime: &now,
@@ -137,7 +137,7 @@ func TestReproF37ShortLivedPodsKeptAcrossTicks(t *testing.T) {
 
 	up := &mockUploader{}
 	ce := cldy.NewEmitterForTest(cldy.EmitterConfig{
-		UploaderConfig:   cldy.UploaderConfig{ScratchDir: t.TempDir()},
+		ScratchDir:       t.TempDir(),
 		EmitAsJson:       true,
 		EmissionInterval: 3 * time.Minute, // production default EMISSION_INTERVAL
 	}, up, clock.Now)
@@ -184,7 +184,7 @@ const productionInterval = 3 * time.Minute
 
 func newTestEmitter(dir string, up cldy.Uploader, clock *fakeClock) *cldy.Emitter {
 	return cldy.NewEmitterForTest(cldy.EmitterConfig{
-		UploaderConfig:   cldy.UploaderConfig{ScratchDir: dir},
+		ScratchDir:       dir,
 		EmitAsJson:       true,
 		EmissionInterval: productionInterval,
 	}, up, clock.Now)
