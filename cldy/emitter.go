@@ -311,12 +311,13 @@ func (ce *Emitter) recordNodeStats(ns *emitter.NodeStatsSummary) {
 		return
 	}
 	if len(ns.Stats) > 0 {
-		// CollectedAt is on the wall clock; carry its age over to the emitter's clock.
-		collected := ce.clock()
+		// CollectedAt is on the wall clock; carry its age over to the emitter's clock. Take the
+		// age before reading the clock so the result never lands before the collection time.
+		var age time.Duration
 		if !ns.CollectedAt.IsZero() {
-			collected = collected.Add(-max(time.Since(ns.CollectedAt), 0))
+			age = max(time.Since(ns.CollectedAt), 0)
 		}
-		ce.lastSuccessfulNodeCollection = collected.UTC()
+		ce.lastSuccessfulNodeCollection = ce.clock().Add(-age).UTC()
 	}
 	ce.lastNodeCollectionErr = ns.CollectionErr
 }
