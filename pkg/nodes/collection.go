@@ -158,14 +158,15 @@ func isFargateNode(n v1.Node) bool {
 	return false
 }
 
-// getReadyNodes returns all nodes from a cache that have the ready status
+// getReadyNodes returns all nodes from a cache whose Ready condition is True. NotReady and Unknown
+// nodes are usually unreachable, and polling them costs a full per-node timeout each (F-43).
 func getReadyNodes(cache cluster.ClusterCache) []*v1.Node {
 	var nodes = cache.GetAllNodes()
 
 	var readyNodes []*v1.Node
 	for _, n := range nodes {
 		nc := getNodeCondition(&n.Status, v1.NodeReady)
-		if nc != nil && nc.Type == v1.NodeReady {
+		if nc != nil && nc.Status == v1.ConditionTrue {
 			readyNodes = append(readyNodes, n)
 		}
 	}
