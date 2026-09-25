@@ -34,7 +34,6 @@ func (p *switchableProvider) SnapshotOf(core.DataSource) (*emitter.ClusterSnapsh
 type countingUploader struct{ samples atomic.Int32 }
 
 func (u *countingUploader) AddSample(string)    { u.samples.Add(1) }
-func (u *countingUploader) RemoveSample(string) {}
 func (u *countingUploader) SetClusterID(string) {}
 
 // F-38: node stats are recorded only from successful snapshots, so a metrics outage of over

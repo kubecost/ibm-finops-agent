@@ -4,10 +4,13 @@ import (
 	"archive/tar"
 	"compress/flate"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"math/rand/v2"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,19 +21,25 @@ import (
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
-var ErrDiskSpaceExceeded = errors.New("upload directory cleaned and disk issue persists. omitting current upload")
+// The head-of-line rule: a payload that fails headMaxFailures consecutive cycles at the head of
+// the queue, over more than headMaxStuck, is moved behind the rest once. If it then fails the
+// same way at the head again, it is quarantined as undeliverable, but only if another payload
+// was delivered since it was moved, so an outage that stops every upload drops nothing.
+const (
+	headMaxFailures = 3
+	headMaxStuck    = 6 * time.Hour
+)
 
 type Uploader interface {
+	// AddSample tells the uploader that a sample was finalised. The uploader lists finalised
+	// samples on disk when it packages them (queue.go), so this is only a notification.
 	AddSample(sample string)
-	RemoveSample(sample string)
 	SetClusterID(id string)
 }
 
 type CldyUploader struct {
 	config           UploaderConfig
 	mu               sync.RWMutex // guards clusterID
-	sampleSet        *set
-	uploadSet        *set
 	stop             chan struct{}
 	clusterID        string
 	agentVersion     string
@@ -39,74 +48,104 @@ type CldyUploader struct {
 	RecoveredSamples int
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
-	lastUploadSize   uint64
+	backlogMaxBytes  int64
 
-	// events receives drops and discards from startup recovery and payload handling. The emitter
-	// built around this uploader shares it.
-	events EventSink
+	// queue is the upload queue on disk. The emitter built around this uploader shares it.
+	queue *diskQueue
+
+	// events receives drops, discards, conditions and upload attempts. The emitter built around
+	// this uploader shares it. conditions is the uploader's view of its conditions, for
+	// edge-triggered logging; only the upload loop changes it once the loop has started.
+	events     EventSink
+	conditions map[string]bool
+
+	// head is the payload at the head of the queue and its run of failures, for the
+	// head-of-line rule. Only the upload loop touches it.
+	head headOfLine
+
+	hbMu      sync.Mutex
+	heartbeat UploadHeartbeat
 
 	// now is the uploader's clock. It is nil in production (see clock) and only set by tests.
 	now func() time.Time
 }
 
+type headOfLine struct {
+	path     string
+	failures int
+	since    time.Time
+}
+
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
-	uploader := newCldyUploader(config, newStorageServices(config), stop, nil, nil)
+	services, problems := newStorageServices(config)
+	uploader := newCldyUploader(config, services, stop, nil, nil)
+	uploader.setCondition(conditionUploaderMisconfigured, problems.misconfigured,
+		"the selected Cloudability upload path is missing settings or credentials; see the error above")
+	uploader.setCondition(conditionUploadConnectivityFailed, problems.connectivityFailed,
+		"the Cloudability upload connectivity test failed; uploads are still attempted every cycle")
 	go uploader.uploadLoop()
 	return uploader
 }
 
-// newStorageServices builds the storage service selected by the upload configuration.
-func newStorageServices(config UploaderConfig) []StorageService {
+// storageServiceProblems records what went wrong building the storage service.
+type storageServiceProblems struct {
+	// misconfigured: settings or credentials are missing, so no service was built.
+	misconfigured bool
+	// connectivityFailed: the startup connectivity test failed. The service is still used.
+	connectivityFailed bool
+}
+
+// newStorageServices builds the storage service selected by the upload configuration. A failed
+// connectivity test is advisory: the service is still returned and retried every cycle.
+func newStorageServices(config UploaderConfig) ([]StorageService, storageServiceProblems) {
 	var storageServices []StorageService
+	var problems storageServiceProblems
+	add := func(kind string, service StorageService, err error) {
+		switch {
+		case errors.Is(err, errConnectivityTest):
+			problems.connectivityFailed = true
+			log.Errorf("The %s uploader failed its connectivity test; it will be retried every upload cycle: %v", kind, err)
+		case err != nil:
+			problems.misconfigured = true
+			log.Errorf("Failed to create %s uploader: %v", kind, err)
+		}
+		if service != nil {
+			storageServices = append(storageServices, service)
+		}
+	}
 
 	// Legacy metrics-collector upload path (API key / API Gateway)
 	if hasAPIKeyConfigured(config.APIKeySecretManager) {
 		metricsCollectorService, err := NewMetricsCollectorService(config.ApptioConfig)
-		if err != nil {
-			log.Errorf("Failed to create metrics-collector uploader: %v", err)
-		}
-		if metricsCollectorService != nil {
-			storageServices = append(storageServices, metricsCollectorService)
-		}
+		add("metrics-collector", metricsCollectorService, err)
 
 		// Apptio Frontdoor upload path
 	} else if config.EnvID != "" {
 		apptioService, err := NewApptioService(config.ApptioConfig)
-		if err != nil {
-			log.Errorf("Failed to create cloudability uploader: %v", err)
-		}
-		if apptioService != nil {
-			storageServices = append(storageServices, apptioService)
-		}
+		add("cloudability", apptioService, err)
 
 		// S3 emitter
 	} else if config.CustomS3UploadBucket != "" && config.CustomS3UploadRegion != "" {
 		s3Client, err := NewCustomS3Client(config.CustomS3UploadBucket, config.CustomS3UploadRegion)
-		if err != nil {
-			log.Errorf("Failed to create custom s3 uploader: %v", err)
-		}
+		add("custom s3", s3Client, err)
 		if s3Client != nil {
 			log.Infof("Successfully created custom s3 uploader")
-			storageServices = append(storageServices, s3Client)
 		}
 
 		// Azure emitter
 	} else if config.CustomAzureBlobContainerName != "" && config.CustomAzureBlobUrl != "" {
 		blobClient, err := NewCustomBlobClient(config.CustomAzureBlobContainerName, config.CustomAzureBlobUrl, config.CustomAzureTenantID,
 			config.CustomAzureClientID, config.CustomAzureClientSecret)
-		if err != nil {
-			log.Errorf("Failed to create custom azure blob uploader: %v", err)
-		}
+		add("custom azure blob", blobClient, err)
 		if blobClient != nil {
 			log.Infof("Successfully created custom azure blob uploader")
-			storageServices = append(storageServices, blobClient)
 		}
 		// No env vars for any of the required configurations were set.
 	} else {
 		log.Errorf("No complete upload configurations were detected. Please ensure that you have set the required " +
 			"environment variables for your upload type.")
 	}
-	return storageServices
+	return storageServices, problems
 }
 
 // newCldyUploader creates the upload directory and runs startup recovery (recovery.go), but does
@@ -127,20 +166,26 @@ func newCldyUploader(config UploaderConfig, storageServices []StorageService, st
 		log.Warnf("Cloudability recovery period not set; using the default %s", defaultRecoveryPeriod)
 		recoveryPeriod = defaultRecoveryPeriod
 	}
+	backlogMaxBytes := config.BacklogMaxBytes
+	if backlogMaxBytes <= 0 {
+		backlogMaxBytes = defaultBacklogMaxBytes
+	}
 
 	uploader := &CldyUploader{
 		config:        config,
-		sampleSet:     newSet(),
-		uploadSet:     newSet(),
 		stop:          stop,
 		UploadPathDir: uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
 		StorageServices: storageServices,
 		recoveryPeriod:  recoveryPeriod,
+		backlogMaxBytes: backlogMaxBytes,
 		agentVersion:    version.Version,
+		queue:           newDiskQueue(config.ScratchDir, events, now),
 		events:          events,
+		conditions:      map[string]bool{},
 		now:             now,
 	}
+	uploader.checkConfigured()
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
 		log.Errorf("Cloudability startup recovery was incomplete: %v", err)
@@ -173,13 +218,8 @@ type UploaderConfig struct {
 	BacklogMaxBytes int64
 }
 
-func (cu *CldyUploader) AddSample(sample string) {
-	cu.sampleSet.add(sample)
-}
-
-func (cu *CldyUploader) RemoveSample(sample string) {
-	cu.sampleSet.remove(sample)
-}
+// AddSample does nothing: the next upload cycle finds the sample on disk.
+func (cu *CldyUploader) AddSample(string) {}
 
 // SetClusterID sets the live cluster ID, which Emitter.Init reads from the snapshot. Startup
 // recovery took each payload's cluster ID from its file name; payloads for any other cluster are
@@ -193,19 +233,24 @@ func (cu *CldyUploader) SetClusterID(id string) {
 	cu.clusterID = id
 	cu.mu.Unlock()
 
-	mismatched := false
-	for _, path := range cu.uploadSet.contents() {
-		clusterID, _, ok := parsePayloadName(filepath.Base(path))
-		if !ok || clusterID == id {
-			continue
+	cu.queue.withLock(func() {
+		payloads, _, err := cu.queue.payloads()
+		if err != nil {
+			log.Errorf("failed to list the Cloudability upload queue: %v", err)
+			return
 		}
-		cu.uploadSet.remove(path)
-		cu.quarantine(path, dropReasonClusterIDMismatch, fmt.Sprintf("payload for cluster %s, but this is cluster %s", clusterID, id))
-		mismatched = true
-	}
-	if mismatched {
-		cu.trimQuarantine()
-	}
+		mismatched := false
+		for _, p := range payloads {
+			if p.clusterID == id || p.path == cu.queue.inFlight {
+				continue
+			}
+			cu.quarantine(p.path, dropReasonClusterIDMismatch, fmt.Sprintf("payload for cluster %s, but this is cluster %s", p.clusterID, id))
+			mismatched = true
+		}
+		if mismatched {
+			cu.trimQuarantine()
+		}
+	})
 }
 
 // liveClusterID returns the cluster ID set by SetClusterID, or "" before it is known.
@@ -215,76 +260,149 @@ func (cu *CldyUploader) liveClusterID() string {
 	return cu.clusterID
 }
 
+// uploadLoop runs an upload cycle every UploadFrequency. The first cycle comes after a random
+// part of one interval, so that agents restarted together don't upload in step.
 func (cu *CldyUploader) uploadLoop() {
-	ticker := time.Tick(cu.config.UploadFrequency)
+	interval := max(cu.config.UploadFrequency, time.Second)
+	first := time.NewTimer(time.Duration(rand.Int64N(int64(interval))))
+	defer first.Stop()
+	select {
+	case <-cu.stop:
+		return
+	case <-first.C:
+		cu.uploadCycle()
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-cu.stop:
 			return
-		case <-ticker:
+		case <-ticker.C:
 			cu.uploadCycle()
 		}
 	}
 }
 
-// uploadCycle packages the pending samples and uploads the queued payloads. It is one tick
-// of uploadLoop. Nothing is packaged or uploaded until the live cluster ID is known.
+// uploadCycle is one tick of uploadLoop. It packages the finalised samples, applies the backlog
+// bounds and uploads the queued payloads, oldest first. A packaging failure never stops the
+// upload step, and the upload step runs whether or not there were new samples. Nothing is
+// packaged or uploaded until the live cluster ID is known.
 func (cu *CldyUploader) uploadCycle() {
-	if cu.sampleSet.length() == 0 {
-		return
-	}
-	if cu.liveClusterID() == "" {
+	cu.hbMu.Lock()
+	cu.heartbeat.LastCycleStart = cu.clock()
+	cu.hbMu.Unlock()
+	clusterID := cu.liveClusterID()
+	failed := false
+	defer func() {
+		files, bytes := cu.queue.stats(clusterID)
+		cu.hbMu.Lock()
+		defer cu.hbMu.Unlock()
+		cu.heartbeat.LastCycleEnd = cu.clock()
+		cu.heartbeat.BacklogFiles, cu.heartbeat.BacklogBytes = files, bytes
+		if failed {
+			cu.heartbeat.ConsecutiveFailures++
+		} else {
+			cu.heartbeat.ConsecutiveFailures = 0
+		}
+	}()
+
+	cu.checkConfigured()
+	if clusterID == "" {
 		log.Warnf("Cloudability cluster ID is not known yet; not packaging or uploading samples")
 		return
 	}
-	path, err := cu.ConstructPayload(cu.clock().UTC())
-	if err != nil {
-		log.Warnf("did not construct cldy payload: %s", err)
-		return
+	if err := cu.packageSamples(clusterID); err != nil {
+		log.Errorf("failed to package Cloudability samples; they stay queued for the next cycle: %v", err)
 	}
-	cu.uploadSet.add(path)
-	err = cu.uploadSet.operateAndRemove(cu.uploadData)
-	if err != nil {
-		log.Warnf("error uploading: %s", err.Error())
-	}
+	cu.queue.enforceBounds(clusterID, cu.recoveryPeriod, cu.backlogMaxBytes)
+	failed = !cu.uploadQueued(clusterID)
 }
 
-// ConstructPayload packages every queued sample into one payload for the live cluster ID, named
-// for sampleTime, and returns its path. See buildPayload.
+// checkConfigured raises uploader_unconfigured while there is no storage service. The queue is
+// then kept, and only the disk budget and backlog bounds evict from it (as no_uploader).
+func (cu *CldyUploader) checkConfigured() {
+	none := len(cu.StorageServices) == 0
+	cu.queue.noUploader.Store(none)
+	cu.setCondition(conditionUploaderUnconfigured, none,
+		"no Cloudability storage service is configured; samples are kept on disk and nothing is uploaded")
+}
+
+// ConstructPayload packages every finalised sample of the live cluster into one payload named
+// for sampleTime and returns its path, or "" if there was nothing to package.
 func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (string, error) {
-	var samples []string
-	for _, sample := range cu.sampleSet.contents() {
-		if _, err := os.Stat(sample); errors.Is(err, fs.ErrNotExist) {
-			// Disk-pressure eviction dequeues a sample before removing it and counts the drop, so
-			// this is a sample removed from outside the agent.
-			log.Errorf("queued Cloudability sample %s vanished before it was packaged; dequeuing it", sample)
-			cu.sampleSet.remove(sample)
-			continue
-		}
-		samples = append(samples, sample)
-	}
-	if len(samples) == 0 {
-		return "", errors.New("no samples to package")
-	}
-	return cu.buildPayload(cu.liveClusterID(), sampleTime, samples)
-}
-
-// buildPayload packages samples into upload/<clusterID>_<YYYY-MM-DD-HH-MM-SS>.tgz for ts and
-// returns its path. The payload is written to upload/.<name>.partial, closed and fsynced, then
-// renamed into place and the directory fsynced (F-04). The samples are removed only after the
-// rename; on any error before it the temporary file is removed and the samples are kept, still
-// queued (F-50). A name already taken moves ts on by a second, so no payload is overwritten.
-func (cu *CldyUploader) buildPayload(clusterID string, ts time.Time, samples []string) (string, error) {
+	clusterID := cu.liveClusterID()
 	if clusterID == "" {
 		return "", errors.New("no cluster ID: refusing to build a payload")
 	}
-	if err := cu.ensureUploadSpace(); err != nil {
-		if errors.Is(err, ErrDiskSpaceExceeded) {
-			cu.removeSamples(samples)
-			dropData(cu.events, dropReasonDiskPressure, len(samples),
-				fmt.Sprintf("no room on the scratch volume to package %d samples, even after removing old payloads", len(samples)))
-		}
+	cu.queue.mu.Lock()
+	defer cu.queue.mu.Unlock()
+	return cu.packageSamplesLocked(clusterID, sampleTime)
+}
+
+func (cu *CldyUploader) packageSamples(clusterID string) error {
+	_, err := cu.ConstructPayload(cu.clock().UTC())
+	return err
+}
+
+// packageSamplesLocked packages every finalised sample of clusterID into one payload named for
+// ts. Each sample's files are checked against its manifest first; a sample that fails is
+// quarantined (invalid_sample). The caller holds cu.queue.mu.
+func (cu *CldyUploader) packageSamplesLocked(clusterID string, ts time.Time) (string, error) {
+	clusterDir := cu.queue.clusterDir(clusterID)
+	samples, invalid, err := listFinalisedSamples(clusterDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
 		return "", err
+	}
+	for _, name := range invalid {
+		cu.quarantine(filepath.Join(clusterDir, name), dropReasonInvalidSample, "not a valid finalised sample")
+	}
+	quarantined := len(invalid) > 0
+	var paths []string
+	var need uint64
+	for _, s := range samples {
+		// The last check before the files leave the sample: the hashes, not only the sizes.
+		if _, err := validateSample(s.Path, true); err != nil {
+			cu.quarantine(filepath.Clean(s.Path), dropReasonInvalidSample, fmt.Sprintf("not a valid finalised sample: %v", err))
+			quarantined = true
+			continue
+		}
+		paths = append(paths, s.Path)
+		need += uint64(s.Manifest.totalBytes())
+	}
+	if quarantined {
+		cu.trimQuarantine()
+	}
+	if len(paths) == 0 {
+		return "", nil
+	}
+	return cu.buildPayload(clusterID, ts, paths, need)
+}
+
+// buildPayload packages samples into upload/<clusterID>_<YYYY-MM-DD-HH-MM-SS>.tgz for ts and
+// returns its path. It first makes need bytes of room, evicting the oldest queued data; with no
+// room even then, the samples stay queued. The payload is written to upload/.<name>.partial,
+// closed and fsynced, then renamed into place and the directory fsynced (F-04). The samples are
+// removed only after the rename; on any error before it the temporary file is removed and the
+// samples are kept (F-50). A name already taken moves ts on by a second, so no payload is
+// overwritten. The caller holds cu.queue.mu, or is startup recovery.
+func (cu *CldyUploader) buildPayload(clusterID string, ts time.Time, samples []string, need uint64) (string, error) {
+	if clusterID == "" {
+		return "", errors.New("no cluster ID: refusing to build a payload")
+	}
+	_, ok, err := cu.queue.makeRoomLocked(clusterID, need)
+	if err != nil {
+		log.Errorf("cannot read free space on the Cloudability scratch volume, not evicting anything: %v", err)
+	} else if !ok {
+		return "", fmt.Errorf("no room on the scratch volume for a payload of up to %d bytes, even after evicting the oldest queued data", need)
+	}
+	// Making room may have evicted the oldest of these samples.
+	samples = existingPaths(samples)
+	if len(samples) == 0 {
+		return "", nil
 	}
 
 	final, partial, f, err := cu.createPayloadFile(clusterID, ts)
@@ -319,8 +437,19 @@ func (cu *CldyUploader) buildPayload(clusterID string, ts time.Time, samples []s
 	if err := syncDir(cu.UploadPathDir); err != nil {
 		log.Errorf("payload %s is written but syncing %s failed; it may not survive a node crash: %v", final, cu.UploadPathDir, err)
 	}
-	cu.removeSamples(samples)
+	removeSamples(samples)
 	return final, nil
+}
+
+// existingPaths returns the paths that still exist.
+func existingPaths(paths []string) []string {
+	kept := paths[:0]
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			kept = append(kept, p)
+		}
+	}
+	return kept
 }
 
 // createPayloadFile creates the temporary file for the payload named for ts, or for the first
@@ -333,6 +462,9 @@ func (cu *CldyUploader) createPayloadFile(clusterID string, ts time.Time) (final
 			continue
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return "", "", nil, err
+		}
+		if _, err := os.Lstat(filepath.Join(cu.queue.deferredDir(), name)); err == nil {
+			continue
 		}
 		partial = SafePath(cu.UploadPathDir, "."+name+partialSuffix)
 		f, err = os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
@@ -350,80 +482,296 @@ func (cu *CldyUploader) createPayloadFile(clusterID string, ts time.Time) (final
 	return "", "", nil, fmt.Errorf("no free payload name within %d seconds of %s", maxPayloadNameAttempts, ts.UTC().Format(payloadTimeFormat))
 }
 
-// removeSamples dequeues and removes samples that are packaged in a payload. A sample that can't
-// be removed is uploaded again after a restart, which at-least-once delivery allows.
-func (cu *CldyUploader) removeSamples(samples []string) {
+// removeSamples removes samples that are packaged in a payload. A sample that can't be removed
+// is packaged and uploaded again, which at-least-once delivery allows.
+func removeSamples(samples []string) {
 	for _, sample := range samples {
-		cu.sampleSet.remove(sample)
 		if err := os.RemoveAll(sample); err != nil {
-			log.Errorf("failed to remove packaged Cloudability sample %s; it will be uploaded again after a restart: %v", sample, err)
+			log.Errorf("failed to remove packaged Cloudability sample %s; it will be uploaded again: %v", sample, err)
 		}
 	}
 }
 
-// ensureUploadSpace checks there is room for a payload twice the size of the last one. If not
-// it removes old payloads (ClearOldUploadSamples) and returns ErrDiskSpaceExceeded if there is
-// still no room. A statfs failure is not pressure: nothing is removed (F-49).
-func (cu *CldyUploader) ensureUploadSpace() error {
-	need := cu.lastUploadSize * 2
-	avail, err := diskAvailable(cu.UploadPathDir)
+// uploadQueued uploads the queued payloads in order (queue.go) and reports whether the cycle
+// got through the queue without stopping on a failure. See classifyUpload for what each
+// failure does.
+func (cu *CldyUploader) uploadQueued(clusterID string) bool {
+	if len(cu.StorageServices) == 0 {
+		return true
+	}
+	payloads, invalid, err := cu.queue.payloads()
 	if err != nil {
-		log.Errorf("cannot read free space on the Cloudability scratch volume, not removing anything: %v", err)
-		return nil
+		log.Errorf("failed to list the Cloudability upload queue: %v", err)
+		return false
 	}
-	if avail >= need {
-		return nil
+	quarantined := false
+	defer func() {
+		if quarantined {
+			cu.queue.withLock(cu.trimQuarantine)
+		}
+	}()
+	for _, path := range invalid {
+		cu.queue.withLock(func() { cu.quarantine(path, dropReasonInvalidPayload, "not a <clusterID>_<timestamp>.tgz payload") })
+		quarantined = true
 	}
-	if err := cu.ClearOldUploadSamples(); err != nil {
-		return err
+	for _, p := range payloads {
+		name := filepath.Base(p.path)
+		if p.clusterID != clusterID {
+			cu.queue.withLock(func() {
+				cu.quarantine(p.path, dropReasonClusterIDMismatch, fmt.Sprintf("payload for cluster %s, but this is cluster %s", p.clusterID, clusterID))
+			})
+			quarantined = true
+			continue
+		}
+		if !cu.queue.startUpload(p.path) {
+			// Evicted, and counted, since the listing.
+			log.Infof("Cloudability payload %s left the queue before its upload", name)
+			continue
+		}
+		if err := verifyPayload(p.path); err != nil {
+			corrupt := errors.Is(err, errCorruptPayload)
+			cu.queue.finishUpload(func() {
+				if corrupt {
+					cu.quarantine(p.path, dropReasonCorruptPayload, err.Error())
+				}
+			})
+			if corrupt {
+				quarantined = true
+				continue
+			}
+			log.Errorf("cannot read queued Cloudability payload %s; retrying next cycle: %v", name, err)
+			return false
+		}
+
+		err := cu.uploadData(p.path, clusterID)
+		cu.events.UploadAttempt(uploadResult(err))
+		outcome := classifyUpload(err)
+		cu.queue.finishUpload(func() {
+			switch outcome {
+			case uploadDelivered:
+				if err := os.Remove(p.path); err != nil {
+					log.Errorf("delivered Cloudability payload %s could not be removed; it will be uploaded again: %v", name, err)
+				}
+			case uploadRejected:
+				cu.quarantine(p.path, dropReasonRejectedByBackend, err.Error())
+			}
+		})
+		switch outcome {
+		case uploadDelivered:
+			cu.delivered()
+		case uploadRejected:
+			quarantined = true
+		case uploadAuthFailed:
+			cu.setCondition(conditionUploadAuthFailed, true, fmt.Sprintf("the Cloudability backend refused the agent's credentials; nothing is deleted: %v", err))
+			return false
+		default:
+			log.Warnf("uploading Cloudability payload %s failed; the queue is retried from it next cycle: %v", name, err)
+			if cu.headFailed(p, err) {
+				quarantined = true // or deferred; either way the next payload is now the head
+				continue
+			}
+			return false
+		}
 	}
-	if avail, err := diskAvailable(cu.UploadPathDir); err == nil && avail < need {
-		return ErrDiskSpaceExceeded
-	}
-	return nil
+	return true
 }
 
-func (cu *CldyUploader) uploadData(path string) error {
-	if err := verifyPayload(path); err != nil {
-		if !errors.Is(err, errCorruptPayload) {
-			return err
-		}
-		// Dequeued by returning nil: the payload is no longer in upload/.
-		cu.quarantine(path, dropReasonCorruptPayload, err.Error())
-		cu.trimQuarantine()
-		return nil
+// delivered records a delivered payload.
+func (cu *CldyUploader) delivered() {
+	cu.hbMu.Lock()
+	cu.heartbeat.LastSuccess = cu.clock()
+	cu.hbMu.Unlock()
+	cu.setCondition(conditionUploadAuthFailed, false, "the Cloudability backend accepted a payload")
+	cu.setCondition(conditionUploadConnectivityFailed, false, "the Cloudability backend accepted a payload")
+}
+
+// headFailed applies the head-of-line rule to a retryable failure of p, the head of the queue.
+// It reports whether p left the head. A failure to log in has nothing to do with the payload,
+// so it doesn't count.
+func (cu *CldyUploader) headFailed(p queuedPayload, err error) bool {
+	var uploadErr *UploadError
+	if errors.As(err, &uploadErr) && uploadErr.Stage == UploadStageLogin {
+		return false
 	}
+	now := cu.clock()
+	if cu.head.path != p.path {
+		cu.head = headOfLine{path: p.path, since: now}
+	}
+	cu.head.failures++
+	if cu.head.failures < headMaxFailures || now.Sub(cu.head.since) <= headMaxStuck {
+		return false
+	}
+	stuck := now.Sub(cu.head.since).Round(time.Second)
+	cu.head = headOfLine{}
+	name := filepath.Base(p.path)
+
+	if !p.deferred {
+		moved := false
+		cu.queue.withLock(func() { moved = cu.deferPayload(p.path, now) })
+		if moved {
+			cu.events.HeadDeferred(1)
+			log.Warnf("Cloudability payload %s failed at the head of the upload queue for %s; moved it behind the rest", name, stuck)
+		}
+		return moved
+	}
+	cu.hbMu.Lock()
+	lastSuccess := cu.heartbeat.LastSuccess
+	cu.hbMu.Unlock()
+	if lastSuccess.IsZero() || lastSuccess.Before(p.mod) {
+		log.Warnf("Cloudability payload %s keeps failing at the head of the upload queue, but nothing was delivered since it was "+
+			"moved behind the rest, so the backend may be down; keeping it", name)
+		return false
+	}
+	cu.queue.withLock(func() {
+		cu.quarantine(p.path, dropReasonUndeliverable, fmt.Sprintf("failed at the head of the upload queue for %s after being moved behind the rest once, "+
+			"while other payloads were delivered: %v", stuck, err))
+	})
+	return true
+}
+
+// deferPayload moves a payload to upload/deferred/, stamped with when it was moved. The
+// caller holds cu.queue.mu.
+func (cu *CldyUploader) deferPayload(path string, now time.Time) bool {
+	dest := filepath.Join(cu.queue.deferredDir(), filepath.Base(path))
+	err := os.MkdirAll(cu.queue.deferredDir(), os.ModePerm)
+	if err == nil {
+		err = os.Rename(path, dest)
+	}
+	if err != nil {
+		log.Errorf("failed to move Cloudability payload %s behind the rest of the upload queue: %v", path, err)
+		return false
+	}
+	if err := os.Chtimes(dest, now, now); err != nil {
+		log.Warnf("failed to stamp deferred payload %s: %v", dest, err)
+	}
+	return true
+}
+
+// uploadData uploads the payload at path to every storage service.
+func (cu *CldyUploader) uploadData(path, clusterID string) error {
 	fileName, hash, err := getFileNameAndHash(path)
 	if err != nil {
 		return err
 	}
 	payload := UploadPayload{
-		ClusterUID:   cu.liveClusterID(),
+		ClusterUID:   clusterID,
 		FileName:     fileName,
 		AgentVersion: cu.agentVersion,
 		UploadHash:   hash,
 		FilePath:     path,
 	}
-
 	for _, service := range cu.StorageServices {
-		err = service.Upload(payload)
-		if err != nil {
+		if err := service.Upload(payload); err != nil {
 			return err
 		}
 	}
-	if err := crashPoint(crashAfterUpload); err != nil {
-		return err
-	}
+	return crashPoint(crashAfterUpload)
+}
 
-	// retain size of file before removal for disk calculation purposes
-	f, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	cu.lastUploadSize = uint64(f.Size())
+// setCondition records one of the uploader's conditions, logging only when it changes.
+func (cu *CldyUploader) setCondition(name string, active bool, msg string) {
+	recordCondition(cu.events, cu.conditions, name, active, msg)
+}
 
-	// uploads data, then removes tar from path if successful
-	return os.Remove(path)
+// uploadOutcome is what an upload attempt means for the payload and the rest of the cycle.
+type uploadOutcome int
+
+const (
+	// uploadDelivered: every service accepted the payload. It is removed.
+	uploadDelivered uploadOutcome = iota
+	// uploadRetryable: stop the cycle and keep the order; the next tick retries.
+	uploadRetryable
+	// uploadAuthFailed: the backend refused the credentials. Stop the cycle and raise
+	// upload_auth_failed.
+	uploadAuthFailed
+	// uploadRejected: the backend will never accept this payload. Quarantine it and carry on.
+	uploadRejected
+)
+
+// classifyUpload decides what a StorageService.Upload error means:
+//
+//	no error                                       delivered
+//	401 or 403 at login, presign or store          auth: the credentials were refused
+//	403 on a presigned PUT                         retryable: the URL expired (the service has
+//	                                               already presigned again once)
+//	400 or 413 at presign or on a presigned PUT    rejected: this payload will never be accepted
+//	413 at store                                   rejected
+//	400 at store (S3, Azure)                       retryable: those use 400 for configuration
+//	                                               faults such as a wrong region
+//	anything else: other statuses (404, 408, 429,  retryable
+//	5xx), any status at login other than 401/403,
+//	timeouts, refused connections, DNS failures
+//	and local errors
+func classifyUpload(err error) uploadOutcome {
+	if err == nil {
+		return uploadDelivered
+	}
+	code, ok := uploadStatusCode(err)
+	if !ok {
+		return uploadRetryable
+	}
+	stage := ""
+	var uploadErr *UploadError
+	if errors.As(err, &uploadErr) {
+		stage = uploadErr.Stage
+	}
+	switch {
+	case code == 401 || code == 403:
+		if stage == UploadStagePresignedPut {
+			return uploadRetryable
+		}
+		return uploadAuthFailed
+	case stage == UploadStageLogin:
+		return uploadRetryable
+	case code == 413 || (code == 400 && stage != UploadStageStore):
+		return uploadRejected
+	default:
+		return uploadRetryable
+	}
+}
+
+// uploadResult is the upload_attempts_total result label for an attempt.
+func uploadResult(err error) string {
+	switch classifyUpload(err) {
+	case uploadDelivered:
+		return uploadResultOK
+	case uploadAuthFailed:
+		return uploadResultAuth
+	case uploadRejected:
+		return uploadResultRejected
+	}
+	var netErr net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
+		return uploadResultTimeout
+	}
+	return uploadResultRetryable
+}
+
+// UploadHeartbeat is the upload loop's progress, for readiness and /status (chunk 08) and
+// metrics (chunk 09).
+type UploadHeartbeat struct {
+	LastCycleStart time.Time
+	LastCycleEnd   time.Time
+	// LastSuccess is when a payload was last delivered.
+	LastSuccess time.Time
+	// ConsecutiveFailures counts the cycles in a row that stopped on a failed upload.
+	ConsecutiveFailures int
+	// BacklogFiles and BacklogBytes are the queued payloads and samples at the end of the last
+	// cycle.
+	BacklogFiles int
+	BacklogBytes int64
+}
+
+// UploadHeartbeatSource is implemented by *CldyUploader.
+type UploadHeartbeatSource interface {
+	UploadHeartbeat() UploadHeartbeat
+}
+
+// UploadHeartbeat returns the upload loop's progress. It is safe to call from any goroutine.
+func (cu *CldyUploader) UploadHeartbeat() UploadHeartbeat {
+	cu.hbMu.Lock()
+	defer cu.hbMu.Unlock()
+	return cu.heartbeat
 }
 
 // createTGZ writes the samples to writer as a gzipped tar. Each file is stored as
@@ -496,91 +844,4 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, clusterID string, srcs []str
 		}
 	}
 	return nil
-}
-
-// ClearOldUploadSamples removes payloads older than half the recovery period to make room on the
-// scratch volume. Each removal is a counted drop and dequeues the payload.
-func (cu *CldyUploader) ClearOldUploadSamples() error {
-	log.Infof("Disk space threshold met. Attempting to clean uploads older than %s.", cu.recoveryPeriod/2)
-
-	files, err := os.ReadDir(cu.UploadPathDir)
-	if err != nil {
-		return err
-	}
-
-	for _, file := range files {
-		if file.IsDir() || isPartialPayload(file.Name()) {
-			continue
-		}
-		filePath := filepath.Join(cu.UploadPathDir, file.Name())
-		fileInfo, err := file.Info()
-		if err != nil {
-			log.Warnf("problem retrieving file information: %s", err)
-			continue
-		}
-		if cu.clock().Sub(fileInfo.ModTime()) <= cu.recoveryPeriod/2 {
-			continue
-		}
-		if err := os.Remove(filePath); err != nil {
-			log.Errorf("problem deleting file: %s", err)
-			continue
-		}
-		cu.uploadSet.remove(filePath)
-		dropData(cu.events, dropReasonDiskPressure, 1,
-			fmt.Sprintf("removed payload %s, older than half the recovery period, to make room on the scratch volume", file.Name()))
-	}
-
-	return nil
-}
-
-// uploadOutcome is what an upload attempt means for the payload and the rest of the cycle.
-type uploadOutcome int
-
-const (
-	// uploadDelivered: every service accepted the payload. It is removed.
-	uploadDelivered uploadOutcome = iota
-	// uploadRetryable: stop the cycle and keep the order; the next tick retries.
-	uploadRetryable
-	// uploadAuthFailed: the backend refused the credentials. Stop the cycle and raise
-	// upload_auth_failed.
-	uploadAuthFailed
-	// uploadRejected: the backend will never accept this payload. Quarantine it and carry on.
-	uploadRejected
-)
-
-// classifyUpload decides what a StorageService.Upload error means.
-func classifyUpload(err error) uploadOutcome {
-	if err == nil {
-		return uploadDelivered
-	}
-	return uploadRetryable
-}
-
-// uploadResult is the upload_attempts_total result label for an attempt.
-func uploadResult(err error) string {
-	if err == nil {
-		return uploadResultOK
-	}
-	return uploadResultRetryable
-}
-
-// UploadHeartbeat is the upload loop's progress, for readiness and /status (chunk 08) and
-// metrics (chunk 09).
-type UploadHeartbeat struct {
-	LastCycleStart      time.Time
-	LastCycleEnd        time.Time
-	LastSuccess         time.Time
-	ConsecutiveFailures int
-	BacklogFiles        int
-	BacklogBytes        int64
-}
-
-// UploadHeartbeatSource is implemented by *CldyUploader.
-type UploadHeartbeatSource interface {
-	UploadHeartbeat() UploadHeartbeat
-}
-
-// UploadHeartbeat returns the upload loop's progress. It is safe to call from any goroutine.
-func (cu *CldyUploader) UploadHeartbeat() UploadHeartbeat {
-	return UploadHeartbeat{}
 }

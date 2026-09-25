@@ -461,6 +461,25 @@ func TestExporterDeadBacklogStillDrains(t *testing.T) {
 	}
 }
 
+// CLOUDABILITY_BACKLOG_MAX_MB caps the backlog, 2048 MiB by default. A value under 1 MiB or one
+// that doesn't parse is a configuration error.
+func TestBacklogMaxFromEnv(t *testing.T) {
+	scratch := newProdScratch(t, t.TempDir(), "cid-backlog-env")
+	if got := scratch.UploaderConfig(t).BacklogMaxBytes; got != 2048<<20 {
+		t.Errorf("default backlog cap %d bytes, want 2048 MiB", got)
+	}
+	t.Setenv("CLOUDABILITY_BACKLOG_MAX_MB", "512")
+	if got := scratch.UploaderConfig(t).BacklogMaxBytes; got != 512<<20 {
+		t.Errorf("CLOUDABILITY_BACKLOG_MAX_MB=512 gave %d bytes", got)
+	}
+	for _, bad := range []string{"0", "-1", "lots", "1.5GB"} {
+		t.Setenv("CLOUDABILITY_BACKLOG_MAX_MB", bad)
+		if c, err := cldy.NewEmitterConfigFromEnv(); err == nil {
+			t.Errorf("CLOUDABILITY_BACKLOG_MAX_MB=%q accepted as %d bytes, want a configuration error", bad, c.BacklogMaxBytes)
+		}
+	}
+}
+
 // Design item 6: the backlog is bounded in bytes and age; the oldest go first, each counted.
 func TestBacklogBoundsEvictOldestWithCounter(t *testing.T) {
 	clock := newFakeClock(time.Now().Truncate(time.Second))

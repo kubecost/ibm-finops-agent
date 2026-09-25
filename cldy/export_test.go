@@ -149,14 +149,25 @@ func (cu *CldyUploader) UploadCycleForTest() {
 	cu.uploadCycle()
 }
 
-// QueuedUploadsForTest returns the payload paths currently queued for upload.
+// QueuedUploadsForTest returns the payload paths queued for upload, in upload order.
 func (cu *CldyUploader) QueuedUploadsForTest() []string {
-	return cu.uploadSet.contents()
+	payloads, _, _ := cu.queue.payloads()
+	var paths []string
+	for _, p := range payloads {
+		paths = append(paths, p.path)
+	}
+	return paths
 }
 
-// QueuedSamplesForTest returns the sample directories currently queued for packaging.
+// QueuedSamplesForTest returns the live cluster's finalised samples waiting to be packaged,
+// oldest first.
 func (cu *CldyUploader) QueuedSamplesForTest() []string {
-	return cu.sampleSet.contents()
+	samples, _, _ := listFinalisedSamples(cu.queue.clusterDir(cu.liveClusterID()))
+	var paths []string
+	for _, s := range samples {
+		paths = append(paths, s.Path)
+	}
+	return paths
 }
 
 // NewEmitterForTest builds an Emitter around the given uploader with the given clock (nil means

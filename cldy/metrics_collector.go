@@ -72,7 +72,8 @@ func NewMetricsCollectorService(config ApptioConfig) (StorageService, error) {
 
 	log.Infof("Testing Cloudability metrics-collector upload connection.")
 	if err := service.testUpload(); err != nil {
-		return nil, fmt.Errorf("cloudability metrics-collector test connection failed: %s", err)
+		// Advisory: the service is still returned, and every upload cycle retries it.
+		return service, fmt.Errorf("cloudability metrics-collector %w: %v", errConnectivityTest, err)
 	}
 	log.Infof("Cloudability metrics-collector upload test succeeded.")
 	return service, nil
@@ -100,11 +101,11 @@ func hasAPIKeyConfigured(secretManager SecretManager) bool {
 }
 
 func (s *MetricsCollectorServiceImpl) Upload(payload UploadPayload) error {
-	presignedURL, err := s.getUploadURL(payload)
-	if err != nil {
-		return err
-	}
-	return uploadPayloadToPresignedURL(s.CldyUploadClient, payload, presignedURL)
+	return putWithPresign(payload, func() (string, error) {
+		return s.getUploadURL(payload)
+	}, func(presignedURL string) error {
+		return uploadPayloadToPresignedURL(s.CldyUploadClient, payload, presignedURL)
+	})
 }
 
 func (s *MetricsCollectorServiceImpl) getUploadURL(payload UploadPayload) (string, error) {
@@ -141,7 +142,7 @@ func (s *MetricsCollectorServiceImpl) getUploadURL(payload UploadPayload) (strin
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("metrics-collector presign request failed with status code: %d", resp.StatusCode)
+		return "", statusErrorf(resp.StatusCode, "metrics-collector presign request failed with status code: %d", resp.StatusCode)
 	}
 
 	var result metricsCollectorUploadResponse
@@ -267,9 +268,9 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 	if resp.StatusCode != http.StatusOK {
 		body, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
-			return fmt.Errorf("sample upload failed with status code: %d", resp.StatusCode)
+			return statusErrorf(resp.StatusCode, "sample upload failed with status code: %d", resp.StatusCode)
 		}
-		return fmt.Errorf("sample upload failed with status code: %d and response: %s", resp.StatusCode, body)
+		return statusErrorf(resp.StatusCode, "sample upload failed with status code: %d and response: %s", resp.StatusCode, body)
 	}
 
 	log.Infof("Successfully uploaded metric sample %s to cloudability", removeQueryParameters(path.Base(uploadURL)))

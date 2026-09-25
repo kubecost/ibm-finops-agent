@@ -117,48 +117,23 @@ func (ce *Emitter) sweepOrphanedStaging() {
 }
 
 // ensureDiskBudget checks, once per sample, that the scratch volume has room for a sample the
-// size of the last one. If not, it evicts the oldest finalised samples, each a counted drop, and
-// reports whether there is room now. A statfs failure is not pressure: it is reported and
-// nothing is evicted (F-49).
+// size of the last one. If not, it evicts the oldest queued data, finalised samples and upload
+// payloads alike, each a counted drop (queue.go), and reports whether there is room now. A
+// statfs failure is not pressure: it is reported and nothing is evicted (F-49).
 func (ce *Emitter) ensureDiskBudget() bool {
 	need := uint64(max(ce.lastSampleBytes, minSampleBytesEstimate))
-	avail, err := diskAvailable(ce.ScratchPath)
+	pressure, ok, err := ce.queue.makeRoom(*ce.ClusterID, need)
 	if err != nil {
 		ce.setCondition(conditionDiskSpaceUnknown, true, fmt.Sprintf("cannot read free space on the Cloudability scratch volume, not evicting anything: %v", err))
 		return true
 	}
 	ce.setCondition(conditionDiskSpaceUnknown, false, "free space on the Cloudability scratch volume is readable again")
-	if avail >= need {
+	if !pressure {
 		ce.setCondition(conditionDiskPressure, false, "Cloudability scratch volume has room for samples again")
 		return true
 	}
-	ce.setCondition(conditionDiskPressure, true, fmt.Sprintf("Cloudability scratch volume has %d bytes free, a sample needs about %d; evicting the oldest samples", avail, need))
-
-	finalised, _, err := sampleDirs(ce.ScratchPath)
-	if err != nil {
-		log.Errorf("failed to list Cloudability samples in %s: %v", ce.ScratchPath, err)
-		return false
-	}
-	for _, name := range finalised {
-		dir := SafePath(ce.ScratchPath, name+"/")
-		// Dequeue first to narrow the window in which the uploader packages a directory being
-		// removed; closing it needs the disk-based queue (chunk 02).
-		ce.Uploader.RemoveSample(dir)
-		if err := os.RemoveAll(dir); err != nil {
-			log.Errorf("failed to evict Cloudability sample %s: %v", name, err)
-			continue
-		}
-		ce.drop(dropReasonDiskPressure, 1, fmt.Sprintf("evicted sample %s to make room on the scratch volume", name))
-
-		avail, err = diskAvailable(ce.ScratchPath)
-		if err != nil {
-			return true
-		}
-		if avail >= need {
-			return true
-		}
-	}
-	return false
+	ce.setCondition(conditionDiskPressure, true, fmt.Sprintf("Cloudability scratch volume has less than the %d bytes a sample needs; evicting the oldest queued data", need))
+	return ok
 }
 
 // drop counts and logs lost data. Every drop is logged at Error.
@@ -172,14 +147,19 @@ func dropData(events EventSink, reason string, count int, detail string) {
 	events.DataDropped(reason, count)
 }
 
-// setCondition records a condition and logs only when it changes: at Error when raised, at Info
-// when cleared.
+// setCondition records one of the emitter's conditions, logging only when it changes.
 func (ce *Emitter) setCondition(name string, active bool, msg string) {
-	if ce.conditions[name] == active {
+	recordCondition(ce.events, ce.conditions, name, active, msg)
+}
+
+// recordCondition records a condition in events and state, and logs only when it changes: at
+// Error when raised, at Info when cleared. A condition never raised is not cleared.
+func recordCondition(events EventSink, state map[string]bool, name string, active bool, msg string) {
+	if state[name] == active {
 		return
 	}
-	ce.conditions[name] = active
-	ce.events.SetCondition(name, active)
+	state[name] = active
+	events.SetCondition(name, active)
 	if active {
 		log.Errorf("condition=%s active: %s", name, msg)
 	} else {

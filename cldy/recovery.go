@@ -9,9 +9,10 @@ package cldy
 //	upload/.<name>.partial             a payload a crash interrupted. Removed: its samples are
 //	                                   removed only after the rename, so they are still in
 //	                                   scratch/. An unfinalised discard, not a drop.
-//	upload/<clusterID>_<ts>.tgz        queued, unless older than the recovery period (a drop,
+//	upload/<clusterID>_<ts>.tgz        kept, unless older than the recovery period (a drop,
 //	                                   recovery_expired). Its cluster ID comes from its name and
 //	                                   is checked against the live one in SetClusterID.
+//	upload/deferred/<clusterID>_<ts>.tgz  queued behind the rest (queue.go), the same way.
 //	upload/<anything else>             quarantined (invalid_payload). It never stops the listing.
 //	scratch/_quarantine/               skipped.
 //	scratch/<clusterID>/.inprogress-*  staging, never finalised. Removed as an unfinalised
@@ -24,8 +25,9 @@ package cldy
 //	scratch/<clusterID>/<anything else>  quarantined (invalid_sample): a sample written before
 //	                                   the manifest existed, or one torn by the filesystem.
 //
-// Payloads are verified end to end just before upload (uploadData), not here, so startup reads
-// no payload and its cost grows only with the number of directory entries.
+// Payloads are verified end to end just before upload (uploadQueued), not here, so startup reads
+// no payload and its cost grows only with the number of directory entries. Nothing is queued in
+// memory: the upload queue is these directories (queue.go).
 
 import (
 	"archive/tar"
@@ -91,22 +93,29 @@ func isPartialPayload(name string) bool {
 }
 
 func (cu *CldyUploader) recoverDataOnStartup() error {
-	// Uploads first, so that payloads built from recovered samples are queued once.
-	err := cu.recoverUploadFiles()
+	// Uploads first, so that payloads built from recovered samples are counted once.
+	err := cu.recoverUploadFiles(cu.UploadPathDir)
+	if dErr := cu.recoverUploadFiles(cu.queue.deferredDir()); dErr != nil && !errors.Is(dErr, fs.ErrNotExist) {
+		err = errors.Join(err, dErr)
+	}
 	err = errors.Join(err, cu.recoverCompleteSamples())
 	cu.trimQuarantine()
 	return err
 }
 
-// recoverUploadFiles queues the payloads in upload/. See the file comment.
-func (cu *CldyUploader) recoverUploadFiles() error {
-	entries, err := os.ReadDir(cu.UploadPathDir)
+// recoverUploadFiles checks the payloads in dir, upload/ or upload/deferred/. See the file
+// comment.
+func (cu *CldyUploader) recoverUploadFiles(dir string) error {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
 		name := e.Name()
-		path := filepath.Join(cu.UploadPathDir, name)
+		path := filepath.Join(dir, name)
+		if dir == cu.UploadPathDir && name == deferredDirName && e.IsDir() {
+			continue
+		}
 		if isPartialPayload(name) {
 			if err := os.Remove(path); err != nil {
 				log.Errorf("failed to remove unfinished Cloudability payload %s: %v", name, err)
@@ -130,7 +139,6 @@ func (cu *CldyUploader) recoverUploadFiles() error {
 				fmt.Sprintf("payload %s is %s old, past the recovery period of %s", name, age.Round(time.Second), cu.recoveryPeriod))
 			continue
 		}
-		cu.uploadSet.add(path)
 		cu.RecoveredUploads++
 	}
 	return nil
@@ -171,6 +179,9 @@ func (cu *CldyUploader) recoverClusterSamples(clusterID, clusterDir string) erro
 	for _, e := range entries {
 		name := e.Name()
 		path := filepath.Join(clusterDir, name)
+		if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+			continue // evicted, and counted, to make room for an earlier sample's payload
+		}
 		if strings.HasPrefix(name, stagingPrefix) {
 			if err := os.RemoveAll(path); err != nil {
 				log.Errorf("failed to remove unfinalised Cloudability sample %s: %v", name, err)
@@ -194,14 +205,16 @@ func (cu *CldyUploader) recoverClusterSamples(clusterID, clusterDir string) erro
 				fmt.Sprintf("sample %s is %s old, past the recovery period of %s", name, age.Round(time.Second), cu.recoveryPeriod))
 			continue
 		}
-		payload, err := cu.buildPayload(clusterID, m.Timestamp, []string{path + string(filepath.Separator)})
+		payload, err := cu.buildPayload(clusterID, m.Timestamp, []string{path + string(filepath.Separator)}, uint64(m.totalBytes()))
 		if err != nil {
-			// Left in place: the next start retries it.
+			// Left in place: the next packaging cycle, or the next start, retries it.
 			errs = errors.Join(errs, fmt.Errorf("packaging sample %s: %w", name, err))
 			continue
 		}
+		if payload == "" {
+			continue // evicted to make room
+		}
 		cu.RecoveredSamples++
-		cu.uploadSet.add(payload)
 		cu.RecoveredUploads++
 	}
 	return errs
