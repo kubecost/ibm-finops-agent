@@ -146,12 +146,18 @@ func TestUploadLoopStopsWithItsContext(t *testing.T) {
 	before := goroutinesIn("cldy.(*CldyUploader).uploadLoop")
 	ctx, cancel := context.WithCancel(context.Background())
 	cldy.StartUploaderForTest(ctx, config, nil, nil)
-	if n := goroutinesIn("cldy.(*CldyUploader).uploadLoop"); n != before+1 {
-		t.Fatalf("%d upload loops running after start, want %d", n, before+1)
+	// The loop runs in a wrapper goroutine, which may not have entered uploadLoop yet.
+	deadline := time.Now().Add(5 * time.Second)
+	for goroutinesIn("cldy.(*CldyUploader).uploadLoop") != before+1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d upload loops running 5s after start, want %d",
+				goroutinesIn("cldy.(*CldyUploader).uploadLoop"), before+1)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(5 * time.Second)
 	for goroutinesIn("cldy.(*CldyUploader).uploadLoop") != before {
 		if time.Now().After(deadline) {
 			t.Fatalf("F-16: the upload loop is still running 5s after its context was cancelled")
