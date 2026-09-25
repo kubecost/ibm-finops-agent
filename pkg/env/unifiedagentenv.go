@@ -17,6 +17,10 @@ const (
 	// Exporter Emission Interval
 	ExporterEmissionIntervalEnvVar = "EXPORTER_EMISSION_INTERVAL"
 
+	// Exporter deadlines for one snapshot, and for one emitter's Init or Emit call
+	ExporterSnapshotTimeoutEnvVar = "EXPORTER_SNAPSHOT_TIMEOUT"
+	ExporterEmitTimeoutEnvVar     = "EXPORTER_EMIT_TIMEOUT"
+
 	// Go Debug
 	PProfEnabledEnvVar = "PPROF_ENABLED"
 
@@ -77,6 +81,18 @@ func IsTurboEmitterEnabled() bool {
 // to all the emitters. The default is 1 minute.
 func GetExporterEmissionInterval() time.Duration {
 	return env.GetDuration(ExporterEmissionIntervalEnvVar, 1*time.Minute)
+}
+
+// GetExporterSnapshotTimeout returns the deadline for one exporter snapshot. The default, 0,
+// means 5 × the emission interval.
+func GetExporterSnapshotTimeout() time.Duration {
+	return env.GetDuration(ExporterSnapshotTimeoutEnvVar, 0)
+}
+
+// GetExporterEmitTimeout returns the deadline for one emitter's Init or Emit call. The default,
+// 0, means 5 × the emission interval.
+func GetExporterEmitTimeout() time.Duration {
+	return env.GetDuration(ExporterEmitTimeoutEnvVar, 0)
 }
 
 func IsOpenCostDataSourceEnabled() bool {

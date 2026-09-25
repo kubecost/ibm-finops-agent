@@ -36,10 +36,11 @@ type countingUploader struct{ samples atomic.Int32 }
 func (u *countingUploader) AddSample(string)    { u.samples.Add(1) }
 func (u *countingUploader) SetClusterID(string) {}
 
-// F-38: node stats are recorded only from successful snapshots, so a metrics outage of over
-// 30 min fails liveness. The restart deletes pending data (F-01, F-36), and if the outage is
-// still on, the new exporter's first snapshot fails and it never emits again (F-09).
-func TestReproF38MetricsOutageKeepsLivenessAndResumes(t *testing.T) {
+// F-38 (liveness half, chunk 08): node stats are recorded only from successful snapshots, so a
+// metrics outage of over 30 min fails liveness, and the restart deletes pending data (F-01,
+// F-36). The exporter half (emission resumes after a restart during the outage) is
+// TestReproF38ExporterResumesAfterOutageRestart in exporter_resume_test.go.
+func TestReproF38MetricsOutageKeepsLiveness(t *testing.T) {
 	data := loadTestSnapshot(t)
 	clock := newFakeClock(time.Now())
 	config := cldy.EmitterConfig{
@@ -54,6 +55,7 @@ func TestReproF38MetricsOutageKeepsLivenessAndResumes(t *testing.T) {
 	ce := cldy.NewEmitterForTest(config, up, clock.Now)
 	exp := emitter.NewExporter(nil, provider, ce)
 	exp.Start(tick)
+	defer exp.Stop()
 	// Healthy operation until the first sample is emitted.
 	for deadline := time.Now().Add(5 * time.Second); up.samples.Load() == 0; {
 		if time.Now().After(deadline) {
@@ -71,24 +73,5 @@ func TestReproF38MetricsOutageKeepsLivenessAndResumes(t *testing.T) {
 	if !ce.Healthy() {
 		t.Errorf("F-38: liveness (/healthz) failed after a 45 min metrics outage that a restart cannot fix; " +
 			"the kubelet restart deletes pending samples and uploads (F-01, F-36)")
-	}
-
-	// The kubelet restarts the pod while the outage is still on.
-	exp.Stop()
-	up2 := &countingUploader{}
-	ce2 := cldy.NewEmitterForTest(config, up2, clock.Now)
-	exp2 := emitter.NewExporter(nil, provider, ce2)
-	exp2.Start(tick)
-	defer exp2.Stop()
-	time.Sleep(20 * tick)
-
-	provider.failing.Store(false)
-	for range 10 {
-		clock.Advance(time.Minute)
-		time.Sleep(10 * tick)
-	}
-	if up2.samples.Load() == 0 {
-		t.Errorf("F-38: after a restart during the outage, emission never resumed once the metrics source recovered "+
-			"(the exporter exited on its first failed snapshot, F-09), while liveness reports healthy=%v", ce2.Healthy())
 	}
 }
