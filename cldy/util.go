@@ -120,14 +120,23 @@ func SafePath(elements ...string) string {
 	return path
 }
 
-func IsAvailableDiskSpace(dataSize uint64, dir string) bool {
+// diskAvailable returns the bytes available to unprivileged users on the filesystem holding
+// dir. It is a variable so tests can simulate a full disk or a statfs failure.
+var diskAvailable = func(dir string) (uint64, error) {
 	var stat syscall.Statfs_t
-	err := syscall.Statfs(dir, &stat)
+	if err := syscall.Statfs(dir, &stat); err != nil {
+		return 0, err
+	}
+	return stat.Bavail * uint64(stat.Bsize), nil
+}
+
+func IsAvailableDiskSpace(dataSize uint64, dir string) bool {
+	avail, err := diskAvailable(dir)
 	if err != nil {
 		log.Errorf("error retrieving available disk space.")
 		return false
 	}
 
 	// Check if adding the new data will not exceed available space
-	return stat.Bavail*uint64(stat.Bsize) >= dataSize
+	return avail >= dataSize
 }

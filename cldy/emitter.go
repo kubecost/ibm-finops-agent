@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"math/rand/v2"
 	url "net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +37,17 @@ const scratchPath = "scratch"
 const uploadPath = "upload"
 const agentName = "ibm-finops-agent"
 
+// maxPendingShortLivedPods caps the short-lived pods the emitter holds between samples. Chunk 05
+// caps the cluster cache's buffer; this is the emitter's own bound until chunk 06 moves the
+// commit into the exporter.
+const maxPendingShortLivedPods = 10000
+
+// Init retry backoff: 30s doubling to 5 min.
+const (
+	initRetryBaseBackoff = 30 * time.Second
+	initRetryMaxBackoff  = 5 * time.Minute
+)
+
 type Emitter struct {
 	config            EmitterConfig
 	startTime         time.Time
@@ -57,6 +70,24 @@ type Emitter struct {
 	nodeStatsMu                  sync.RWMutex
 	lastSuccessfulNodeCollection time.Time
 	lastNodeCollectionErr        error
+
+	// Init retry state (F-08). Only touched on the exporter goroutine, like the sample state.
+	initialised     bool
+	initFailures    int
+	nextInitAttempt time.Time
+
+	// pendingShortLivedPods are short-lived pods drained from the cluster cache that no finalised
+	// sample holds yet, oldest first, at most maxPendingShortLivedPods (F-37).
+	pendingShortLivedPods []*v1.Pod
+	pendingShortLivedKeys map[string]int // shortLivedPodKey -> index in pendingShortLivedPods
+
+	// lastSampleBytes is the size of the last finalised sample, the disk budget for the next.
+	lastSampleBytes int64
+
+	// events receives drops, discards, emit outcomes and condition changes; conditions holds
+	// the emitter's view of each condition for edge-triggered logging.
+	events     EventSink
+	conditions map[string]bool
 }
 
 type EmitterConfig struct {
@@ -186,6 +217,8 @@ func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *
 		emissionInterval: config.EmissionInterval,
 		agentVersion:     version.Version,
 		now:              now,
+		events:           NewEventCounts(),
+		conditions:       map[string]bool{},
 	}
 	currentTime := ce.clock().UTC()
 	ce.startTime = currentTime
@@ -300,51 +333,166 @@ func nodeErrorDetails(nodeErrors []error) []errorDetail {
 	return details
 }
 
+// Init initialises the emitter from the first snapshot: it takes the cluster ID from the
+// default namespace, creates the scratch directory and starts the first sample. On failure
+// nothing is created and Emit retries Init with backoff until it succeeds (F-08). Init is a
+// no-op once it has succeeded.
 func (ce *Emitter) Init(cs *emitter.ClusterSnapshot) error {
+	if cs == nil {
+		return ce.initialise(cs)
+	}
+	ce.recordNodeStats(cs.NodeStats)
+	if cs.Kubernetes != nil {
+		ce.addShortLivedPods(cs.Kubernetes.ShortLivedPods)
+	}
+	return ce.initialise(cs)
+}
+
+// initialise runs one Init attempt and records its outcome for the retry in Emit.
+func (ce *Emitter) initialise(cs *emitter.ClusterSnapshot) error {
+	if ce.initialised {
+		return nil
+	}
 	log.Infof("Initializing Cloudability emitter.")
+	err := ce.tryInit(cs)
+	if err != nil {
+		ce.initFailures++
+		ce.nextInitAttempt = ce.clock().Add(initRetryBackoff(ce.initFailures))
+		ce.setCondition(conditionUninitialised, true, fmt.Sprintf("Cloudability emitter failed to initialise, nothing is written until it does: %v", err))
+		return err
+	}
+	ce.initialised = true
+	ce.setCondition(conditionUninitialised, false, "Cloudability emitter initialised")
+	return nil
+}
 
-	clusterID := getClusterID(cs.Kubernetes.Namespaces)
-	ce.ClusterID = &clusterID
-	ce.Uploader.SetClusterID(clusterID)
+func (ce *Emitter) tryInit(cs *emitter.ClusterSnapshot) error {
+	if cs == nil || cs.Kubernetes == nil {
+		return fmt.Errorf("snapshot has no kubernetes data")
+	}
+	clusterID, err := getClusterID(cs.Kubernetes.Namespaces)
+	if err != nil {
+		return err
+	}
 
-	ce.ScratchPath = ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
-	err := createIfNotExists(ce.ScratchPath)
+	scratch := ce.config.ScratchDir + "/" + scratchPath + "/" + clusterID
+	err = createIfNotExists(scratch)
 	if err != nil {
 		return fmt.Errorf("failed to create scratch directory: %s", err.Error())
 	}
+	ce.ScratchPath = scratch
 
 	// Since sample count is intiialized at -1, use next path to get 0 as first index
-	ce.currentSamplePath = ce.newNextSamplePath()
-	err = os.Mkdir(ce.currentSamplePath, os.ModePerm)
+	current := ce.newStagingPath()
+	err = os.Mkdir(current, os.ModePerm)
 	if err != nil {
 		return err
 	}
-
-	ce.recordNodeStats(cs.NodeStats)
+	ce.currentSamplePath = current
 	err = ce.writeStatsData(cs.NodeStats)
 	if err != nil {
+		ce.discardStaging(current)
+		ce.currentSamplePath = ""
 		return err
 	}
 
+	ce.ClusterID = &clusterID
+	ce.Uploader.SetClusterID(clusterID)
 	ce.sampleCt = 0
+	ce.lastEmission = ce.clock().UTC()
 	return nil
+}
+
+// initRetryBackoff is the wait before Init attempt failures+1: capped exponential with jitter.
+func initRetryBackoff(failures int) time.Duration {
+	backoff := initRetryMaxBackoff
+	if failures < 16 {
+		backoff = min(initRetryBaseBackoff<<(failures-1), initRetryMaxBackoff)
+	}
+	// Jitter down by up to 20% so a fleet of agents doesn't retry in step.
+	return backoff - time.Duration(rand.Int64N(int64(backoff)/5+1))
 }
 
 func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error {
 	// Record collection diagnostics from every snapshot, even when downsampling uploads, so
 	// health/staleness tracking reflects the latest node-stats collection.
 	ce.recordNodeStats(cs.NodeStats)
+	// The snapshot drained these from the cluster cache, so keep them until a sample holds them,
+	// whether or not this tick emits (F-37).
+	if cs.Kubernetes != nil {
+		ce.addShortLivedPods(cs.Kubernetes.ShortLivedPods)
+	}
 
-	// Emit only after the emission interval has been met
-	if ce.shouldDownsample() {
+	if !ce.initialised {
+		if ce.clock().Before(ce.nextInitAttempt) {
+			ce.events.EmitResult(emitResultSkipped)
+			return nil
+		}
+		if err := ce.initialise(cs); err != nil {
+			ce.events.EmitResult(emitResultError)
+			return fmt.Errorf("cloudability emitter is not initialised: %w", err)
+		}
 		return nil
 	}
 
-	ce.nextSamplePath = ce.newNextSamplePath()
-	err := os.Mkdir(ce.nextSamplePath, os.ModePerm)
+	// Emit only after the emission interval has been met
+	slot, skipped, due := ce.emissionSlot()
+	if !due {
+		return nil
+	}
+
+	ce.sweepOrphanedStaging()
+	if !ce.ensureDiskBudget() {
+		// The live staging directory keeps this sample's baseline, so the next sample's usage
+		// delta still covers this slot; the objects of this slot are lost.
+		ce.drop(dropReasonDiskPressureSkipped, 1, "no disk space for the next sample after evicting every finalised sample")
+		ce.events.EmitResult(emitResultSkipped)
+		ce.commitSlot(slot, skipped)
+		return nil
+	}
+
+	if err := ce.writeSample(cs); err != nil {
+		// The slot is not consumed: the next tick retries it (F-45).
+		ce.events.EmitResult(emitResultError)
+		return err
+	}
+	ce.events.EmitResult(emitResultOK)
+	ce.commitSlot(slot, skipped)
+	log.Debugf("Emitted sample to Cldy: %d", ce.sampleCt)
+	return nil
+}
+
+// writeSample writes the current sample and the next sample's baselines, then finalises the
+// current sample and queues it. On error the next sample's staging directory is removed and the
+// current one is kept, with its baselines, for the retry.
+func (ce *Emitter) writeSample(cs *emitter.ClusterSnapshot) (rerr error) {
+	if cs.NodeStats == nil {
+		return fmt.Errorf("stats data was nil")
+	}
+	if cs.Kubernetes == nil {
+		return fmt.Errorf("k8s snapshot was nil")
+	}
+	// Something outside the emitter removed the live staging directory. Start it again, without
+	// its baselines, rather than failing every Emit.
+	if _, err := os.Stat(ce.currentSamplePath); errors.Is(err, fs.ErrNotExist) {
+		log.Errorf("Cloudability sample directory %s vanished; recreating it, its baselines are lost", ce.currentSamplePath)
+		if err := os.MkdirAll(ce.currentSamplePath, os.ModePerm); err != nil {
+			return err
+		}
+	}
+
+	next := ce.newStagingPath()
+	err := os.Mkdir(next, os.ModePerm)
 	if err != nil {
 		return err
 	}
+	ce.nextSamplePath = next
+	defer func() {
+		if rerr != nil {
+			ce.discardStaging(next)
+			ce.nextSamplePath = ""
+		}
+	}()
 
 	err = ce.writeStatsData(cs.NodeStats)
 	if err != nil {
@@ -354,12 +502,16 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 	if err != nil {
 		return err
 	}
+	final, manifest, err := finaliseSample(ce.currentSamplePath, *ce.ClusterID, ce.clock(), len(cs.NodeStats.Stats))
+	if err != nil {
+		return err
+	}
 
-	ce.Uploader.AddSample(ce.currentSamplePath)
+	ce.Uploader.AddSample(final)
 	ce.sampleCt++
-	ce.currentSamplePath = ce.nextSamplePath
-	log.Debugf("Emitted sample to Cldy: %d", ce.sampleCt)
-
+	ce.currentSamplePath = next
+	ce.lastSampleBytes = manifest.totalBytes()
+	ce.clearShortLivedPods()
 	return nil
 }
 
@@ -385,13 +537,6 @@ func (ce *Emitter) writeStatsData(statsData *emitter.NodeStatsSummary) error {
 }
 
 func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []byte) (rerr error) {
-	if !IsAvailableDiskSpace(uint64(len(data)), ce.ScratchPath) {
-		err := ce.ClearOldScratchSamples()
-		if err != nil {
-			return err
-		}
-	}
-
 	var fileName string
 	if outputPrefix == stats {
 		fileName = ce.currentSamplePath
@@ -409,14 +554,17 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 	defer safeClose(file.Close, &rerr)
 
 	_, err = file.Write(data)
-	return err
+	if err != nil {
+		return err
+	}
+	return crashPoint(crashSampleFileWritten)
 }
 
 func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	if snapshot == nil {
 		return fmt.Errorf("k8s snapshot was nil")
 	}
-	for name, objs := range metadataToObj(snapshot) {
+	for name, objs := range metadataToObj(snapshot, ce.pendingShortLivedPods, ce.clock()) {
 		err := ce.writeObjects(name, objs)
 		if err != nil {
 			return err
@@ -425,48 +573,25 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	return ce.writeAgentFile()
 }
 
-func (ce *Emitter) ClearOldScratchSamples() error {
-	log.Infof("Disk space threshold met. Attempting to clear samples over 1 hour old.")
-
-	files, err := os.ReadDir(ce.ScratchPath)
-	if err != nil {
-		return err
-	}
-	for _, file := range files {
-		filePath := filepath.Join(ce.ScratchPath, file.Name())
-		fileInfo, err := os.Stat(filePath)
-		if err != nil {
-			log.Warnf("problem retrieving file information: %s", err)
-			continue
-		}
-
-		if ce.clock().Sub(fileInfo.ModTime()) > time.Hour*1 {
-			err := os.RemoveAll(filePath)
-			if err != nil {
-				log.Warnf("problem deleting file: %s", err)
-			}
-			ce.Uploader.RemoveSample(filePath + "/")
-		}
-	}
-
-	return nil
-}
-
-func metadataToObj(snapshot *emitter.KubernetesSnapshot) map[string][]runtime.Object {
+// metadataToObj returns the objects to write per file. shortLivedPods are the pending short-lived
+// pods, already filtered when drained; the snapshot's own ShortLivedPods are among them.
+func metadataToObj(snapshot *emitter.KubernetesSnapshot, shortLivedPods []*v1.Pod, now time.Time) map[string][]runtime.Object {
+	// safe buffer to allow for longer lived resources to be ingested correctly
+	previousHour := now.UTC().Add(-1 * time.Hour)
 	return map[string][]runtime.Object{
 		//TODO: add cronjobs
 		"nodes":                  checkAndConvertNodes(snapshot.Nodes),
-		"pods":                   convertObj(append(snapshot.Pods, snapshot.ShortLivedPods...)),
-		"deployments":            convertObj(snapshot.Deployments),
-		"replicasets":            convertObj(snapshot.ReplicaSets),
-		"daemonsets":             convertObj(snapshot.DaemonSets),
-		"namespaces":             convertObj(snapshot.Namespaces),
-		"services":               convertObj(snapshot.Services),
-		"replicationcontrollers": convertObj(snapshot.ReplicationControllers),
-		"persistentvolumes":      convertObj(snapshot.PersistentVolumes),
-		"persistentvolumeclaims": convertObj(snapshot.PersistentVolumeClaims),
-		"statefulsets":           convertObj(snapshot.StatefulSets),
-		"jobs":                   convertObj(snapshot.Jobs),
+		"pods":                   podObjects(snapshot.Pods, shortLivedPods, previousHour),
+		"deployments":            convertObj(snapshot.Deployments, previousHour),
+		"replicasets":            convertObj(snapshot.ReplicaSets, previousHour),
+		"daemonsets":             convertObj(snapshot.DaemonSets, previousHour),
+		"namespaces":             convertObj(snapshot.Namespaces, previousHour),
+		"services":               convertObj(snapshot.Services, previousHour),
+		"replicationcontrollers": convertObj(snapshot.ReplicationControllers, previousHour),
+		"persistentvolumes":      convertObj(snapshot.PersistentVolumes, previousHour),
+		"persistentvolumeclaims": convertObj(snapshot.PersistentVolumeClaims, previousHour),
+		"statefulsets":           convertObj(snapshot.StatefulSets, previousHour),
+		"jobs":                   convertObj(snapshot.Jobs, previousHour),
 	}
 }
 
@@ -481,10 +606,10 @@ func checkAndConvertNodes(nodes []*v1.Node) []runtime.Object {
 	return data
 }
 
-func convertObj[T runtime.Object](objs []T) []runtime.Object {
+func convertObj[T runtime.Object](objs []T, previousHour time.Time) []runtime.Object {
 	var data []runtime.Object
 	for _, obj := range objs {
-		if shouldSkipResource(obj) {
+		if shouldSkipResource(previousHour, obj) {
 			continue
 		}
 
@@ -493,9 +618,7 @@ func convertObj[T runtime.Object](objs []T) []runtime.Object {
 	return data
 }
 
-func shouldSkipResource[T runtime.Object](obj T) bool {
-	// safe buffer to allow for longer lived resources to be ingested correctly
-	previousHour := time.Now().UTC().Add(-1 * time.Hour)
+func shouldSkipResource[T runtime.Object](previousHour time.Time, obj T) bool {
 	switch resource := any(obj).(type) {
 	case *batchv1.Job:
 		return shouldSkipJob(previousHour, resource)
@@ -554,7 +677,7 @@ func (ce *Emitter) writeObjects(name string, data []runtime.Object) (err error) 
 			return err
 		}
 	}
-	return nil
+	return crashPoint(crashSampleFileWritten)
 }
 
 func (ce *Emitter) writeAgentFile() (err error) {
@@ -620,7 +743,10 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		return err
 	}
 	_, err = outFile.Write(agentBytes)
-	return err
+	if err != nil {
+		return err
+	}
+	return crashPoint(crashSampleFileWritten)
 }
 
 type agentData struct {
@@ -645,8 +771,10 @@ func (ce *Emitter) getSuffix() string {
 	return ".proto"
 }
 
-func (ce *Emitter) newNextSamplePath() string {
-	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", ce.clock().UTC().UnixMilli(), ce.sampleCt+1))
+// newStagingPath returns the staging directory for the sample after the current one, with a
+// trailing separator. See sample.go for the staging and finalised layout.
+func (ce *Emitter) newStagingPath() string {
+	return SafePath(ce.ScratchPath, stagingPrefix+sampleDirName(ce.clock(), ce.sampleCt+1)+"/")
 }
 
 func (ce *Emitter) marshalObject(object runtime.Object) ([]byte, error) {
@@ -669,25 +797,43 @@ func (ce *Emitter) marshalObject(object runtime.Object) ([]byte, error) {
 	return buf, nil
 }
 
-func getClusterID(namespaces []*v1.Namespace) string {
+// getClusterID returns the default namespace's UID, which is the Cloudability cluster ID for
+// compatibility with the legacy metrics-agent. There is no fallback (F-08).
+func getClusterID(namespaces []*v1.Namespace) (string, error) {
 	for _, ns := range namespaces {
 		if ns.Name == "default" {
-			return string(ns.GetUID())
+			if ns.GetUID() == "" {
+				return "", fmt.Errorf("the default namespace has no UID, so there is no cluster ID")
+			}
+			return string(ns.GetUID()), nil
 		}
 	}
-	// should probably error?
-	return ""
+	return "", fmt.Errorf("the default namespace is not in the snapshot, so there is no cluster ID")
 }
 
-// Checks sample count and emits sample only if it equals or exceeds the emission interval
-// (trimmed down to 90%) plus the time of the last emission
-func (ce *Emitter) shouldDownsample() bool {
-	bufferedEmissionInterval := float32(ce.emissionInterval) * .9
-	emissionThreshold := ce.lastEmission.Add(time.Duration(bufferedEmissionInterval))
-
-	if ce.clock().UTC().After(emissionThreshold) {
-		ce.lastEmission = ce.lastEmission.Add(ce.emissionInterval)
-		return false
+// emissionSlot reports whether an emission is due and, if so, the slot it fills and how many
+// slots before it were missed. A slot is due once 90% of the emission interval has passed since
+// the last one. It doesn't advance lastEmission: commitSlot does, once the sample is finalised
+// or deliberately skipped (F-45). After a stall the missed slots are skipped rather than emitted
+// as a burst (F-32): the first sample's baseline delta already covers the stall's usage.
+func (ce *Emitter) emissionSlot() (slot time.Time, skipped int, due bool) {
+	now := ce.clock().UTC()
+	if ce.emissionInterval <= 0 {
+		return now, 0, true
 	}
-	return true
+	elapsed := now.Sub(ce.lastEmission)
+	if elapsed <= time.Duration(float64(ce.emissionInterval)*.9) {
+		return time.Time{}, 0, false
+	}
+	slots := max(int((elapsed+ce.emissionInterval/10)/ce.emissionInterval), 1)
+	return ce.lastEmission.Add(time.Duration(slots) * ce.emissionInterval), slots - 1, true
+}
+
+// commitSlot records slot as the last emission.
+func (ce *Emitter) commitSlot(slot time.Time, skipped int) {
+	ce.lastEmission = slot
+	if skipped > 0 {
+		log.Infof("Cloudability emitter skipped %d missed emission slots after a stall; the next sample covers their usage", skipped)
+		ce.events.EmissionSlotsSkipped(skipped)
+	}
 }

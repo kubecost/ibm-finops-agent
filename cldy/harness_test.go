@@ -27,7 +27,8 @@ type testingT interface {
 
 // prodScratch is a scratch directory laid out the way production writes it:
 //
-//	<ScratchDir>/scratch/<clusterID>/<unixMilli>_<n>/   samples (Emitter.Init, newNextSamplePath)
+//	<ScratchDir>/scratch/<clusterID>/<unixMilli>_<n>/   finalised samples, with MANIFEST.json (sample.go)
+//	<ScratchDir>/scratch/<clusterID>/.inprogress-<unixMilli>_<n>/   samples being written
 //	<ScratchDir>/upload/<clusterID>_<YYYY-MM-DD-HH-MM-SS>.tgz   payloads (ConstructPayload)
 type prodScratch struct {
 	Dir       string // the configured CLOUDABILITY_SCRATCH_DIR
@@ -60,14 +61,28 @@ func (p *prodScratch) SampleDir(ts time.Time, n int) string {
 	return filepath.Join(p.ClusterScratchDir(), fmt.Sprintf("%d_%d", ts.UTC().UnixMilli(), n)) + string(filepath.Separator)
 }
 
-// AddCompleteSample writes a complete sample (all required files, from testdata) for sample n
-// taken at ts, with agent-measurement.json stamped with ts. It returns the sample path.
+// AddCompleteSample writes a finalised sample (all required files, from testdata, plus its
+// manifest) for sample n taken at ts, with agent-measurement.json stamped with ts. It returns the
+// sample path.
 func (p *prodScratch) AddCompleteSample(t testingT, ts time.Time, n int) string {
 	t.Helper()
-	return p.AddIncompleteSample(t, ts, n)
+	return p.AddFinalisedSampleWithout(t, ts, n)
 }
 
-// AddIncompleteSample is AddCompleteSample with the named testdata files left out.
+// AddFinalisedSampleWithout is AddCompleteSample with the named testdata files left out before
+// the manifest is written, so the sample is valid but smaller (for example fewer nodes).
+func (p *prodScratch) AddFinalisedSampleWithout(t testingT, ts time.Time, n int, omit ...string) string {
+	t.Helper()
+	dir := p.AddIncompleteSample(t, ts, n, omit...)
+	nodes, _ := filepath.Glob(filepath.Join(dir, "stats-summary-*"))
+	if err := cldy.WriteManifestForTest(dir, p.ClusterID, ts, len(nodes)); err != nil {
+		t.Fatalf("writing manifest for %s: %v", dir, err)
+	}
+	return dir
+}
+
+// AddIncompleteSample writes the testdata sample files, less the named ones, for sample n taken
+// at ts without a manifest: what an agent from before the manifest, or a torn write, leaves.
 func (p *prodScratch) AddIncompleteSample(t testingT, ts time.Time, n int, omit ...string) string {
 	t.Helper()
 	dir := p.SampleDir(ts, n)

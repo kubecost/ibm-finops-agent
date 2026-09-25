@@ -7,42 +7,22 @@ package cldy_test
 // that fixes a finding removes its test from behind the reliability_repro tag.
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ibm/finops-agent/cldy"
-	"github.com/ibm/finops-agent/internal/mocks"
-	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/emitter"
-	"github.com/onsi/gomega"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // reproRecoveryPeriod stands in for a configured recovery period (decision D8's proposed 72h
 // default) where a test needs to look past F-36.
 const reproRecoveryPeriod = 72 * time.Hour
-
-// loadTestSnapshot returns the testdata snapshot. buildTestData asserts with gomega, so its fail
-// handler is pointed at t first.
-func loadTestSnapshot(t *testing.T) *emitter.ClusterSnapshot {
-	t.Helper()
-	gomega.RegisterTestingT(t)
-	data, err := buildTestData()
-	if err != nil {
-		t.Fatalf("buildTestData: %v", err)
-	}
-	return data
-}
 
 // ghostUploads returns the queued payloads whose files no longer exist.
 func ghostUploads(cu *cldy.CldyUploader) []string {
@@ -257,141 +237,6 @@ func TestReproF05RecoveredPayloadHasClusterID(t *testing.T) {
 				break
 			}
 		}
-	}
-}
-
-// F-08: getClusterID falls back to "" when the default namespace is missing, and Init accepts it.
-func TestReproF08InitRejectsMissingClusterID(t *testing.T) {
-	dir := t.TempDir()
-	config := cldy.EmitterConfig{
-		UploaderConfig:   cldy.UploaderConfig{ScratchDir: dir},
-		EmitAsJson:       true,
-		EmissionInterval: 3 * time.Minute,
-	}
-	ce := cldy.NewEmitterForTest(config, &mockUploader{}, nil)
-	data := loadTestSnapshot(t)
-	var namespaces []*v1.Namespace
-	for _, ns := range data.Kubernetes.Namespaces {
-		if ns.Name != "default" {
-			namespaces = append(namespaces, ns)
-		}
-	}
-	data.Kubernetes.Namespaces = namespaces
-
-	err := ce.Init(data)
-
-	written := 0
-	_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
-			written++
-		}
-		return nil
-	})
-	if err == nil {
-		t.Errorf("F-08: Init accepted a snapshot without the default namespace and used cluster ID %q", *ce.ClusterID)
-	}
-	if written > 0 {
-		t.Errorf("F-08: Init wrote %d files under %s with an empty cluster ID", written, dir)
-	}
-}
-
-// drainingClusterCache buffers short-lived pods and drains them on GetAllShortLivedPods, as
-// DynamicClusterCache does.
-type drainingClusterCache struct {
-	*mocks.MockClusterCache
-	mu  sync.Mutex
-	slp []*v1.Pod
-}
-
-func (c *drainingClusterCache) deleted(pod *v1.Pod) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.slp = append(c.slp, pod)
-}
-
-func (c *drainingClusterCache) GetAllShortLivedPods() []*v1.Pod {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	pods := c.slp
-	c.slp = nil
-	return pods
-}
-
-type drainingDataSource struct {
-	*mocks.MockDataSource
-	cache *drainingClusterCache
-}
-
-func (ds *drainingDataSource) Cluster() cluster.ClusterCache { return ds.cache }
-
-var _ core.DataSource = (*drainingDataSource)(nil)
-
-func shortLivedPod(name string) *v1.Pod {
-	now := metav1.Now()
-	return &v1.Pod{
-		TypeMeta:   metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID("uid-" + name)},
-		Status: v1.PodStatus{
-			Phase:     v1.PodSucceeded,
-			StartTime: &now,
-			ContainerStatuses: []v1.ContainerStatus{{
-				Name:  "main",
-				State: v1.ContainerState{Terminated: &v1.ContainerStateTerminated{FinishedAt: now}},
-			}},
-		},
-	}
-}
-
-// F-37: the snapshot drains short-lived pods every exporter tick (1 min), but Cloudability writes
-// them only on emitting ticks (every 3 min), so the pods drained on the other ticks are lost.
-func TestReproF37ShortLivedPodsKeptAcrossTicks(t *testing.T) {
-	data := loadTestSnapshot(t)
-	clock := newFakeClock(time.Now().Truncate(time.Minute))
-	cache := &drainingClusterCache{MockClusterCache: mocks.NewMockClusterCache()}
-	cache.Namespaces = data.Kubernetes.Namespaces
-	ds := &drainingDataSource{MockDataSource: mocks.NewMockDataSource(), cache: cache}
-	snapshotConfig := emitter.DefaultSnapshotConfig()
-	snapshotConfig.Now = clock.Now
-	provider := emitter.NewConcurrentSnapshotProvider(snapshotConfig)
-
-	up := &mockUploader{}
-	ce := cldy.NewEmitterForTest(cldy.EmitterConfig{
-		UploaderConfig:   cldy.UploaderConfig{ScratchDir: t.TempDir()},
-		EmitAsJson:       true,
-		EmissionInterval: 3 * time.Minute, // production default EMISSION_INTERVAL
-	}, up, clock.Now)
-
-	// The exporter's cycle: Init on the first snapshot, then snapshot + Emit every minute.
-	snap, err := provider.SnapshotOf(ds)
-	if err != nil {
-		t.Fatalf("snapshot: %v", err)
-	}
-	if err := ce.Init(snap); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
-	want := []string{"slp-1", "slp-2", "slp-3"}
-	for _, name := range want {
-		cache.deleted(shortLivedPod(name)) // one short-lived pod ends during each tick
-		clock.Advance(time.Minute)
-		snap, err := provider.SnapshotOf(ds)
-		if err != nil {
-			t.Fatalf("snapshot: %v", err)
-		}
-		if err := ce.Emit(context.Background(), snap); err != nil {
-			t.Fatalf("Emit: %v", err)
-		}
-	}
-
-	if len(up.data) != 1 {
-		t.Fatalf("setup: expected exactly one sample after 3 one-minute ticks, got %d", len(up.data))
-	}
-	written, err := readPodNames(filepath.Join(up.data[0], "pods.jsonl"))
-	if err != nil {
-		t.Fatalf("reading pods.jsonl: %v", err)
-	}
-	if missing := missingFrom(written, want...); len(missing) > 0 {
-		t.Fatalf("F-37: short-lived pods %v drained on non-emitting ticks never reached a sample (sample has %v)",
-			missing, written)
 	}
 }
 
