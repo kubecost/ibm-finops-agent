@@ -3,13 +3,17 @@ package cldy
 // Named crash points in the payload lifecycle. Tests use them to model a process kill at that
 // point: see testHook.
 const (
-	// crashAfterCreate is reached after the payload file is created and before anything is written.
+	// crashAfterCreate is reached after the temporary payload file (upload/.<name>.partial) is
+	// created and before anything is written.
 	crashAfterCreate = "after-create"
 	// crashMidTar is reached after each tar header is written, before that entry's content.
 	crashMidTar = "mid-tar"
-	// crashBeforeRename is reached once the payload is complete, before the samples are removed.
-	// There is no rename today; this is where a temp-file rename would go.
+	// crashBeforeRename is reached once the temporary payload is complete and fsynced, before it
+	// is renamed to its final name.
 	crashBeforeRename = "before-rename"
+	// crashAfterRename is reached after the payload is renamed to its final name, before the
+	// samples it holds are removed.
+	crashAfterRename = "after-rename"
 	// crashAfterUpload is reached after every storage service accepted a payload, before the
 	// payload file is deleted.
 	crashAfterUpload = "after-upload"

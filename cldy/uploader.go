@@ -39,12 +39,16 @@ type CldyUploader struct {
 	recoveryPeriod   time.Duration
 	lastUploadSize   uint64
 
+	// events receives drops and discards from startup recovery and payload handling. The emitter
+	// built around this uploader shares it.
+	events EventSink
+
 	// now is the uploader's clock. It is nil in production (see clock) and only set by tests.
 	now func() time.Time
 }
 
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
-	uploader := newCldyUploader(config, newStorageServices(config), stop, nil)
+	uploader := newCldyUploader(config, newStorageServices(config), stop, nil, nil)
 	go uploader.uploadLoop()
 	return uploader
 }
@@ -105,8 +109,12 @@ func newStorageServices(config UploaderConfig) []StorageService {
 
 // newCldyUploader creates the upload directory and runs startup recovery, but does not start
 // uploadLoop. now is the uploader's clock; nil means time.Now. Tests use it to drive upload
-// cycles directly (uploadCycle) against fake storage services and a fake clock.
-func newCldyUploader(config UploaderConfig, storageServices []StorageService, stop chan struct{}, now func() time.Time) *CldyUploader {
+// cycles directly (uploadCycle) against fake storage services and a fake clock. events nil means
+// a new EventCounts.
+func newCldyUploader(config UploaderConfig, storageServices []StorageService, stop chan struct{}, now func() time.Time, events EventSink) *CldyUploader {
+	if events == nil {
+		events = NewEventCounts()
+	}
 	uploadPathDir := config.ScratchDir + "/" + uploadPath
 	err := createIfNotExists(uploadPathDir)
 	if err != nil {
@@ -123,6 +131,7 @@ func newCldyUploader(config UploaderConfig, storageServices []StorageService, st
 		StorageServices: storageServices,
 		recoveryPeriod:  config.RecoveryPeriod,
 		agentVersion:    version.Version,
+		events:          events,
 		now:             now,
 	}
 	err = uploader.recoverDataOnStartup()

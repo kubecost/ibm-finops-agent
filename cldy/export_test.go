@@ -10,6 +10,7 @@ const (
 	CrashAfterCreate  = crashAfterCreate
 	CrashMidTar       = crashMidTar
 	CrashBeforeRename = crashBeforeRename
+	CrashAfterRename  = crashAfterRename
 	CrashAfterUpload  = crashAfterUpload
 
 	CrashSampleFileWritten  = crashSampleFileWritten
@@ -28,6 +29,12 @@ const (
 	DropReasonDiskPressure          = dropReasonDiskPressure
 	DropReasonDiskPressureSkipped   = dropReasonDiskPressureSkipped
 	DropReasonShortLivedPodOverflow = dropReasonShortLivedPodOverflow
+	DropReasonRecoveryExpired       = dropReasonRecoveryExpired
+	DropReasonClusterIDMismatch     = dropReasonClusterIDMismatch
+	DropReasonCorruptPayload        = dropReasonCorruptPayload
+	DropReasonInvalidSample         = dropReasonInvalidSample
+	DropReasonInvalidPayload        = dropReasonInvalidPayload
+	DropReasonQuarantineEvicted     = dropReasonQuarantineEvicted
 	ConditionDiskPressure           = conditionDiskPressure
 	ConditionDiskSpaceUnknown       = conditionDiskSpaceUnknown
 	ConditionUninitialised          = conditionUninitialised
@@ -72,11 +79,28 @@ func (ce *Emitter) EventsForTest() EventCountsSnapshot {
 	return ce.events.(*EventCounts).Snapshot()
 }
 
+// QuarantineDirName is the directory under <ScratchDir>/scratch/ that holds quarantined items.
+const QuarantineDirName = quarantineDirName
+
+// SetQuarantineLimitsForTest replaces the quarantine bounds and returns a func restoring them.
+// Tests that set it must not run in parallel.
+func SetQuarantineLimitsForTest(maxBytes int64, maxAge time.Duration) (restore func()) {
+	prevBytes, prevAge := quarantineMaxBytes, quarantineMaxAge
+	quarantineMaxBytes, quarantineMaxAge = maxBytes, maxAge
+	return func() { quarantineMaxBytes, quarantineMaxAge = prevBytes, prevAge }
+}
+
+// EventsForTest returns the uploader's event counts, which an emitter built around it shares.
+// It fails if a different sink was installed.
+func (cu *CldyUploader) EventsForTest() EventCountsSnapshot {
+	return cu.events.(*EventCounts).Snapshot()
+}
+
 // NewUploaderForTest runs startup recovery exactly as NewCldyUploader does, but uses the given
 // storage services and clock (nil means time.Now) and does not start uploadLoop. Drive upload
 // cycles with UploadCycleForTest.
 func NewUploaderForTest(config UploaderConfig, services []StorageService, now func() time.Time) *CldyUploader {
-	return newCldyUploader(config, services, make(chan struct{}), now)
+	return newCldyUploader(config, services, make(chan struct{}), now, nil)
 }
 
 // UploadCycleForTest runs one tick of uploadLoop.
@@ -95,7 +119,8 @@ func (cu *CldyUploader) QueuedSamplesForTest() []string {
 }
 
 // NewEmitterForTest builds an Emitter around the given uploader with the given clock (nil means
-// time.Now), without constructing a real uploader.
+// time.Now), without constructing a real uploader. Given a *CldyUploader, the emitter shares its
+// event sink, as in production.
 func NewEmitterForTest(config EmitterConfig, uploader Uploader, now func() time.Time) *Emitter {
 	return newEmitter(config, uploader, now)
 }

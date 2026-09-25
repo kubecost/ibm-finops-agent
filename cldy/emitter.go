@@ -210,6 +210,11 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 // newEmitter builds an Emitter around the given uploader. now is the emitter's clock; nil
 // means time.Now. Tests use it to inject a fake clock and uploader.
 func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *Emitter {
+	// Share the uploader's sink so that startup recovery and the emitter report through one.
+	var events EventSink = NewEventCounts()
+	if cu, ok := uploader.(*CldyUploader); ok {
+		events = cu.events
+	}
 	ce := &Emitter{
 		config:           config,
 		Uploader:         uploader,
@@ -217,7 +222,7 @@ func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *
 		emissionInterval: config.EmissionInterval,
 		agentVersion:     version.Version,
 		now:              now,
-		events:           NewEventCounts(),
+		events:           events,
 		conditions:       map[string]bool{},
 	}
 	currentTime := ce.clock().UTC()
