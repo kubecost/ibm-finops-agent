@@ -53,6 +53,11 @@ jobs:
         run: |
           make test
 
+      - name: Test (race detector)
+        working-directory: ./ibm-finops-agent
+        run: |
+          make test-race
+
       - name: Lint
         working-directory: ./ibm-finops-agent
         run: |
