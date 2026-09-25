@@ -86,6 +86,9 @@ const (
 	// the fault is taken to be the backend's and nothing is quarantined. It clears on the next
 	// delivered payload.
 	conditionUploadsRejected = "upload_rejected"
+	// conditionRegionFallback: CLOUDABILITY_UPLOAD_REGION is not a known region, so uploads go to the
+	// US endpoints (D3).
+	conditionRegionFallback = "region_fallback"
 )
 
 // Upload attempt results for finops_agent_cldy_upload_attempts_total{result}.

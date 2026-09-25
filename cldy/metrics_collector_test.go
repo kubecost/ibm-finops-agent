@@ -2,6 +2,7 @@ package cldy_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -43,7 +44,7 @@ var _ = Describe("Metrics Collector", func() {
 				FilePath:     "testdata/daemonsets.jsonl",
 			}
 
-			err := service.Upload(payload)
+			err := service.Upload(context.Background(), payload)
 			Expect(err).ToNot(HaveOccurred())
 		})
 

@@ -2,6 +2,7 @@ package cldy_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -269,7 +270,7 @@ var _ = Describe("ApptioService agent version sanitization", func() {
 				FilePath:     "testdata/daemonsets.jsonl",
 			}
 
-			Expect(service.Upload(payload)).To(Succeed())
+			Expect(service.Upload(context.Background(), payload)).To(Succeed())
 			Expect(capturedVersion).To(Equal(wantVersion))
 		},
 		Entry("strips leading v from a tagged release version", "v1.0.22", "1.0.22"),

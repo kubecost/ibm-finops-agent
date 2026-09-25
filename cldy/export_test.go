@@ -1,6 +1,14 @@
 package cldy
 
-import "time"
+import (
+	"time"
+
+	"github.com/aws/aws-sdk-go/aws"                  //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
+	"github.com/aws/aws-sdk-go/aws/credentials"      //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
+	"github.com/aws/aws-sdk-go/aws/session"          //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
+	"github.com/aws/aws-sdk-go/service/s3"           //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
+	"github.com/aws/aws-sdk-go/service/s3/s3manager" //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
+)
 
 // Test-only access to the package's seams for the external cldy_test package. Nothing here is
 // compiled into production builds.
@@ -187,3 +195,38 @@ func SetTestHook(hook func(point string) error) (restore func()) {
 	testHook = hook
 	return func() { testHook = prev }
 }
+
+// ConditionRegionFallback is raised when the configured region is unknown and uploads fall back
+// to the US endpoints.
+const ConditionRegionFallback = conditionRegionFallback
+
+// UploadDeadlineForTest is the uploader's deadline for one Upload of a payload of size bytes.
+func UploadDeadlineForTest(config ApptioConfig, size int64) time.Duration {
+	return uploadDeadline(config, size)
+}
+
+// RegionURLsForTest returns the Frontdoor, Cloudability and metrics-collector URLs for region
+// ("" where that path doesn't support it) and whether it fell back to the US as unknown.
+func RegionURLsForTest(region string) (frontdoor, cloudability, metricsCollector string, fallback bool) {
+	return regionURLs(region)
+}
+
+// NewCustomS3ClientForTest is the custom S3 service on the production aws-sdk-go v1 uploader,
+// pointed at endpoint with static credentials.
+func NewCustomS3ClientForTest(bucket, endpoint string) StorageService {
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region:           aws.String("us-east-1"),
+		Endpoint:         aws.String(endpoint),
+		S3ForcePathStyle: aws.Bool(true),
+		Credentials:      credentials.NewStaticCredentials("id", "secret", ""),
+		MaxRetries:       aws.Int(3),
+	}))
+	return CustomS3Client{S3Bucket: bucket, S3Region: "us-east-1",
+		UploadClient: &CustomS3Uploader{Uploader: s3manager.NewUploaderWithClient(s3.New(sess))}}
+}
+
+// ConnectivityTestForTest runs the service's startup connectivity test.
+func (s *ApptioServiceImpl) ConnectivityTestForTest() error { return s.testUpload() }
+
+// ConnectivityTestForTest runs the service's startup connectivity test.
+func (s *MetricsCollectorServiceImpl) ConnectivityTestForTest() error { return s.testUpload() }

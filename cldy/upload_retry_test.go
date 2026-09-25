@@ -1,6 +1,7 @@
 package cldy_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -53,7 +54,7 @@ var _ = Describe("Upload retry", func() {
 			CldyUploadClient: cldy.NewApptioClient(cldy.ApptioConfig{Timeout: 200 * time.Millisecond}),
 		}
 
-		err = service.Upload(cldy.UploadPayload{
+		err = service.Upload(context.Background(), cldy.UploadPayload{
 			ClusterUID:   "cluster",
 			AgentVersion: "1.0.0",
 			UploadHash:   "hash",

@@ -48,7 +48,7 @@ const apikeyloginEndpoint = "/service/apikeylogin"
 // returns an *UploadError naming the stage that failed, so the uploader can tell a refused
 // credential from a refused payload (classifyUpload).
 type StorageService interface {
-	Upload(payload UploadPayload) error
+	Upload(ctx context.Context, payload UploadPayload) error
 }
 
 // Upload stages, for UploadError.
@@ -273,6 +273,9 @@ type ApptioConfig struct {
 	CustomAzureClientID             string
 	CustomAzureClientSecret         SecretManager
 	UseProxyForGettingUploadURLOnly bool
+	// MinThroughput is the slowest upload, in bytes per second, that is allowed to finish
+	// (CLOUDABILITY_UPLOAD_MIN_THROUGHPUT_KBPS). Zero means defaultMinThroughput.
+	MinThroughput int64
 }
 
 func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
@@ -296,7 +299,7 @@ func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
 	}
 }
 
-func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
+func (s *ApptioServiceImpl) Upload(_ context.Context, payload UploadPayload) error {
 	var err error
 	// gather opentoken from Frontdoor on first run or if token expired
 	if s.OpenToken == "" || time.Now().UTC().After(s.validTil) {
@@ -636,7 +639,7 @@ func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageSer
 }
 
 type CustomS3UploadService interface {
-	Do(sampleToUpload *s3manager.UploadInput) error
+	Do(ctx context.Context, sampleToUpload *s3manager.UploadInput) error
 }
 
 type CustomS3Uploader struct {
@@ -659,7 +662,7 @@ func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 	}, nil
 }
 
-func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
+func (cs3c CustomS3Client) Upload(ctx context.Context, payload UploadPayload) (err error) {
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("unable to open metric sample file: %w", err)
@@ -677,7 +680,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 		Body:   fileReader,
 	}
 
-	err = cs3c.UploadClient.Do(sampleToUpload)
+	err = cs3c.UploadClient.Do(ctx, sampleToUpload)
 	if err != nil {
 		return &UploadError{Stage: UploadStageStore, Err: fmt.Errorf("failed to put sample to custom S3 with error: %w. Please ensure agent "+
 			"is configured to have access to external resources", err)}
@@ -687,7 +690,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 	return nil
 }
 
-func (cs3u CustomS3Uploader) Do(sampleToUpload *s3manager.UploadInput) error {
+func (cs3u CustomS3Uploader) Do(_ context.Context, sampleToUpload *s3manager.UploadInput) error {
 	_, err := cs3u.Uploader.Upload(sampleToUpload)
 	return err
 }
@@ -751,7 +754,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 }
 
 type CustomBlobUploadService interface {
-	Do(sampleToUpload *BlobUploadInput) error
+	Do(ctx context.Context, sampleToUpload *BlobUploadInput) error
 }
 
 type CustomBlobUploader struct {
@@ -814,7 +817,7 @@ type BlobUploadInput struct {
 	Body          *os.File
 }
 
-func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
+func (cbc CustomBlobClient) Upload(ctx context.Context, payload UploadPayload) (err error) {
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("unable to open metric sample file: %w", err)
@@ -832,7 +835,7 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 		Body:          fileReader,
 	}
 
-	err = cbc.UploadClient.Do(sampleToUpload)
+	err = cbc.UploadClient.Do(ctx, sampleToUpload)
 	if err != nil {
 		return &UploadError{Stage: UploadStageStore, Err: fmt.Errorf("failed to put sample to custom azure blob with error: %w. Please ensure agent "+
 			"is configured to have access to external resources", err)}
@@ -842,7 +845,7 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 	return nil
 }
 
-func (cbu CustomBlobUploader) Do(sampleToUpload *BlobUploadInput) error {
+func (cbu CustomBlobUploader) Do(_ context.Context, sampleToUpload *BlobUploadInput) error {
 	_, err := cbu.Uploader.UploadFile(context.TODO(), sampleToUpload.ContainerName, sampleToUpload.BlobName, sampleToUpload.Body, nil)
 	return err
 }
@@ -914,4 +917,16 @@ func (s *valueSecretManager) GetSecret() ([]byte, error) {
 // Trims query parameters
 func removeQueryParameters(url string) string {
 	return strings.Split(url, "?")[0]
+}
+
+// uploadDeadline is how long one Upload of a payload of size bytes may take.
+func uploadDeadline(config ApptioConfig, _ int64) time.Duration {
+	return config.Timeout
+}
+
+// regionURLs returns the Frontdoor, Cloudability and metrics-collector URLs for region, "" where
+// the path doesn't support it, and whether region is unknown and fell back to the US.
+func regionURLs(region string) (frontdoor, cloudability, metricsCollector string, fallback bool) {
+	frontdoor, cloudability = getURLsFromRegion(region)
+	return frontdoor, cloudability, getMetricsCollectorURLByRegion(region), false
 }

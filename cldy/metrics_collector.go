@@ -2,6 +2,7 @@ package cldy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -100,7 +101,7 @@ func hasAPIKeyConfigured(secretManager SecretManager) bool {
 	return err == nil && apiKey != ""
 }
 
-func (s *MetricsCollectorServiceImpl) Upload(payload UploadPayload) error {
+func (s *MetricsCollectorServiceImpl) Upload(_ context.Context, payload UploadPayload) error {
 	return putWithPresign(payload, func() (string, error) {
 		return s.getUploadURL(payload)
 	}, func(presignedURL string) error {

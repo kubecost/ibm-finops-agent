@@ -732,7 +732,7 @@ func (cu *CldyUploader) uploadData(path, clusterID string) error {
 		FilePath:     path,
 	}
 	for _, service := range cu.StorageServices {
-		if err := service.Upload(payload); err != nil {
+		if err := service.Upload(context.Background(), payload); err != nil {
 			return err
 		}
 	}
