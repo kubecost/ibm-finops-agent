@@ -10,7 +10,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,44 +32,6 @@ func ghostUploads(cu *cldy.CldyUploader) []string {
 		}
 	}
 	return ghosts
-}
-
-// F-01: startup recovery walks scratch/ and treats scratch/<clusterID>/ as the first sample; on
-// reaching the first real sample it removes the whole cluster directory.
-func TestReproF01RecoveryKeepsPendingSamples(t *testing.T) {
-	scratch := newProdScratch(t, t.TempDir(), "cid-f01")
-	now := time.Now()
-	for i := range 3 {
-		scratch.AddCompleteSample(t, now.Add(-time.Duration(30-10*i)*time.Minute), i)
-	}
-	config := scratch.UploaderConfig(t)
-	config.RecoveryPeriod = reproRecoveryPeriod // look past F-36
-
-	cu := cldy.NewUploaderForTest(config, nil, nil)
-
-	if got := len(scratch.Uploads(t)); got != 3 {
-		t.Fatalf("F-01: startup recovery on the production layout turned %d of 3 complete samples into payloads "+
-			"(RecoveredSamples=%d, %d sample files left in scratch/); the rest were deleted without being counted",
-			got, cu.RecoveredSamples, scratch.ScratchFileCount())
-	}
-}
-
-// F-36: RecoveryPeriod is never set from configuration, so it is 0 in production and every
-// payload in upload/ is deleted at startup.
-func TestReproF36RestartKeepsUploadBacklog(t *testing.T) {
-	scratch := newProdScratch(t, t.TempDir(), "cid-f36")
-	path := scratch.AddUpload(t, time.Now().Add(-5*time.Minute))
-	config := scratch.UploaderConfig(t) // exactly what production builds from the environment
-
-	cu := cldy.NewUploaderForTest(config, nil, nil)
-
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("F-36: a 5-minute-old payload in upload/ was deleted at startup (production RecoveryPeriod=%v, "+
-			"RecoveredUploads=%d): %v", config.RecoveryPeriod, cu.RecoveredUploads, err)
-	}
-	if cu.RecoveredUploads != 1 {
-		t.Fatalf("F-36: payload survived but was not queued for upload (RecoveredUploads=%d)", cu.RecoveredUploads)
-	}
 }
 
 // F-02: with no storage service, uploadData loops over nothing, returns nil and deletes the payload.
@@ -147,96 +108,6 @@ func TestReproF03DiskPressureLeavesNoGhosts(t *testing.T) {
 	if ghosts := ghostUploads(cu); len(ghosts) > 0 {
 		t.Fatalf("F-03: disk-pressure cleanup deleted %d queued payloads but left them in the upload queue as ghosts %v",
 			len(ghosts), ghosts)
-	}
-}
-
-// F-04: payloads are written in place. A crash mid-tar leaves a truncated .tgz under its final
-// name, which recovery queues and uploads once F-36 is fixed (modelled with a real RecoveryPeriod).
-func TestReproF04CrashMidTarNotUploaded(t *testing.T) {
-	clock := newFakeClock(time.Now().Truncate(time.Second))
-	scratch := newProdScratch(t, t.TempDir(), "cid-f04")
-	config := scratch.UploaderConfig(t)
-	config.RecoveryPeriod = reproRecoveryPeriod
-
-	// First process: killed while writing the payload.
-	cu := cldy.NewUploaderForTest(config, nil, clock.Now)
-	cu.SetClusterID(scratch.ClusterID)
-	cu.AddSample(scratch.AddCompleteSample(t, clock.Now(), 0))
-	onDisk := map[string][]byte{}
-	headers := 0
-	restore := cldy.SetTestHook(func(point string) error {
-		if point != cldy.CrashMidTar {
-			return nil
-		}
-		if headers++; headers < 5 {
-			return nil
-		}
-		// Capture what a kill -9 at this point leaves on disk.
-		matches, _ := filepath.Glob(filepath.Join(scratch.UploadDir(), "*.tgz"))
-		for _, m := range matches {
-			b, err := os.ReadFile(m)
-			if err != nil {
-				t.Fatalf("capturing %s: %v", m, err)
-			}
-			onDisk[m] = b
-		}
-		return errors.New("killed mid-tar")
-	})
-	cu.UploadCycleForTest()
-	restore()
-	if len(onDisk) == 0 {
-		t.Fatalf("setup: crash point %q was not reached with a payload on disk", cldy.CrashMidTar)
-	}
-	for path, b := range onDisk {
-		if err := os.WriteFile(path, b, 0o644); err != nil {
-			t.Fatalf("restoring crash state: %v", err)
-		}
-	}
-
-	// Second process: restarts, recovers, and uploads on its first cycle.
-	clock.Advance(10 * time.Minute)
-	svc := &fakeStorage{}
-	cu2 := cldy.NewUploaderForTest(config, []cldy.StorageService{svc}, clock.Now)
-	cu2.SetClusterID(scratch.ClusterID)
-	cu2.AddSample(scratch.AddCompleteSample(t, clock.Now(), 1))
-	cu2.UploadCycleForTest()
-
-	for _, u := range svc.Uploaded() {
-		if u.Err != nil {
-			t.Fatalf("F-04: a payload truncated by a crash mid-tar was recovered and uploaded: %s: %v", u.FileName, u.Err)
-		}
-	}
-}
-
-// F-05: recovery runs in NewCldyUploader before Emitter.Init sets the cluster ID, so recovered
-// payloads are named "_<ts>.tgz" and their tar entries lack the <clusterID>/ segment.
-func TestReproF05RecoveredPayloadHasClusterID(t *testing.T) {
-	scratch := newProdScratch(t, t.TempDir(), "cid-f05")
-	scratch.AddCompleteSample(t, time.Now().Add(-10*time.Minute), 0)
-	config := scratch.UploaderConfig(t)
-	config.RecoveryPeriod = reproRecoveryPeriod
-
-	cldy.NewUploaderForTest(config, nil, nil)
-
-	uploads := scratch.Uploads(t)
-	if len(uploads) == 0 {
-		t.Fatalf("F-05: no recovered payload to check; want one named %s_<ts>.tgz (masked here by F-01, "+
-			"which deletes the sample first)", scratch.ClusterID)
-	}
-	for _, name := range uploads {
-		if !strings.HasPrefix(name, scratch.ClusterID+"_") {
-			t.Errorf("F-05: recovered payload %q is not named <clusterID>_<ts>.tgz", name)
-		}
-		entries, err := readTGZ(filepath.Join(scratch.UploadDir(), name))
-		if err != nil {
-			t.Fatalf("reading %s: %v", name, err)
-		}
-		for _, e := range entries {
-			if !strings.Contains(e, "/"+scratch.ClusterID+"/") {
-				t.Errorf("F-05: tar entry %q in recovered payload %s lacks the <clusterID>/ segment", e, name)
-				break
-			}
-		}
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -165,16 +166,42 @@ func (p *prodScratch) Uploads(t testingT) []string {
 	return names
 }
 
-// ScratchFileCount returns the number of regular files under scratch/.
+// ScratchFileCount returns the number of regular files under scratch/, outside the quarantine.
 func (p *prodScratch) ScratchFileCount() int {
 	n := 0
-	_ = filepath.WalkDir(p.ScratchRoot(), func(_ string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(p.ScratchRoot(), func(path string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() && path == p.QuarantineDir() {
+			return filepath.SkipDir
+		}
 		if err == nil && !d.IsDir() {
 			n++
 		}
 		return nil
 	})
 	return n
+}
+
+// QuarantineDir is <ScratchDir>/scratch/_quarantine.
+func (p *prodScratch) QuarantineDir() string {
+	return filepath.Join(p.ScratchRoot(), cldy.QuarantineDirName)
+}
+
+// Quarantined returns the names of the entries in the quarantine, sorted.
+func (p *prodScratch) Quarantined(t testingT) []string {
+	t.Helper()
+	entries, err := os.ReadDir(p.QuarantineDir())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("reading quarantine: %v", err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	return names
 }
 
 // UploaderConfig returns the uploader configuration production builds from the environment
