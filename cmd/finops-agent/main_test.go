@@ -2,81 +2,84 @@ package main
 
 import (
 	"context"
-	"sync/atomic"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
-	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/ibm/finops-agent/internal/mocks"
+	"github.com/ibm/finops-agent/pkg/cluster"
+	"github.com/ibm/finops-agent/pkg/health"
+	"github.com/ibm/finops-agent/pkg/nodes"
+	"github.com/julienschmidt/httprouter"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// fakeHealthChecker is a minimal emitter.HealthChecker for exercising the health endpoint.
-type fakeHealthChecker struct{ healthy bool }
+// The probes and /status are served, and before any component registers the agent is live and
+// not ready (no startup grace on liveness).
+func TestHealthRoutes(t *testing.T) {
+	router := httprouter.New()
+	registry := health.NewRegistry()
+	registerHealthRoutes(router, registry)
 
-func (f fakeHealthChecker) Healthy() bool { return f.healthy }
-
-// The following minimal emitters exercise publishHealthCheckers' interface filtering.
-type plainEmitter struct{}
-
-func (plainEmitter) ID() emitter.EmitterID                                { return "plain" }
-func (plainEmitter) Init(*emitter.ClusterSnapshot) error                  { return nil }
-func (plainEmitter) Emit(context.Context, *emitter.ClusterSnapshot) error { return nil }
-
-type healthyEmitter struct{ plainEmitter }
-
-func (healthyEmitter) Healthy() bool { return true }
-
-type unhealthyEmitter struct{ plainEmitter }
-
-func (unhealthyEmitter) Healthy() bool { return false }
-
-// TestEmitterHealthCheck verifies the health-check aggregation logic across publication states.
-func TestEmitterHealthCheck(t *testing.T) {
-	var checkers atomic.Pointer[[]emitter.HealthChecker]
-	healthCheck := newEmitterHealthCheck(&checkers)
-
-	// Before publication: startup grace, always healthy.
-	if !healthCheck() {
-		t.Fatalf("expected healthy before checkers published")
+	want := map[string]int{
+		"/healthz":  http.StatusOK,
+		"/readyz":   http.StatusServiceUnavailable,
+		"/startupz": http.StatusServiceUnavailable,
+		"/status":   http.StatusOK,
 	}
-
-	// All healthy.
-	allHealthy := []emitter.HealthChecker{fakeHealthChecker{healthy: true}, fakeHealthChecker{healthy: true}}
-	checkers.Store(&allHealthy)
-	if !healthCheck() {
-		t.Fatalf("expected healthy when all checkers report healthy")
-	}
-
-	// One unhealthy flips the aggregate.
-	oneUnhealthy := []emitter.HealthChecker{fakeHealthChecker{healthy: true}, fakeHealthChecker{healthy: false}}
-	checkers.Store(&oneUnhealthy)
-	if healthCheck() {
-		t.Fatalf("expected unhealthy when a checker reports unhealthy")
-	}
-
-	// Empty published list is healthy (no checkers to fail).
-	empty := []emitter.HealthChecker{}
-	checkers.Store(&empty)
-	if !healthCheck() {
-		t.Fatalf("expected healthy for empty checker list")
+	for path, code := range want {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != code {
+			t.Errorf("GET %s = %d, want %d", path, rec.Code, code)
+		}
 	}
 }
 
-// TestPublishHealthCheckers ensures only HealthChecker-implementing emitters are published.
-func TestPublishHealthCheckers(t *testing.T) {
-	var checkers atomic.Pointer[[]emitter.HealthChecker]
+// syncingCache is a cluster cache with the pods informer unsynced.
+type syncingCache struct{ *mocks.MockClusterCache }
 
-	emitters := []emitter.Emitter{
-		healthyEmitter{},   // implements HealthChecker
-		plainEmitter{},     // does not implement HealthChecker
-		unhealthyEmitter{}, // implements HealthChecker
+func (syncingCache) StartWithTimeout(context.Context, time.Duration) []schema.GroupVersionResource {
+	return nil
+}
+func (syncingCache) UnsyncedResources() []schema.GroupVersionResource {
+	return []schema.GroupVersionResource{{Version: "v1", Resource: "pods"}}
+}
+
+type dataSource struct {
+	*mocks.MockDataSource
+	cache cluster.ClusterCache
+	stats nodes.StatSummaryClient
+}
+
+func (d dataSource) Cluster() cluster.ClusterCache         { return d.cache }
+func (d dataSource) StatsSummary() nodes.StatSummaryClient { return d.stats }
+
+// The informers and node-stats freshness are registered from the data source, and both only
+// affect readiness (D1, D9).
+func TestRegisterDataSourceHealth(t *testing.T) {
+	ds := dataSource{
+		MockDataSource: mocks.NewMockDataSource(),
+		cache:          syncingCache{mocks.NewMockClusterCache()},
+		stats:          nodes.NewCollectionRecorder(mocks.NewMockStatsSummaryClient()),
 	}
+	registry := health.NewRegistry()
+	registry.SetClock(func() time.Time { return time.Unix(0, 0).Add(2 * time.Hour) })
+	registerDataSourceHealth(registry, ds, time.Unix(0, 0))
+	registry.SetPhase(health.PhaseRunning)
 
-	publishHealthCheckers(&checkers, emitters)
-
-	published := checkers.Load()
-	if published == nil {
-		t.Fatalf("expected checkers to be published")
+	res := registry.Check(context.Background())
+	if !res.Live || res.Ready {
+		t.Fatalf("live=%v ready=%v, want live and not ready", res.Live, res.Ready)
 	}
-	if len(*published) != 2 {
-		t.Fatalf("expected 2 health checkers, got %d", len(*published))
+	got := map[string]string{}
+	for _, c := range res.Components {
+		for _, cond := range c.Conditions {
+			got[c.Name] = cond.Type
+		}
+	}
+	if got["informers"] != cluster.ConditionInformersUnsynced || got["node_stats"] != nodes.ConditionNodeStatsStale {
+		t.Errorf("conditions by component = %v", got)
 	}
 }

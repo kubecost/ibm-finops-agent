@@ -51,29 +51,6 @@ func TestUnwrapNodeErrors(t *testing.T) {
 	}
 }
 
-func TestHealthy(t *testing.T) {
-	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
-
-	tests := map[string]struct {
-		lastSuccess time.Time
-		want        bool
-	}{
-		"startup grace when never collected": {lastSuccess: time.Time{}, want: true},
-		"recent success is healthy":          {lastSuccess: time.Now().UTC(), want: true},
-		"within threshold is healthy":        {lastSuccess: time.Now().UTC().Add(-(restartThreshold - time.Minute)), want: true},
-		"beyond threshold is unhealthy":      {lastSuccess: time.Now().UTC().Add(-(restartThreshold + time.Minute)), want: false},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			ce := &Emitter{lastSuccessfulNodeCollection: tt.lastSuccess}
-			if got := ce.Healthy(); got != tt.want {
-				t.Fatalf("Healthy() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestRecordNodeStats(t *testing.T) {
 	sampleStats := []*statsv1.Summary{{}}
 	collErr := errors.New("collection boom")
@@ -98,6 +75,18 @@ func TestRecordNodeStats(t *testing.T) {
 		}
 		if !errors.Is(ce.lastNodeCollectionErr, collErr) {
 			t.Fatalf("err = %v, want %v", ce.lastNodeCollectionErr, collErr)
+		}
+	})
+
+	// F-21: with background collection the snapshot carries when the stats were collected, and
+	// that, not the snapshot time, is their age.
+	t.Run("stats carry their collection time", func(t *testing.T) {
+		collected := time.Now().UTC().Add(-40 * time.Minute)
+		ce := &Emitter{}
+		ce.recordNodeStats(&emitter.NodeStatsSummary{Stats: sampleStats, CollectedAt: collected})
+		if !ce.lastSuccessfulNodeCollection.Equal(collected) {
+			t.Fatalf("F-21: timestamp = %v, want the collection time %v; stale background stats were taken for fresh",
+				ce.lastSuccessfulNodeCollection, collected)
 		}
 	})
 
