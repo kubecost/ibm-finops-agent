@@ -76,6 +76,11 @@ type EmitterConfig struct {
 	KubernetesResourcesRequired     []string
 	StreamingExportEnabled          bool
 	StreamingExportCompressionLevel exporter.ExportCompressionLevel
+	// BucketCanaryInterval is how often the export bucket is probed with a write, read and
+	// delete. Zero disables the canary.
+	BucketCanaryInterval time.Duration
+	// WAL, when set, gates the export controllers on the collector's write-ahead log.
+	WAL WALGuard
 }
 
 // NewEmitterConfigFromEnv creates a new EmitterConfig from environment variables.

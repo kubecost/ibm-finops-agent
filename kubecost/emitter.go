@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ibm/finops-agent/kubecost/adapters"
+	"github.com/ibm/finops-agent/pkg/condition"
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
@@ -31,6 +32,15 @@ type KubecostEmitter struct {
 	diag                diagnostics.DiagnosticService
 
 	config *EmitterConfig
+
+	// newBucketStorage builds the export bucket store; tests replace it.
+	newBucketStorage func([]byte) (storage.Storage, error)
+}
+
+// WALGuard reports the state of the collector's write-ahead log, which keeps a restart from
+// overwriting in-progress export windows with partial data (docs/reliability/FINDINGS.md F-20).
+type WALGuard interface {
+	Conditions() []condition.Condition
 }
 
 func NewKubecostEmitter(
@@ -42,6 +52,7 @@ func NewKubecostEmitter(
 		cloudCostProvider: cloudCostProvider,
 		diag:              diag,
 		config:            config,
+		newBucketStorage:  storage.NewBucketStorage,
 	}
 }
 
@@ -65,7 +76,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 		return fmt.Errorf("failed to read bucket config file: %w", err)
 	}
 
-	bucketStore, err := storage.NewBucketStorage(bucketConfig)
+	bucketStore, err := ke.newBucketStorage(bucketConfig)
 	if err != nil {
 		log.Errorf("Failed to create export bucket storage, please check your configuration and bucket security settings: %s", err)
 		return fmt.Errorf("failed to create bucket storage: %w", err)
@@ -147,5 +158,15 @@ func (ke *KubecostEmitter) Emit(ctx context.Context, snapshot *emitter.ClusterSn
 	}
 	ke.dataSource.Update(snapshot)
 
+	return nil
+}
+
+// Conditions returns the emitter's active degraded conditions.
+func (ke *KubecostEmitter) Conditions() []condition.Condition {
+	return nil
+}
+
+// Stop stops the export controllers.
+func (ke *KubecostEmitter) Stop(ctx context.Context) error {
 	return nil
 }
