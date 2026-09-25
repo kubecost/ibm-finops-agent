@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/ibm/finops-agent/pkg/emitter"
+	"github.com/ibm/finops-agent/pkg/telemetry"
 	"github.com/ibm/finops-agent/pkg/version"
 
 	"github.com/opencost/opencost/core/pkg/log"
@@ -91,6 +92,7 @@ type Emitter struct {
 	// the active conditions for edge-triggered logging and health checks. Both are the
 	// uploader's, when the uploader is a *CldyUploader.
 	events     EventSink
+	counts     *EventCounts
 	conditions *conditionStore
 
 	// queue is the upload queue on disk, which the disk budget evicts from. It is the
@@ -108,6 +110,10 @@ type EmitterConfig struct {
 	ClusterVersionGit           string
 	ClusterVersionMajor         string
 	ClusterVersionMinor         string
+	// StatusSummary, if set, returns the whole agent's health, written to agent-measurement.json
+	// as agent_health (I6): telemetry.Metrics.Summary in production. Without it the emitter
+	// writes its own. It is not read from the environment.
+	StatusSummary func() telemetry.Summary
 }
 
 const UPLOAD_FREQUENCY = 10
@@ -241,11 +247,11 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *Emitter {
 	// Share the uploader's sink so that startup recovery and the emitter report through one, and
 	// its queue so that the disk budget and packaging don't race.
-	var events EventSink = NewEventCounts()
 	var queue *diskQueue
+	counts, events := newEventSinks(config.Events)
 	conditions := newConditionStore(now)
 	if cu, ok := uploader.(*CldyUploader); ok {
-		events = cu.events
+		events, counts = cu.events, cu.counts
 		queue = cu.queue
 		conditions = cu.conditions
 	} else {
@@ -259,6 +265,7 @@ func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *
 		agentVersion:     version.Version,
 		now:              now,
 		events:           events,
+		counts:           counts,
 		conditions:       conditions,
 		queue:            queue,
 	}
@@ -772,6 +779,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		Ts:     now.UTC().UnixMilli() / 1000,
 		Values: values,
 		Errors: nodeErrorDetails(nodeErrors),
+		Health: ce.statusSummary(),
 	}
 	agentBytes, err := json.Marshal(agent)
 	if err != nil {
@@ -791,6 +799,8 @@ type agentData struct {
 	Ts      int64             `json:"ts"`
 	Values  map[string]string `json:"values"`
 	Errors  []errorDetail     `json:"errors,omitempty"`
+	// Health is added by chunk 09 (additive: every other field is unchanged).
+	Health *telemetry.Summary `json:"agent_health,omitempty"`
 }
 
 type errorDetail struct {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/core"
+	"github.com/ibm/finops-agent/pkg/telemetry/dropevent"
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
@@ -119,7 +120,38 @@ type ExporterConfig struct {
 	StuckCallCycles int
 	// Now is the clock for heartbeat timestamps. Default time.Now.
 	Now func() time.Time
+	// Observer receives snapshot durations and emitter call results, for metrics. Default none.
+	Observer ExporterObserver
 }
+
+// ExporterObserver receives the exporter's measurements (docs/reliability/FINDINGS.md chunk 09).
+// Its methods are called from the exporter's goroutines and must not block.
+type ExporterObserver interface {
+	// SnapshotDuration records how long one snapshot took, successful or not.
+	SnapshotDuration(d time.Duration)
+	// EmitterCall records the result of one Init or Emit call on an emitter, or of a cycle that
+	// skipped it: EmitResultOK, EmitResultError or EmitResultSkipped.
+	EmitterCall(id EmitterID, result string)
+	// SnapshotComponentFailed records a failed snapshot component.
+	SnapshotComponentFailed(component string)
+}
+
+// Emitter call results for ExporterObserver.EmitterCall.
+const (
+	// EmitResultOK: the call returned nil within its deadline.
+	EmitResultOK = "ok"
+	// EmitResultError: the call returned an error or panicked, or outlived its deadline.
+	EmitResultError = "error"
+	// EmitResultSkipped: the emitter wasn't called this cycle because its previous call was
+	// still running.
+	EmitResultSkipped = "skipped"
+)
+
+type noopObserver struct{}
+
+func (noopObserver) SnapshotDuration(time.Duration) {}
+func (noopObserver) EmitterCall(EmitterID, string)  {}
+func (noopObserver) SnapshotComponentFailed(string) {}
 
 // DefaultTimeoutIntervals is the default snapshot and emit deadline, in exporter intervals.
 // It's generous on purpose: the deadline exists to end hung cycles, not to cut slow ones short.
@@ -154,6 +186,9 @@ func (c ExporterConfig) withDefaults(interval time.Duration) ExporterConfig {
 	}
 	if c.Now == nil {
 		c.Now = time.Now
+	}
+	if c.Observer == nil {
+		c.Observer = noopObserver{}
 	}
 	return c
 }
@@ -546,7 +581,9 @@ func (de *defaultExporter) startSnapshot(ctx context.Context, cfg ExporterConfig
 		sctx, cancel := context.WithTimeout(ctx, cfg.SnapshotTimeout)
 		defer cancel()
 
+		started := time.Now()
 		call.snapshot, call.err = de.safeSnapshot(sctx)
+		cfg.Observer.SnapshotDuration(time.Since(started))
 		close(call.done)
 
 		call.mu.Lock()
@@ -583,6 +620,15 @@ func (de *defaultExporter) releasePending(cfg ExporterConfig) {
 	de.pending = nil
 }
 
+// Drop reasons of short-lived pods drained from the cluster cache and never emitted
+// (finops_agent_data_dropped_total{emitter="exporter"}).
+const (
+	// DropReasonSnapshotFailed: the snapshot that drained them failed.
+	DropReasonSnapshotFailed = "snapshot_failed"
+	// DropReasonSnapshotAbandoned: the snapshot completed but was never emitted.
+	DropReasonSnapshotAbandoned = "snapshot_abandoned"
+)
+
 // discardSnapshot counts and logs the short-lived pods in a successful snapshot that will
 // never be emitted. The pods were drained from the cluster cache, so they are lost (I1).
 func discardSnapshot(de *defaultExporter, snapshot *ClusterSnapshot, reason string) {
@@ -591,7 +637,8 @@ func discardSnapshot(de *defaultExporter, snapshot *ClusterSnapshot, reason stri
 	}
 	if dropped := len(snapshot.Kubernetes.ShortLivedPods); dropped > 0 {
 		de.abandonedShortLivedPods.Add(uint64(dropped))
-		log.Errorf("discarded a snapshot because %s, dropping %d short-lived pods", reason, dropped)
+		dropevent.Log(dropevent.Drop{Emitter: "exporter", Reason: DropReasonSnapshotAbandoned, Count: dropped,
+			Detail: "discarded a snapshot's short-lived pods because " + reason})
 	}
 }
 
@@ -618,42 +665,60 @@ func (de *defaultExporter) callEmitter(ctx context.Context, cfg ExporterConfig, 
 	ectx, cancel := context.WithTimeout(ctx, cfg.EmitTimeout)
 	defer cancel()
 
+	// callErr is written before done is closed. A call that returns after its deadline has
+	// already been counted as an error, so only a call that returns in time is observed here.
+	var callErr error
 	done := make(chan struct{})
 	go func() {
 		defer de.callReturned(slot, cfg)
 		defer close(done)
 		if ready {
-			de.recordEmitResult(slot, cfg, emit(ectx, slot.emitter, snapshot))
+			callErr = emit(ectx, slot.emitter, snapshot)
+			de.recordEmitResult(slot, cfg, callErr)
 		} else {
-			de.recordInitResult(slot, cfg, initialise(slot.emitter, snapshot))
+			callErr = initialise(slot.emitter, snapshot)
+			de.recordInitResult(slot, cfg, callErr)
 		}
 	}()
+	returned := func() {
+		result := EmitResultOK
+		if callErr != nil {
+			result = EmitResultError
+		}
+		cfg.Observer.EmitterCall(slot.emitter.ID(), result)
+	}
 
 	select {
 	case <-done:
+		returned()
 		return
 	case <-ectx.Done():
 	}
 	// both may have been ready; a call that did finish is not a timeout
 	select {
 	case <-done:
+		returned()
 		return
 	default:
 	}
 
 	if ctx.Err() != nil {
-		// Stopping: give the call a bounded chance to observe cancellation and return.
+		// Stopping: give the call a bounded chance to observe cancellation and return. A call
+		// that doesn't is counted as an error.
 		timer := time.NewTimer(cfg.StopGrace)
 		defer timer.Stop()
 		select {
 		case <-done:
+			returned()
 		case <-timer.C:
+			cfg.Observer.EmitterCall(slot.emitter.ID(), EmitResultError)
 			log.Warnf("[%s] still running %s after Stop", slot.emitter.ID(), cfg.StopGrace)
 		}
 		return
 	}
 
 	de.emitTimeouts.Add(1)
+	cfg.Observer.EmitterCall(slot.emitter.ID(), EmitResultError)
 	op := "Init"
 	if ready {
 		op = "Emit"
@@ -687,6 +752,7 @@ func (de *defaultExporter) recordSkip(slot *emitterSlot, cfg ExporterConfig) {
 	slot.status.LastEmitErrorTime = cfg.Now()
 	slot.status.ConsecutiveFailures++
 	de.mu.Unlock()
+	cfg.Observer.EmitterCall(slot.emitter.ID(), EmitResultSkipped)
 	if first {
 		log.Errorf("[%s] Init or Emit still running %s after it started; skipping this emitter until it returns",
 			slot.emitter.ID(), cfg.Now().Sub(started).Round(time.Second))

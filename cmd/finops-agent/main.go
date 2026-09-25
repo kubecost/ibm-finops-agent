@@ -19,12 +19,14 @@ import (
 	"github.com/ibm/finops-agent/pkg/health"
 	"github.com/ibm/finops-agent/pkg/http"
 	"github.com/ibm/finops-agent/pkg/nodes"
+	"github.com/ibm/finops-agent/pkg/telemetry"
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	"github.com/opencost/opencost/core/pkg/kubeconfig"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/util/monitor"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/kubernetes"
 )
@@ -71,6 +73,15 @@ func main() {
 	// is live and not ready; /readyz reports the startup phase.
 	registry := health.NewRegistry()
 	registerHealthRoutes(router, registry)
+
+	// Reliability metrics, drop counters and the status summary uploaded to IBM (chunk 09). They
+	// are registered after the data source has registered OpenCost's own metrics, so a collision
+	// with those is logged here rather than panicking in OpenCost's MustRegister. OpenCost metrics
+	// registered later (the Kubecost emitter's Init) could still panic on a collision; no name
+	// collides today (pkg/telemetry TestRegistersAlongsideOpenCostMetrics).
+	metrics := telemetry.New()
+	metrics.SetHealthRegistry(registry)
+	nodes.SetDefaultDurationObserver(metrics.NodeStatsDuration())
 
 	var emitters []emitter.Emitter
 
@@ -122,6 +133,12 @@ func main() {
 	dataSource := core.NewAgentDataSource(kubeConfig, kubeClientset, router, diag, emissionInterval)
 	registerDataSourceHealth(registry, dataSource, time.Now())
 	registry.SetPhase(health.PhaseEmitters)
+	if err := metrics.Register(prometheus.DefaultRegisterer); err != nil {
+		log.Errorf("Failed to register the agent's reliability metrics: %s", err)
+	}
+	if d, ok := dataSource.Cluster().(interface{ ShortLivedPodsDropped() uint64 }); ok {
+		metrics.AddDropSource(telemetry.EmitterExporter, telemetry.ReasonShortLivedPodOverflow, d.ShortLivedPodsDropped)
+	}
 
 	// Snapshot configuration will gather specific kubernetes resource requirements
 	// from each emitter that is enabled such that we only snapshot the resources that
@@ -131,6 +148,7 @@ func main() {
 	if env.IsKubecostEmitterEnabled() {
 		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv(clusterUID)
 		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
+		kubecostEmitterConfig.HeartbeatMetadata = metrics.HeartbeatMetadata()
 
 		if err := kubecost.ValidateConfig(kubecostEmitterConfig); err != nil {
 			panic("invalid kubecost emitter config: " + err.Error())
@@ -167,7 +185,13 @@ func main() {
 			emitter.NewKubernetesSnapshotConfigFromEnabled(cldyConfig.KubernetesResourcesRequired),
 		)
 
-		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
+		cldyConfig.Events = metrics.Cloudability()
+		cldyConfig.StatusSummary = metrics.Summary
+		cldyEmitter := cldy.NewEmitter(cldyConfig, make(chan struct{}))
+		if us, ok := cldyEmitter.(interface{ UploadStatus() telemetry.UploadStatus }); ok {
+			metrics.SetUploadStatus(us.UploadStatus)
+		}
+		emitters = append(emitters, cldyEmitter)
 	}
 	if env.IsTurboEmitterEnabled() {
 		log.Infof("Turbonomic emitter not yet implemented.")
@@ -188,10 +212,15 @@ func main() {
 	}
 
 	snapshotProvider := emitter.NewConcurrentSnapshotProvider(snapshotConfig)
+	if p, ok := snapshotProvider.(*emitter.ConcurrentSnapshotProvider); ok {
+		metrics.AddDropSource(telemetry.EmitterExporter, telemetry.ReasonSnapshotFailed, p.DiscardedShortLivedPods)
+	}
 	exporter := emitter.NewExporterWithConfig(dataSource, snapshotProvider, emitter.ExporterConfig{
 		SnapshotTimeout: env.GetExporterSnapshotTimeout(),
 		EmitTimeout:     env.GetExporterEmitTimeout(),
+		Observer:        metrics.Exporter(),
 	}, emitters...)
+	metrics.SetExporter(exporter.Status)
 
 	if ok := exporter.Start(emissionInterval); !ok {
 		panic("Failed to start exporter")

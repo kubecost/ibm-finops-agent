@@ -1,62 +1,42 @@
 package cldy
 
-import "maps"
+import (
+	"maps"
+	"sync"
+	"time"
 
-import "sync"
-
-// Drop reasons for finops_agent_data_dropped_total{reason} raised by this package. Chunk 09
-// gathers every reason into one closed enum.
-const (
-	// dropReasonDiskPressure: a finalised sample was evicted to make room for a new one.
-	dropReasonDiskPressure = "disk_pressure"
-	// dropReasonDiskPressureSkipped: a sample was not written because eviction couldn't free
-	// enough space.
-	dropReasonDiskPressureSkipped = "disk_pressure_skipped"
-	// dropReasonShortLivedPodOverflow: the oldest pending short-lived pods were discarded because
-	// more than maxPendingShortLivedPods were waiting for a sample.
-	dropReasonShortLivedPodOverflow = "short_lived_pod_overflow"
-
-	// Startup recovery and payload handling (chunk 01).
-
-	// dropReasonRecoveryExpired: a finalised sample or payload found at startup was older than
-	// the recovery period (CLOUDABILITY_RECOVERY_PERIOD).
-	dropReasonRecoveryExpired = "recovery_expired"
-	// dropReasonClusterIDMismatch: a payload recovered at startup belongs to a cluster ID other
-	// than the live one. It is quarantined.
-	dropReasonClusterIDMismatch = "cluster_id_mismatch"
-	// dropReasonCorruptPayload: a payload failed its end-to-end read just before upload. It is
-	// quarantined.
-	dropReasonCorruptPayload = "corrupt_payload"
-	// dropReasonInvalidSample: a directory in scratch/<clusterID>/ that is neither staging nor a
-	// valid finalised sample (written before the manifest existed, or torn). It is quarantined.
-	dropReasonInvalidSample = "invalid_sample"
-	// dropReasonInvalidPayload: a file in upload/ whose name is not <clusterID>_<timestamp>.tgz,
-	// or has an empty cluster ID. It is quarantined.
-	dropReasonInvalidPayload = "invalid_payload"
-	// dropReasonQuarantineEvicted: a quarantined item was removed to keep the quarantine within
-	// its size and age bounds.
-	dropReasonQuarantineEvicted = "quarantine_evicted"
-
-	// The upload queue (chunk 02).
-
-	// dropReasonRejectedByBackend: the backend refused a payload for good (400 or 413). It is
-	// quarantined.
-	dropReasonRejectedByBackend = "rejected_by_backend"
-	// dropReasonUndeliverable: a payload kept failing at the head of the queue after it had
-	// already been moved behind the rest once, while other payloads were delivered. It is
-	// quarantined.
-	dropReasonUndeliverable = "undeliverable"
-	// dropReasonNoUploader: queued data was evicted to make room while no storage service was
-	// configured, so it could never have been uploaded.
-	dropReasonNoUploader = "no_uploader"
-	// dropReasonBacklogBytes: the oldest queued data was evicted to keep the backlog within
-	// CLOUDABILITY_BACKLOG_MAX_MB.
-	dropReasonBacklogBytes = "backlog_bytes"
-	// dropReasonBacklogAge: queued data older than the recovery period was evicted.
-	dropReasonBacklogAge = "backlog_age"
+	"github.com/ibm/finops-agent/pkg/telemetry"
 )
 
-// Emit results for finops_agent_emit_total{result}.
+// Drop reasons for finops_agent_data_dropped_total{reason} raised by this package. The closed
+// enum, with what each means, is in pkg/telemetry.
+const (
+	// Sample writes and the disk budget (chunk 04).
+	dropReasonDiskPressure          = telemetry.ReasonDiskPressure
+	dropReasonDiskPressureSkipped   = telemetry.ReasonDiskPressureSkipped
+	dropReasonShortLivedPodOverflow = telemetry.ReasonShortLivedPodOverflow
+
+	// Startup recovery and payload handling (chunk 01).
+	dropReasonRecoveryExpired   = telemetry.ReasonRecoveryExpired
+	dropReasonClusterIDMismatch = telemetry.ReasonClusterIDMismatch
+	dropReasonCorruptPayload    = telemetry.ReasonCorruptPayload
+	dropReasonInvalidSample     = telemetry.ReasonInvalidSample
+	dropReasonInvalidPayload    = telemetry.ReasonInvalidPayload
+	// dropReasonQuarantineEvicted: a quarantined item was removed to keep the quarantine within
+	// its size and age bounds. It was counted as dropped when it was quarantined, so sinks count
+	// it apart from the other reasons (telemetry.ReasonQuarantineEvicted).
+	dropReasonQuarantineEvicted = telemetry.ReasonQuarantineEvicted
+
+	// The upload queue (chunk 02).
+	dropReasonRejectedByBackend = telemetry.ReasonRejectedByBackend
+	dropReasonUndeliverable     = telemetry.ReasonUndeliverable
+	dropReasonNoUploader        = telemetry.ReasonNoUploader
+	dropReasonBacklogBytes      = telemetry.ReasonBacklogBytes
+	dropReasonBacklogAge        = telemetry.ReasonBacklogAge
+)
+
+// Emit results the emitter records in its EventCounts. finops_agent_emit_total counts the
+// exporter's Init and Emit calls instead, for every emitter alike.
 const (
 	emitResultOK      = "ok"
 	emitResultError   = "error"
@@ -92,17 +72,18 @@ const (
 
 // Upload attempt results for finops_agent_cldy_upload_attempts_total{result}.
 const (
-	uploadResultOK        = "ok"
-	uploadResultRetryable = "retryable"
-	uploadResultTimeout   = "timeout"
-	uploadResultAuth      = "auth"
-	uploadResultRejected  = "rejected"
+	uploadResultOK        = telemetry.UploadResultOK
+	uploadResultRetryable = telemetry.UploadResultRetryable
+	uploadResultTimeout   = telemetry.UploadResultTimeout
+	uploadResultAuth      = telemetry.UploadResultAuth
+	uploadResultRejected  = telemetry.UploadResultRejected
 )
 
 // EventSink receives the Cloudability emitter's and uploader's reliability events: data drops,
 // unfinalised discards, emit outcomes, skipped emission slots, condition changes and upload
-// attempts. The emitter and uploader log each event themselves; a sink only records it. The default sink is an *EventCounts. Chunk 09 plugs in
-// one backed by Prometheus.
+// attempts. The emitter and uploader log each event themselves; a sink only records it. The
+// uploader always keeps an *EventCounts, and also sends every event to UploaderConfig.Events when
+// it is set: telemetry.CloudabilitySink in production.
 type EventSink interface {
 	// DataDropped records count items of collected data lost for reason (a dropReason* value).
 	DataDropped(reason string, count int)
@@ -115,8 +96,14 @@ type EventSink interface {
 	EmissionSlotsSkipped(count int)
 	// SetCondition records whether the named condition (a condition* value) is active.
 	SetCondition(name string, active bool)
-	// UploadAttempt records the outcome of one payload upload attempt (an uploadResult* value).
-	UploadAttempt(result string)
+	// UploadAttempt records the outcome of one payload upload attempt to a storage service (a
+	// telemetry.Service* value) as an uploadResult* value.
+	UploadAttempt(service, result string)
+	// UploadDuration records how long one payload upload attempt to a storage service took.
+	UploadDuration(service string, d time.Duration)
+	// RecoveryItem records count samples or payloads found by startup recovery (kind and outcome
+	// are telemetry.Recovery* values).
+	RecoveryItem(kind, outcome string, count int)
 	// HeadDeferred records count payloads moved behind the rest of the upload queue by the
 	// head-of-line rule.
 	HeadDeferred(count int)
@@ -132,6 +119,7 @@ type EventCounts struct {
 	conditions           map[string]bool
 	uploadAttempts       map[string]int
 	headDeferred         int
+	recoveryItems        map[string]int
 }
 
 // NewEventCounts returns an empty EventCounts.
@@ -141,6 +129,7 @@ func NewEventCounts() *EventCounts {
 		emitResults:    map[string]int{},
 		conditions:     map[string]bool{},
 		uploadAttempts: map[string]int{},
+		recoveryItems:  map[string]int{},
 	}
 }
 
@@ -174,10 +163,20 @@ func (c *EventCounts) SetCondition(name string, active bool) {
 	c.conditions[name] = active
 }
 
-func (c *EventCounts) UploadAttempt(result string) {
+// UploadAttempt counts attempts by result, whatever the service.
+func (c *EventCounts) UploadAttempt(_, result string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.uploadAttempts[result]++
+}
+
+func (c *EventCounts) UploadDuration(string, time.Duration) {}
+
+// RecoveryItem counts recovery items by "<kind>/<outcome>".
+func (c *EventCounts) RecoveryItem(kind, outcome string, count int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.recoveryItems[kind+"/"+outcome] += count
 }
 
 func (c *EventCounts) HeadDeferred(count int) {
@@ -195,6 +194,8 @@ type EventCountsSnapshot struct {
 	Conditions           map[string]bool
 	UploadAttempts       map[string]int
 	HeadDeferred         int
+	// RecoveryItems is keyed by "<kind>/<outcome>".
+	RecoveryItems map[string]int
 }
 
 // Snapshot returns a copy of the current counts.
@@ -209,10 +210,79 @@ func (c *EventCounts) Snapshot() EventCountsSnapshot {
 		Conditions:           map[string]bool{},
 		UploadAttempts:       map[string]int{},
 		HeadDeferred:         c.headDeferred,
+		RecoveryItems:        map[string]int{},
 	}
 	maps.Copy(s.Dropped, c.dropped)
 	maps.Copy(s.EmitResults, c.emitResults)
 	maps.Copy(s.Conditions, c.conditions)
 	maps.Copy(s.UploadAttempts, c.uploadAttempts)
+	maps.Copy(s.RecoveryItems, c.recoveryItems)
 	return s
+}
+
+// newEventSinks returns the EventCounts every emitter and uploader keeps, and the sink to send
+// events to: the counts, and extra too when it is set.
+func newEventSinks(extra EventSink) (*EventCounts, EventSink) {
+	counts := NewEventCounts()
+	if extra == nil {
+		return counts, counts
+	}
+	return counts, teeSink{counts, extra}
+}
+
+// teeSink sends every event to each of its sinks.
+type teeSink []EventSink
+
+func (t teeSink) DataDropped(reason string, count int) {
+	for _, s := range t {
+		s.DataDropped(reason, count)
+	}
+}
+
+func (t teeSink) UnfinalizedDiscarded(count int) {
+	for _, s := range t {
+		s.UnfinalizedDiscarded(count)
+	}
+}
+
+func (t teeSink) EmitResult(result string) {
+	for _, s := range t {
+		s.EmitResult(result)
+	}
+}
+
+func (t teeSink) EmissionSlotsSkipped(count int) {
+	for _, s := range t {
+		s.EmissionSlotsSkipped(count)
+	}
+}
+
+func (t teeSink) SetCondition(name string, active bool) {
+	for _, s := range t {
+		s.SetCondition(name, active)
+	}
+}
+
+func (t teeSink) UploadAttempt(service, result string) {
+	for _, s := range t {
+		s.UploadAttempt(service, result)
+	}
+}
+
+func (t teeSink) UploadDuration(service string, d time.Duration) {
+	for _, s := range t {
+		s.UploadDuration(service, d)
+	}
+}
+
+func (t teeSink) HeadDeferred(count int) {
+	for _, s := range t {
+		s.HeadDeferred(count)
+	}
+}
+
+func (t teeSink) RecoveryItem(kind, outcome string, count int) {
+	for _, s := range t {
+		s.RecoveryItem(kind, outcome, count)
+	}
 }

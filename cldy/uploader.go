@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ibm/finops-agent/pkg/telemetry"
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/log"
 )
@@ -53,10 +54,11 @@ type CldyUploader struct {
 	// queue is the upload queue on disk. The emitter built around this uploader shares it.
 	queue *diskQueue
 
-	// events receives drops, discards, conditions and upload attempts. conditions holds the
-	// active conditions, for edge-triggered logging and health checks. The emitter built around
-	// this uploader shares both.
+	// events receives drops, discards, conditions and upload attempts: counts, and
+	// UploaderConfig.Events if set. conditions holds the active conditions, for edge-triggered
+	// logging and health checks. The emitter built around this uploader shares all three.
 	events     EventSink
+	counts     *EventCounts
 	conditions *conditionStore
 
 	// head is the payload at the head of the queue and its run of failures, for the
@@ -154,12 +156,13 @@ func newStorageServices(config UploaderConfig) ([]StorageService, storageService
 
 // newCldyUploader creates the upload directory and runs startup recovery (recovery.go), but does
 // not start uploadLoop. now is the uploader's clock; nil means time.Now. Tests use it to drive
-// upload cycles directly (uploadCycle) against fake storage services and a fake clock. events
-// nil means a new EventCounts.
+// upload cycles directly (uploadCycle) against fake storage services and a fake clock. Events go
+// to a new EventCounts and to events, or to config.Events when events is nil.
 func newCldyUploader(config UploaderConfig, storageServices []StorageService, stop chan struct{}, now func() time.Time, events EventSink) *CldyUploader {
 	if events == nil {
-		events = NewEventCounts()
+		events = config.Events
 	}
+	counts, events := newEventSinks(events)
 	uploadPathDir := config.ScratchDir + "/" + uploadPath
 	err := createIfNotExists(uploadPathDir)
 	if err != nil {
@@ -186,6 +189,7 @@ func newCldyUploader(config UploaderConfig, storageServices []StorageService, st
 		agentVersion:    version.Version,
 		queue:           newDiskQueue(config.ScratchDir, events, now),
 		events:          events,
+		counts:          counts,
 		conditions:      newConditionStore(now),
 		now:             now,
 	}
@@ -220,6 +224,10 @@ type UploaderConfig struct {
 	// BacklogMaxBytes caps the bytes queued for upload, samples and payloads together
 	// (CLOUDABILITY_BACKLOG_MAX_MB). Zero means defaultBacklogMaxBytes.
 	BacklogMaxBytes int64
+	// Events, if set, receives every drop, discard, condition change and upload attempt as well
+	// as the uploader's own EventCounts: telemetry.CloudabilitySink in production. It is not read
+	// from the environment.
+	Events EventSink
 }
 
 // AddSample does nothing: the next upload cycle finds the sample on disk.
@@ -598,9 +606,12 @@ func (cu *CldyUploader) uploadQueued(clusterID string) bool {
 			return false
 		}
 
+		started := time.Now()
 		err := cu.uploadData(p.path, clusterID)
 		cu.progress()
-		cu.events.UploadAttempt(uploadResult(err))
+		service := cu.serviceName()
+		cu.events.UploadDuration(service, time.Since(started))
+		cu.events.UploadAttempt(service, uploadResult(err))
 		outcome := classifyUpload(err)
 		cu.queue.finishUpload(func() {
 			if outcome != uploadDelivered {
@@ -751,6 +762,30 @@ func (cu *CldyUploader) uploadData(path, clusterID string) error {
 		}
 	}
 	return crashPoint(crashAfterUpload)
+}
+
+// serviceName is the service label of the configured storage service. Only one is ever
+// configured (newStorageServices).
+func (cu *CldyUploader) serviceName() string {
+	if len(cu.StorageServices) == 0 {
+		return ""
+	}
+	return storageServiceName(cu.StorageServices[0])
+}
+
+// storageServiceName is the service label (telemetry.Service*) of a storage service.
+func storageServiceName(s StorageService) string {
+	switch s.(type) {
+	case *ApptioServiceImpl:
+		return telemetry.ServiceFrontdoor
+	case *MetricsCollectorServiceImpl:
+		return telemetry.ServiceMetricsCollector
+	case CustomS3Client, *CustomS3Client:
+		return telemetry.ServiceCustomS3
+	case CustomBlobClient, *CustomBlobClient:
+		return telemetry.ServiceCustomAzureBlob
+	}
+	return fmt.Sprintf("%T", s)
 }
 
 // setCondition records one of the uploader's conditions, logging only when it changes.

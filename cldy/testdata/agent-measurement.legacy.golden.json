@@ -1,0 +1,38 @@
+{
+  "errors": [
+    {
+      "count": 2,
+      "message": "node a: timeout",
+      "type": "node_error"
+    }
+  ],
+  "metrics": {
+    "nodes_failed": 2,
+    "unsynced_resources": 1,
+    "uptime": 1605600
+  },
+  "name": "cldy_agent_status",
+  "tags": {
+    "cluster_uid": "12345678-1234-1234-1234-123456789012"
+  },
+  "ts": 1790337600,
+  "values": {
+    "agent_name": "ibm-finops-agent",
+    "agent_version": "2.11.17",
+    "cluster_name": "my-test-cluster",
+    "cluster_version": "1.30",
+    "cluster_version_git": "v1.30.10-eks-bc803b4",
+    "cluster_version_major": "1",
+    "cluster_version_minor": "30+",
+    "custom_azure_blob_name": "",
+    "custom_s3_bucket": "bucket",
+    "custom_s3_region": "us-east-1",
+    "emission_interval": "3m0s",
+    "insecure": "false",
+    "node_stats_age_seconds": "42",
+    "outbound_proxy_url": "proxy.example.com",
+    "parse_metric_data": "false",
+    "unsynced_resources": "apps/deployments",
+    "upload_region": "us-west-2"
+  }
+}

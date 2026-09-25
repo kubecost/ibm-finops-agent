@@ -118,9 +118,9 @@ func SetDiskAvailableForTest(f func(dir string) (uint64, error)) (restore func()
 	return func() { diskAvailable = prev }
 }
 
-// EventsForTest returns the emitter's event counts. It fails if a different sink was installed.
+// EventsForTest returns the emitter's event counts.
 func (ce *Emitter) EventsForTest() EventCountsSnapshot {
-	return ce.events.(*EventCounts).Snapshot()
+	return ce.counts.Snapshot()
 }
 
 // QuarantineDirName is the directory under <ScratchDir>/scratch/ that holds quarantined items.
@@ -135,9 +135,8 @@ func SetQuarantineLimitsForTest(maxBytes int64, maxAge time.Duration) (restore f
 }
 
 // EventsForTest returns the uploader's event counts, which an emitter built around it shares.
-// It fails if a different sink was installed.
 func (cu *CldyUploader) EventsForTest() EventCountsSnapshot {
-	return cu.events.(*EventCounts).Snapshot()
+	return cu.counts.Snapshot()
 }
 
 // NewUploaderForTest runs startup recovery exactly as NewCldyUploader does, but uses the given

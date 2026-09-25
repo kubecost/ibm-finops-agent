@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/condition"
+	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/health"
+	"github.com/ibm/finops-agent/pkg/telemetry"
 )
 
 // conditionUploadsFailing: the last uploadsFailingCycles upload cycles stopped on a failed
@@ -163,4 +165,59 @@ func formatSince(now, t time.Time) string {
 		return "never"
 	}
 	return now.Sub(t).Round(time.Second).String() + " ago"
+}
+
+// UploadStatus returns the upload loop's progress for metrics and the status summary. It is zero
+// when the emitter has no CldyUploader.
+func (ce *Emitter) UploadStatus() telemetry.UploadStatus {
+	cu, ok := ce.Uploader.(*CldyUploader)
+	if !ok {
+		return telemetry.UploadStatus{}
+	}
+	hb := cu.UploadHeartbeat()
+	return telemetry.UploadStatus{LastSuccess: hb.LastSuccess, BacklogFiles: hb.BacklogFiles, BacklogBytes: hb.BacklogBytes}
+}
+
+// statusSummary is the agent's health for agent-measurement.json: config.StatusSummary, or else
+// the emitter's own conditions, drops and upload queue.
+func (ce *Emitter) statusSummary() *telemetry.Summary {
+	if ce.config.StatusSummary != nil {
+		s := ce.config.StatusSummary()
+		return &s
+	}
+	s := telemetry.Summary{
+		SchemaVersion:    telemetry.SummarySchemaVersion,
+		ActiveConditions: []telemetry.SummaryCondition{},
+		CountersSinceTS:  ce.startTime.Unix(),
+	}
+	for _, c := range ce.Conditions() {
+		s.ActiveConditions = append(s.ActiveConditions, telemetry.SummaryCondition{
+			Component: string(emitter.CldyEmitterID), Type: c.Type, Reason: c.Reason, SinceTS: c.Since.Unix(),
+		})
+	}
+	s.Ready = len(s.ActiveConditions) == 0
+	if ce.counts != nil {
+		counts := ce.counts.Snapshot()
+		for reason, n := range counts.Dropped {
+			if n <= 0 {
+				continue
+			}
+			if reason == dropReasonQuarantineEvicted {
+				s.QuarantineEvictedTotal += uint64(n)
+				continue
+			}
+			if s.DataDropped == nil {
+				s.DataDropped = map[string]map[string]uint64{telemetry.EmitterCloudability: {}}
+			}
+			s.DataDropped[telemetry.EmitterCloudability][reason] += uint64(n)
+			s.DataDroppedTotal += uint64(n)
+		}
+		s.EmissionSlotsSkippedTotal = uint64(counts.EmissionSlotsSkipped)
+	}
+	u := ce.UploadStatus()
+	s.BacklogFiles, s.BacklogBytes = u.BacklogFiles, u.BacklogBytes
+	if !u.LastSuccess.IsZero() {
+		s.LastUploadSuccessTS = u.LastSuccess.Unix()
+	}
+	return &s
 }
