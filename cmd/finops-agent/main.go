@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net"
 	gohttp "net/http"
-	"net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -42,6 +45,24 @@ func initLogging() {
 func main() {
 	initLogging()
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	err := run(ctx)
+	stop()
+	if err != nil {
+		log.Errorf("IBM Finops Agent exiting: %s", err)
+		os.Exit(1)
+	}
+	log.Infof("IBM Finops Agent stopped")
+}
+
+// listenAddr is the main listener's address. Tests change it.
+var listenAddr = fmt.Sprintf(":%d", http.DefaultPort)
+
+// run starts the agent and runs it until ctx is cancelled (SIGTERM), then shuts it down within
+// SHUTDOWN_TIMEOUT. It returns startup errors instead of exiting, so that whatever had started
+// is stopped on the way out, and returns nil after a shutdown, even one that ran out of time:
+// anything undelivered stays on disk for the next start.
+func run(ctx context.Context) error {
 	if env.IsAutoMemLimitEnabled() {
 		err := monitor.StartMemoryLimiter()
 		if err != nil {
@@ -51,20 +72,14 @@ func main() {
 
 	log.Infof("Starting IBM Finops Agent version %s", version.FriendlyVersion())
 
-	// Shared application utilities (http router, diagnostics, etc...)
-	router := httprouter.New()
-
-	// Add profiling endpoints if enabled
-	if env.IsPProfEnabled() {
-		router.HandlerFunc(gohttp.MethodGet, "/debug/pprof/", pprof.Index)
-		router.HandlerFunc(gohttp.MethodGet, "/debug/pprof/cmdline", pprof.Cmdline)
-		router.HandlerFunc(gohttp.MethodGet, "/debug/pprof/profile", pprof.Profile)
-		router.HandlerFunc(gohttp.MethodGet, "/debug/pprof/symbol", pprof.Symbol)
-		router.HandlerFunc(gohttp.MethodGet, "/debug/pprof/trace", pprof.Trace)
-		router.Handler(gohttp.MethodGet, "/debug/pprof/goroutine", pprof.Handler("goroutine"))
-		router.Handler(gohttp.MethodGet, "/debug/pprof/heap", pprof.Handler("heap"))
+	// Initialize/Bootstrap the Agent Data Source
+	emissionInterval := env.GetExporterEmissionInterval()
+	if emissionInterval <= 0 {
+		return fmt.Errorf("%s must be a positive duration, got %s", env.ExporterEmissionIntervalEnvVar, emissionInterval)
 	}
 
+	// Shared application utilities (http router, diagnostics, etc...)
+	router := httprouter.New()
 	diag := diagnostics.NewDiagnosticService()
 
 	// Health model (docs/reliability/FINDINGS.md chunk 08). Until components register, the agent
@@ -72,54 +87,56 @@ func main() {
 	registry := health.NewRegistry()
 	registerHealthRoutes(router, registry)
 
-	var emitters []emitter.Emitter
-
-	// Setup the HTTP server - ensure the goroutine starts before continuing to initialization
-	// of the data source and emitters
-	started := make(chan struct{})
-	server := http.NewHttpServer(router, 9003)
-	go func() {
-		close(started)
-
-		err := server.ListenAndServe()
-		if err != nil {
-			log.Errorf("Error starting HTTP server: %s", err)
-		}
-	}()
-
-	<-started
+	// The HTTP server starts before the data source and emitters, so the probes answer during
+	// startup.
+	a := newAgent(registry)
+	server := http.NewHttpServer(router, http.DefaultPort)
+	server.Addr = listenAddr
+	if _, err := a.listenAndServe(server); err != nil {
+		return fmt.Errorf("failed to start the HTTP server: %w", err)
+	}
 	defer func() {
-		err := server.Shutdown(context.Background())
-		if err != nil {
-			log.Errorf("Error shutting down HTTP server: %s", err)
+		if err := a.shutdown(env.GetShutdownTimeout()); err != nil {
+			log.Errorf("Shutdown was incomplete; anything undelivered stays on disk for the next start: %s", err)
 		}
 	}()
 
-	// Initialize/Bootstrap the Agent Data Source
-	emissionInterval := env.GetExporterEmissionInterval()
-	if emissionInterval <= 0 {
-		log.Fatalf("%s must be a positive duration, got %s", env.ExporterEmissionIntervalEnvVar, emissionInterval)
+	// Profiling endpoints, if enabled, are on their own loopback-only listener (F-24).
+	if env.IsPProfEnabled() {
+		if _, err := a.listenAndServe(http.NewPprofServer(http.DefaultPprofPort)); err != nil {
+			return fmt.Errorf("failed to start the pprof server: %w", err)
+		}
 	}
 
 	// Initialize Kubernetes Client
 	kubeConfig, err := kubeconfig.LoadKubeconfig("")
 	if err != nil {
-		log.Fatalf("Failed to load Kubernetes configuration: %s", err.Error())
+		return fmt.Errorf("failed to load Kubernetes configuration: %w", err)
 	}
 
 	kubeClientset, err := kubernetes.NewForConfig(kubeConfig)
 	if err != nil {
-		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
+		return fmt.Errorf("failed to build Kubernetes client: %w", err)
 	}
 
 	clusterUID, err := kubeconfig.GetClusterUID(kubeClientset)
 	if err != nil {
-		log.Fatalf("Failed to determine cluster UID: %s", err)
+		return fmt.Errorf("failed to determine cluster UID: %w", err)
 	}
 
 	// Informer sync (bounded by INFORMER_SYNC_TIMEOUT) and the collector WAL restore run here.
 	registry.SetPhase(health.PhaseDataSource)
-	dataSource := core.NewAgentDataSource(kubeConfig, kubeClientset, router, diag, emissionInterval)
+	dataSource, err := core.NewAgentDataSource(ctx, kubeConfig, kubeClientset, router, diag, emissionInterval)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil // stopped during startup
+		}
+		return fmt.Errorf("failed to start the data source: %w", err)
+	}
+	a.dataSource = dataSource
+	if ctx.Err() != nil {
+		return nil
+	}
 	registerDataSourceHealth(registry, dataSource, time.Now())
 	registry.SetPhase(health.PhaseEmitters)
 
@@ -133,12 +150,12 @@ func main() {
 		kubecostEmitterConfig.QueryResolution = dataSource.OpenCostSource().Resolution()
 
 		if err := kubecost.ValidateConfig(kubecostEmitterConfig); err != nil {
-			panic("invalid kubecost emitter config: " + err.Error())
+			return fmt.Errorf("invalid kubecost emitter config: %w", err)
 		}
 
 		kubecostCloudProvider := dataSource.OpenCostCloudCostProvider()
 		if kubecostCloudProvider == nil {
-			panic("Public cloud provider pricing API never initialzed. Set OPENCOST_SOURCE_ENABLED=true.")
+			return errors.New("public cloud provider pricing API never initialized; set OPENCOST_SOURCE_ENABLED=true")
 		}
 
 		// Update the snapshot config to include the kubecost emitter's required resources
@@ -146,12 +163,12 @@ func main() {
 			emitter.NewKubernetesSnapshotConfigFromEnabled(kubecostEmitterConfig.KubernetesResourcesRequired),
 		)
 
-		emitters = append(emitters, kubecost.NewKubecostEmitter(kubecostCloudProvider, diag, kubecostEmitterConfig))
+		a.emitters = append(a.emitters, kubecost.NewKubecostEmitter(kubecostCloudProvider, diag, kubecostEmitterConfig))
 	}
 	if env.IsCloudyEmitterEnabled() {
 		cldyConfig, err := cldy.NewEmitterConfigFromEnv()
 		if err != nil {
-			panic("invalid cloudability emitter config: " + err.Error())
+			return fmt.Errorf("invalid cloudability emitter config: %w", err)
 		}
 
 		clusterInfo := dataSource.ClusterMetadata().GetClusterInfo()
@@ -167,23 +184,27 @@ func main() {
 			emitter.NewKubernetesSnapshotConfigFromEnabled(cldyConfig.KubernetesResourcesRequired),
 		)
 
-		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
+		cldyEmitter, err := cldy.NewEmitter(ctx, cldyConfig)
+		if err != nil {
+			return fmt.Errorf("failed to start the cloudability emitter: %w", err)
+		}
+		a.emitters = append(a.emitters, cldyEmitter)
 	}
 	if env.IsTurboEmitterEnabled() {
 		log.Infof("Turbonomic emitter not yet implemented.")
 		//emitters = append(emitters, emitter.NewTurboEmitter(dataSource))
 	}
 
-	// TODO: Uncomment once we have full support for all emitters.
+	// TODO: Return an error once we have full support for all emitters.
 	/*
-		if len(emitters) == 0 {
-			panic("No emitters enabled!")
+		if len(a.emitters) == 0 {
+			return errors.New("no emitters enabled")
 		}
 	*/
 
 	// Any emitter that implements health.Component or health.ConditionReporter takes part in
 	// readiness and /status.
-	for _, e := range emitters {
+	for _, e := range a.emitters {
 		registry.RegisterAny(string(e.ID()), e)
 	}
 
@@ -191,17 +212,144 @@ func main() {
 	exporter := emitter.NewExporterWithConfig(dataSource, snapshotProvider, emitter.ExporterConfig{
 		SnapshotTimeout: env.GetExporterSnapshotTimeout(),
 		EmitTimeout:     env.GetExporterEmitTimeout(),
-	}, emitters...)
+	}, a.emitters...)
 
 	if ok := exporter.Start(emissionInterval); !ok {
-		panic("Failed to start exporter")
+		return errors.New("failed to start exporter")
 	}
+	a.exporter = exporter
 	registry.Register("exporter", emitter.HealthComponent(exporter))
 	registry.SetPhase(health.PhaseRunning)
 
-	defer exporter.Stop()
+	return a.wait(ctx)
+}
 
-	WaitForSignal()
+// agent holds what run started, for shutdown. Fields are nil until started.
+type agent struct {
+	registry   *health.Registry
+	dataSource *core.AgentDataSource
+	exporter   emitter.Exporter
+	emitters   []emitter.Emitter
+
+	servers  []*gohttp.Server
+	serving  sync.WaitGroup
+	serveErr chan error
+}
+
+func newAgent(registry *health.Registry) *agent {
+	return &agent{registry: registry, serveErr: make(chan error, 1)}
+}
+
+// listenAndServe binds srv.Addr and serves srv until shutdown. A bind failure is returned.
+func (a *agent) listenAndServe(srv *gohttp.Server) (net.Addr, error) {
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		return nil, err
+	}
+	a.servers = append(a.servers, srv)
+	a.serving.Go(func() {
+		if err := srv.Serve(ln); !errors.Is(err, gohttp.ErrServerClosed) {
+			select {
+			case a.serveErr <- fmt.Errorf("serving %s: %w", srv.Addr, err):
+			default:
+			}
+		}
+	})
+	return ln.Addr(), nil
+}
+
+// wait blocks until ctx is cancelled or a listener fails.
+func (a *agent) wait(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		log.Infof("Received a termination signal")
+		return nil
+	case err := <-a.serveErr:
+		return err
+	}
+}
+
+// stopper is an emitter that drains at shutdown within a context: the Cloudability emitter, and
+// the Kubecost emitter once it has Stop (chunk 07).
+type stopper interface {
+	Stop(ctx context.Context) error
+}
+
+// serverShutdownReserve is the part of the shutdown budget kept for closing the HTTP servers
+// after the exporter and emitters.
+const serverShutdownReserve = 2 * time.Second
+
+// shutdown stops what run started, within budget:
+//  1. the exporter, so no cycle starts and the one in flight ends;
+//  2. the emitters, concurrently so that one that hangs doesn't hold up the other (I5): the
+//     Cloudability emitter packages its last samples and runs one last upload cycle, and the
+//     Kubecost emitter stops its controllers;
+//  3. the informers and node-stats collection;
+//  4. the HTTP servers, last, so the probes answer while the emitters drain. Readiness fails
+//     from the start of shutdown.
+//
+// A step that outlasts its part of the budget is left running and reported; the process is about
+// to exit, and whatever wasn't delivered is on disk for the next start.
+func (a *agent) shutdown(budget time.Duration) error {
+	log.Infof("Shutting down within %s", budget)
+	a.registry.SetPhase(health.PhaseStopping)
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+	drainCtx, cancelDrain := context.WithTimeout(ctx, max(budget-serverShutdownReserve, budget/2))
+	defer cancelDrain()
+
+	var mu sync.Mutex
+	var errs []error
+	record := func(what string, err error) {
+		if err != nil {
+			mu.Lock()
+			errs = append(errs, fmt.Errorf("%s: %w", what, err))
+			mu.Unlock()
+		}
+	}
+
+	if a.exporter != nil {
+		record("exporter", within(drainCtx, func() error {
+			a.exporter.Stop()
+			return nil
+		}))
+	}
+	var drains sync.WaitGroup
+	for _, e := range a.emitters {
+		s, ok := e.(stopper)
+		if !ok {
+			continue
+		}
+		drains.Go(func() {
+			record(string(e.ID()), within(drainCtx, func() error { return s.Stop(drainCtx) }))
+		})
+	}
+	drains.Wait()
+	cancelDrain()
+
+	if a.dataSource != nil {
+		record("data source", a.dataSource.Stop(ctx))
+	}
+	for _, srv := range a.servers {
+		if err := srv.Shutdown(ctx); err != nil {
+			record("HTTP server "+srv.Addr, err)
+			_ = srv.Close()
+		}
+	}
+	a.serving.Wait()
+	return errors.Join(errs...)
+}
+
+// within runs f and waits for it until ctx is done. If ctx ends first, f is left running.
+func within(ctx context.Context, f func() error) error {
+	done := make(chan error, 1)
+	go func() { done <- f() }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // registerHealthRoutes serves the registry's probes and status on router.
@@ -222,19 +370,4 @@ func registerDataSourceHealth(registry *health.Registry, ds core.DataSource, sta
 		maxAge := time.Duration(cldy.MaxStaleUploadCycles) * cldy.UploadFrequencyDuration
 		registry.Register("node_stats", nodes.FreshnessComponent(timer, maxAge, started))
 	}
-}
-
-// WaitForSignal waits for a termination signal (SIGINT or SIGTERM) and then exits the program.
-func WaitForSignal() {
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
-
-	done := make(chan struct{}, 1)
-
-	go func() {
-		defer close(done)
-		<-signalChan
-	}()
-
-	<-done
 }

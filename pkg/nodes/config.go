@@ -56,7 +56,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	} else {
 		pemData, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
 		if err != nil {
-			log.Fatalf("could not load CA certificate: %v", err)
+			return NodeClientConfig{}, fmt.Errorf("could not load the service account CA certificate: %w", err)
 		}
 
 		caCertPool := x509.NewCertPool()
@@ -68,7 +68,7 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 
 			if err != nil {
-				log.Fatalf("Unable to load cert: %s key: %s error: %v", certFile, keyFile, err)
+				return NodeClientConfig{}, fmt.Errorf("unable to load node client cert %s and key %s: %w", certFile, keyFile, err)
 			}
 
 			tlsConfig = &tls.Config{
