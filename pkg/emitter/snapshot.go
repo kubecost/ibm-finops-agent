@@ -198,6 +198,9 @@ func snapshotClusterInfo(infoProvider clusters.ClusterInfoProvider) (*clusters.C
 }
 
 func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfig) (*KubernetesSnapshot, error) {
+	if err := checkInformersSynced(cluster, config); err != nil {
+		return nil, err
+	}
 	// if we get here, and a kubernetes snapshot config hasn't been provided, enable all resource snapshots by
 	// default
 	kconfig := config.KubernetesSnapshot
@@ -244,8 +247,11 @@ func snapshotResource[T any](flag bool, resourceGetter func() []T) []T {
 
 func snapshotNodeStats(ctx context.Context, client nodes.StatSummaryClient) (*NodeStatsSummary, error) {
 	var data []*stats.Summary
+	var collectedAt time.Time
 	var err error
-	if cc, ok := client.(nodes.ContextStatSummaryClient); ok {
+	if cached, ok := client.(nodes.CachedStatSummaryClient); ok {
+		data, collectedAt, err = cached.GetCachedNodeData()
+	} else if cc, ok := client.(nodes.ContextStatSummaryClient); ok {
 		data, err = cc.GetNodeDataContext(ctx)
 	} else {
 		data, err = client.GetNodeData()
@@ -265,6 +271,7 @@ func snapshotNodeStats(ctx context.Context, client nodes.StatSummaryClient) (*No
 	return &NodeStatsSummary{
 		Stats:         data,
 		CollectionErr: err,
+		CollectedAt:   collectedAt,
 	}, nil
 }
 

@@ -154,11 +154,10 @@ func (ce *Emitter) setCondition(name string, active bool, msg string) {
 
 // recordCondition records a condition in events and state, and logs only when it changes: at
 // Error when raised, at Info when cleared. A condition never raised is not cleared.
-func recordCondition(events EventSink, state map[string]bool, name string, active bool, msg string) {
-	if state[name] == active {
+func recordCondition(events EventSink, state *conditionStore, name string, active bool, msg string) {
+	if !state.set(name, active, msg) {
 		return
 	}
-	state[name] = active
 	events.SetCondition(name, active)
 	if active {
 		log.Errorf("condition=%s active: %s", name, msg)

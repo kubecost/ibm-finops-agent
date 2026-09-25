@@ -7,15 +7,18 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/ibm/finops-agent/cldy"
 	"github.com/ibm/finops-agent/kubecost"
+	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/env"
+	"github.com/ibm/finops-agent/pkg/health"
 	"github.com/ibm/finops-agent/pkg/http"
+	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/julienschmidt/httprouter"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
@@ -64,11 +67,10 @@ func main() {
 
 	diag := diagnostics.NewDiagnosticService()
 
-	// Emitters are constructed after the server starts, so healthCheckers is published
-	// atomically once they are all built to avoid a race with /healthz handler goroutines.
-	var healthCheckers atomic.Pointer[[]emitter.HealthChecker]
-	healthCheck := newEmitterHealthCheck(&healthCheckers)
-	router.HandlerFunc(gohttp.MethodGet, "/healthz", healthzHandler(healthCheck))
+	// Health model (docs/reliability/FINDINGS.md chunk 08). Until components register, the agent
+	// is live and not ready; /readyz reports the startup phase.
+	registry := health.NewRegistry()
+	registerHealthRoutes(router, registry)
 
 	var emitters []emitter.Emitter
 
@@ -115,7 +117,11 @@ func main() {
 		log.Fatalf("Failed to determine cluster UID: %s", err)
 	}
 
+	// Informer sync (bounded by INFORMER_SYNC_TIMEOUT) and the collector WAL restore run here.
+	registry.SetPhase(health.PhaseDataSource)
 	dataSource := core.NewAgentDataSource(kubeConfig, kubeClientset, router, diag, emissionInterval)
+	registerDataSourceHealth(registry, dataSource, time.Now())
+	registry.SetPhase(health.PhaseEmitters)
 
 	// Snapshot configuration will gather specific kubernetes resource requirements
 	// from each emitter that is enabled such that we only snapshot the resources that
@@ -175,10 +181,11 @@ func main() {
 		}
 	*/
 
-	// Publish the health checkers now that all emitters are constructed. The atomic Store
-	// establishes a happens-before edge to the fully-built slice for the /healthz handler
-	// goroutines, which read it via healthCheckers.Load().
-	publishHealthCheckers(&healthCheckers, emitters)
+	// Any emitter that implements health.Component or health.ConditionReporter takes part in
+	// readiness and /status.
+	for _, e := range emitters {
+		registry.RegisterAny(string(e.ID()), e)
+	}
 
 	snapshotProvider := emitter.NewConcurrentSnapshotProvider(snapshotConfig)
 	exporter := emitter.NewExporterWithConfig(dataSource, snapshotProvider, emitter.ExporterConfig{
@@ -189,55 +196,32 @@ func main() {
 	if ok := exporter.Start(emissionInterval); !ok {
 		panic("Failed to start exporter")
 	}
+	registry.Register("exporter", emitter.HealthComponent(exporter))
+	registry.SetPhase(health.PhaseRunning)
 
 	defer exporter.Stop()
 
 	WaitForSignal()
 }
 
-// healthzHandler returns an HTTP handler for the /healthz liveness endpoint.
-// checker is called on each request; returning false causes a 503 response.
-func healthzHandler(checker func() bool) gohttp.HandlerFunc {
-	return func(w gohttp.ResponseWriter, _ *gohttp.Request) {
-		w.Header().Set("Content-Type", "text/plain")
-		if !checker() {
-			w.WriteHeader(gohttp.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Length", "0")
-		w.WriteHeader(gohttp.StatusOK)
-	}
+// registerHealthRoutes serves the registry's probes and status on router.
+func registerHealthRoutes(router *httprouter.Router, registry *health.Registry) {
+	router.HandlerFunc(gohttp.MethodGet, "/healthz", registry.LivenessHandler())
+	router.HandlerFunc(gohttp.MethodGet, "/readyz", registry.ReadinessHandler())
+	router.HandlerFunc(gohttp.MethodGet, "/startupz", registry.StartupHandler())
+	router.HandlerFunc(gohttp.MethodGet, "/status", registry.StatusHandler())
 }
 
-// newEmitterHealthCheck returns a HealthChecker that reports healthy unless a published
-// emitter reports unhealthy. The checkers are read through an atomic pointer so the /healthz
-// handler goroutines never race with emitter registration on the main goroutine. Before the
-// checkers are published (nil pointer) the agent is considered healthy (startup grace).
-func newEmitterHealthCheck(checkers *atomic.Pointer[[]emitter.HealthChecker]) func() bool {
-	return func() bool {
-		published := checkers.Load()
-		if published == nil {
-			return true
-		}
-		for _, hc := range *published {
-			if !hc.Healthy() {
-				return false
-			}
-		}
-		return true
+// registerDataSourceHealth registers the informers' sync state and node-stats freshness. Both are
+// readiness only: an RBAC fault or unreachable kubelets aren't fixed by a restart (D1, D9).
+func registerDataSourceHealth(registry *health.Registry, ds core.DataSource, started time.Time) {
+	if sr, ok := ds.Cluster().(cluster.SyncReporter); ok {
+		registry.Register("informers", cluster.SyncComponent(sr))
 	}
-}
-
-// publishHealthCheckers extracts the emitters that implement emitter.HealthChecker and
-// atomically publishes them so the /healthz handler can consult them.
-func publishHealthCheckers(dst *atomic.Pointer[[]emitter.HealthChecker], emitters []emitter.Emitter) {
-	var checkers []emitter.HealthChecker
-	for _, e := range emitters {
-		if hc, ok := e.(emitter.HealthChecker); ok {
-			checkers = append(checkers, hc)
-		}
+	if timer, ok := ds.StatsSummary().(nodes.CollectionTimer); ok {
+		maxAge := time.Duration(cldy.MaxStaleUploadCycles) * cldy.UploadFrequencyDuration
+		registry.Register("node_stats", nodes.FreshnessComponent(timer, maxAge, started))
 	}
-	dst.Store(&checkers)
 }
 
 // WaitForSignal waits for a termination signal (SIGINT or SIGTERM) and then exits the program.

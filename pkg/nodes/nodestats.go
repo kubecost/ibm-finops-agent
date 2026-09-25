@@ -95,12 +95,19 @@ func (nssp *NodeStatsSummaryProvider) Stop() {
 // GetNodeData will return the last node stats summary data recorded. If a newer request is in-progress, it will _not_ wait
 // for that request to complete. Instead, it will return the previously recorded data.
 func (nssp *NodeStatsSummaryProvider) GetNodeData() ([]*stats.Summary, error) {
+	data, _, err := nssp.GetCachedNodeData()
+	return data, err
+}
+
+// GetCachedNodeData returns the same data as GetNodeData and when it was collected, so that stale
+// stats aren't taken for fresh ones (F-21). It implements CachedStatSummaryClient.
+func (nssp *NodeStatsSummaryProvider) GetCachedNodeData() ([]*stats.Summary, time.Time, error) {
 	nssp.statsLock.RLock()
 	defer nssp.statsLock.RUnlock()
 
 	// no valid node stats recording has taken place
 	if nssp.lastRecordedSummary.IsZero() {
-		return nil, fmt.Errorf("no node stats summary data has been recorded")
+		return nil, time.Time{}, fmt.Errorf("no node stats summary data has been recorded")
 	}
 
 	// log warning if the stats summary being returned is older than 10m (this is a very reasonable data integrity threshold)
@@ -109,7 +116,15 @@ func (nssp *NodeStatsSummaryProvider) GetNodeData() ([]*stats.Summary, error) {
 		log.Warnf("Node Stats Summary being emitted is %d seconds old.", int64(sinceLastRecord.Seconds()))
 	}
 
-	return nssp.stats, nil
+	return nssp.stats, nssp.lastRecordedSummary, nil
+}
+
+// LastCollection returns when node stats were last collected, or zero if never. It implements
+// CollectionTimer.
+func (nssp *NodeStatsSummaryProvider) LastCollection() time.Time {
+	nssp.statsLock.RLock()
+	defer nssp.statsLock.RUnlock()
+	return nssp.lastRecordedSummary
 }
 
 // if the error returned from node stats summary is a multi-error, unwrap and return the inner errors,

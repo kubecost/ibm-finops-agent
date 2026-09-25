@@ -65,8 +65,7 @@ type Emitter struct {
 	now func() time.Time
 
 	// Node-stats collection diagnostics, updated from each snapshot the emitter receives.
-	// Guarded by nodeStatsMu because Healthy() is invoked from the /healthz handler goroutine
-	// while Emit()/Init() run on the exporter goroutine.
+	// lastSuccessfulNodeCollection is when the stats in the last snapshot were collected (F-21).
 	nodeStatsMu                  sync.RWMutex
 	lastSuccessfulNodeCollection time.Time
 	lastNodeCollectionErr        error
@@ -85,9 +84,10 @@ type Emitter struct {
 	lastSampleBytes int64
 
 	// events receives drops, discards, emit outcomes and condition changes; conditions holds
-	// the emitter's view of each condition for edge-triggered logging.
+	// the active conditions for edge-triggered logging and health checks. Both are the
+	// uploader's, when the uploader is a *CldyUploader.
 	events     EventSink
-	conditions map[string]bool
+	conditions *conditionStore
 
 	// queue is the upload queue on disk, which the disk budget evicts from. It is the
 	// uploader's, when the uploader is a *CldyUploader.
@@ -112,7 +112,8 @@ const UPLOAD_FREQUENCY = 10
 var UploadFrequencyDuration = time.Minute * time.Duration(UPLOAD_FREQUENCY)
 
 // MaxStaleUploadCycles is how many upload cycles may pass with no successful node-stats
-// collection before the agent considers itself wedged. Used by the /healthz staleness check.
+// collection before the agent is not ready (node_stats_stale). It is a readiness threshold, not a
+// liveness one (D1): a restart doesn't fix unreachable kubelets.
 const MaxStaleUploadCycles = 3
 
 func NewEmitterConfigFromEnv() (EmitterConfig, error) {
@@ -238,9 +239,11 @@ func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *
 	// its queue so that the disk budget and packaging don't race.
 	var events EventSink = NewEventCounts()
 	var queue *diskQueue
+	conditions := newConditionStore(now)
 	if cu, ok := uploader.(*CldyUploader); ok {
 		events = cu.events
 		queue = cu.queue
+		conditions = cu.conditions
 	} else {
 		queue = newDiskQueue(config.ScratchDir, events, now)
 	}
@@ -252,7 +255,7 @@ func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *
 		agentVersion:     version.Version,
 		now:              now,
 		events:           events,
-		conditions:       map[string]bool{},
+		conditions:       conditions,
 		queue:            queue,
 	}
 	currentTime := ce.clock().UTC()
@@ -292,32 +295,10 @@ func (ce *Emitter) ID() emitter.EmitterID {
 	return emitter.CldyEmitterID
 }
 
-// Healthy reports whether the cldy emitter considers itself healthy.
-// Returns false when node-stats collection has been stale for longer than
-// MaxStaleUploadCycles * UploadFrequencyDuration, signaling that a container
-// restart is warranted.
-//
-// Staleness is tracked from the snapshots the emitter receives, so this works on the
-// foreground collection path (node stats fetched at snapshot time). When node-stats
-// collection fails for every node, the snapshot itself fails upstream and Emit() is not
-// called, so lastSuccessfulNodeCollection stops advancing and the emitter eventually
-// reports unhealthy.
-func (ce *Emitter) Healthy() bool {
-	ce.nodeStatsMu.RLock()
-	lastSuccess := ce.lastSuccessfulNodeCollection
-	ce.nodeStatsMu.RUnlock()
-
-	// startup grace: no successful collection has been observed yet
-	if lastSuccess.IsZero() {
-		return true
-	}
-	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
-	return ce.clock().Sub(lastSuccess) <= restartThreshold
-}
-
-// recordNodeStats captures node-stats collection diagnostics from a snapshot. It advances
-// the last-successful-collection timestamp whenever any node stats were returned, and stores
-// the (partial) collection error for reporting in the agent status file.
+// recordNodeStats captures node-stats collection diagnostics from a snapshot. Whenever any node
+// stats were returned it records when they were collected, which in background collection mode
+// can be well before the snapshot (F-21), and it stores the (partial) collection error for
+// reporting in the agent status file.
 func (ce *Emitter) recordNodeStats(ns *emitter.NodeStatsSummary) {
 	ce.nodeStatsMu.Lock()
 	defer ce.nodeStatsMu.Unlock()
@@ -326,7 +307,11 @@ func (ce *Emitter) recordNodeStats(ns *emitter.NodeStatsSummary) {
 		return
 	}
 	if len(ns.Stats) > 0 {
-		ce.lastSuccessfulNodeCollection = ce.clock().UTC()
+		collected := ns.CollectedAt
+		if collected.IsZero() {
+			collected = ce.clock()
+		}
+		ce.lastSuccessfulNodeCollection = collected.UTC()
 	}
 	ce.lastNodeCollectionErr = ns.CollectionErr
 }
@@ -752,8 +737,9 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	ce.nodeStatsMu.RUnlock()
 
 	// node_stats_age_seconds is the age of the node-stats data in this sample. On the
-	// foreground path (default) stats are fetched live per emit, so it is effectively ~0.
-	// On the background path (future work) it reports the cache age and grows as it goes stale.
+	// foreground path (default) stats are fetched live per snapshot, so it is effectively ~0.
+	// With background collection it is the age of the cached stats and grows while collection
+	// fails (F-21).
 	var nodeStatsAgeSeconds int64
 	if !lastSuccess.IsZero() {
 		nodeStatsAgeSeconds = int64(now.Sub(lastSuccess).Seconds())
