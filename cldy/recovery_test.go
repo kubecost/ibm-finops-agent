@@ -69,8 +69,9 @@ func TestReproF36RestartKeepsUploadBacklog(t *testing.T) {
 	}
 }
 
-// F-36 / D8: CLOUDABILITY_RECOVERY_PERIOD sets the recovery period, 72h by default, and a
-// non-positive or unparsable value is a configuration error.
+// F-36 / D8: CLOUDABILITY_RECOVERY_PERIOD sets the recovery period, 72h by default. A value
+// under one upload interval (including a bare number, which parses as nanoseconds) or one that
+// doesn't parse is a configuration error.
 func TestF36RecoveryPeriodFromEnv(t *testing.T) {
 	scratch := newProdScratch(t, t.TempDir(), "cid-f36-env")
 	if got := scratch.UploaderConfig(t).RecoveryPeriod; got != testRecoveryPeriod {
@@ -80,7 +81,7 @@ func TestF36RecoveryPeriodFromEnv(t *testing.T) {
 	if got := scratch.UploaderConfig(t).RecoveryPeriod; got != 6*time.Hour {
 		t.Errorf("CLOUDABILITY_RECOVERY_PERIOD=6h gave %v", got)
 	}
-	for _, bad := range []string{"0", "-1h", "soon"} {
+	for _, bad := range []string{"0", "-1h", "soon", "72", "5m"} {
 		t.Setenv("CLOUDABILITY_RECOVERY_PERIOD", bad)
 		if c, err := cldy.NewEmitterConfigFromEnv(); err == nil {
 			t.Errorf("CLOUDABILITY_RECOVERY_PERIOD=%q accepted as %v, want a configuration error", bad, c.RecoveryPeriod)
@@ -766,15 +767,14 @@ func TestCrashPointMatrixNoSilentLoss(t *testing.T) {
 			t.Errorf("crash point %s not reached by the first process", point)
 		}
 	}
-	// Every occurrence of every crash point, except that a kill after each sample file is written
-	// is sampled: those states differ only in which files the staging directory holds, and chunk
-	// 04's TestF22CrashAtEveryWriteStepLeavesOnlyFinalisedSamples covers each one.
-	fileWritten := 0
+	// Every occurrence of every crash point, except that kills after each sample file and each tar
+	// header are sampled (every 5th): those states differ only in how many files the staging
+	// directory or the temporary payload holds. Chunk 04's
+	// TestF22CrashAtEveryWriteStepLeavesOnlyFinalisedSamples kills after every sample file.
+	occurrences := map[string]int{}
 	for k, point := range sequence {
-		if point == cldy.CrashSampleFileWritten {
-			if fileWritten++; fileWritten%5 != 1 {
-				continue
-			}
+		if occurrences[point]++; (point == cldy.CrashSampleFileWritten || point == cldy.CrashMidTar) && occurrences[point]%5 != 1 {
+			continue
 		}
 		t.Run(fmt.Sprintf("kill-at-%d-%s", k+1, point), func(t *testing.T) { run(t, k+1) })
 	}

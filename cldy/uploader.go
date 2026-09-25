@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/version"
@@ -27,6 +28,7 @@ type Uploader interface {
 
 type CldyUploader struct {
 	config           UploaderConfig
+	mu               sync.RWMutex // guards clusterID
 	sampleSet        *set
 	uploadSet        *set
 	stop             chan struct{}
@@ -107,10 +109,10 @@ func newStorageServices(config UploaderConfig) []StorageService {
 	return storageServices
 }
 
-// newCldyUploader creates the upload directory and runs startup recovery, but does not start
-// uploadLoop. now is the uploader's clock; nil means time.Now. Tests use it to drive upload
-// cycles directly (uploadCycle) against fake storage services and a fake clock. events nil means
-// a new EventCounts.
+// newCldyUploader creates the upload directory and runs startup recovery (recovery.go), but does
+// not start uploadLoop. now is the uploader's clock; nil means time.Now. Tests use it to drive
+// upload cycles directly (uploadCycle) against fake storage services and a fake clock. events
+// nil means a new EventCounts.
 func newCldyUploader(config UploaderConfig, storageServices []StorageService, stop chan struct{}, now func() time.Time, events EventSink) *CldyUploader {
 	if events == nil {
 		events = NewEventCounts()
@@ -119,6 +121,11 @@ func newCldyUploader(config UploaderConfig, storageServices []StorageService, st
 	err := createIfNotExists(uploadPathDir)
 	if err != nil {
 		panic("failed to create upload directory: " + err.Error())
+	}
+	recoveryPeriod := config.RecoveryPeriod
+	if recoveryPeriod <= 0 {
+		log.Warnf("Cloudability recovery period not set; using the default %s", defaultRecoveryPeriod)
+		recoveryPeriod = defaultRecoveryPeriod
 	}
 
 	uploader := &CldyUploader{
@@ -129,14 +136,14 @@ func newCldyUploader(config UploaderConfig, storageServices []StorageService, st
 		UploadPathDir: uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
 		StorageServices: storageServices,
-		recoveryPeriod:  config.RecoveryPeriod,
+		recoveryPeriod:  recoveryPeriod,
 		agentVersion:    version.Version,
 		events:          events,
 		now:             now,
 	}
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
-		log.Warnf("failed to recover historic samples on startup: %v", err)
+		log.Errorf("Cloudability startup recovery was incomplete: %v", err)
 	}
 	if uploader.RecoveredUploads != 0 || uploader.RecoveredSamples != 0 {
 		log.Infof("Cloudability successfully recovered %d samples and prepared %d uploads on startup",
@@ -157,7 +164,9 @@ type UploaderConfig struct {
 	ApptioConfig
 	UploadFrequency time.Duration
 	ScratchDir      string
-	RecoveryPeriod  time.Duration
+	// RecoveryPeriod is how old pending data may be at startup and still be uploaded
+	// (CLOUDABILITY_RECOVERY_PERIOD). Zero means defaultRecoveryPeriod.
+	RecoveryPeriod time.Duration
 }
 
 func (cu *CldyUploader) AddSample(sample string) {
@@ -168,87 +177,38 @@ func (cu *CldyUploader) RemoveSample(sample string) {
 	cu.sampleSet.remove(sample)
 }
 
+// SetClusterID sets the live cluster ID, which Emitter.Init reads from the snapshot. Startup
+// recovery took each payload's cluster ID from its file name; payloads for any other cluster are
+// quarantined and counted, never uploaded under this one (F-05).
 func (cu *CldyUploader) SetClusterID(id string) {
+	if id == "" {
+		log.Errorf("refusing an empty Cloudability cluster ID")
+		return
+	}
+	cu.mu.Lock()
 	cu.clusterID = id
-}
+	cu.mu.Unlock()
 
-func (cu *CldyUploader) recoverDataOnStartup() error {
-	err := cu.recoverCompleteSamples()
-	err = errors.Join(err, cu.recoverUploadFiles())
-	if err != nil {
-		return fmt.Errorf("error(s) occurred attempting to recover data on startup. errors: %w", err)
-	}
-	return nil
-}
-
-// recoverCompleteSamples packages every finalised sample (see sample.go) under
-// scratch/<clusterID>/. Staging directories and directories without a valid manifest are left
-// where they are: the emitter sweeps stale staging directories, and crash-consistent recovery of
-// the rest is chunk 01's.
-func (cu *CldyUploader) recoverCompleteSamples() error {
-	root := cu.config.ScratchDir + "/" + scratchPath
-	clusters, err := os.ReadDir(root)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var errs error
-	for _, c := range clusters {
-		if !c.IsDir() {
+	mismatched := false
+	for _, path := range cu.uploadSet.contents() {
+		clusterID, _, ok := parsePayloadName(filepath.Base(path))
+		if !ok || clusterID == id {
 			continue
 		}
-		samples, invalid, err := listFinalisedSamples(SafePath(root, c.Name()))
-		if err != nil {
-			errs = errors.Join(errs, err)
-			continue
-		}
-		if len(invalid) > 0 {
-			log.Warnf("Cloudability recovery left %d sample directories without a valid manifest in place: %v", len(invalid), invalid)
-		}
-		for _, sample := range samples {
-			errs = errors.Join(errs, cu.recoverSample(sample.Path, sample.Manifest.Timestamp))
-		}
+		cu.uploadSet.remove(path)
+		cu.quarantine(path, dropReasonClusterIDMismatch, fmt.Sprintf("payload for cluster %s, but this is cluster %s", clusterID, id))
+		mismatched = true
 	}
-	return errs
+	if mismatched {
+		cu.trimQuarantine()
+	}
 }
 
-// recover sample adds a completed sample to the set and constructs the upload file, construct handles
-// scratch dir clean up, the sample will be uploaded in first upload loop of the agent
-func (cu *CldyUploader) recoverSample(dir string, sampleTime time.Time) error {
-	cu.RecoveredSamples++
-	cu.AddSample(dir)
-	_, err := cu.ConstructPayload(sampleTime)
-	if err != nil {
-		return fmt.Errorf("failed to construct sample payload: %v", err)
-	}
-	return nil
-}
-
-func (cu *CldyUploader) recoverUploadFiles() error {
-	err := filepath.WalkDir(cu.UploadPathDir, func(path string, d fs.DirEntry, err error) error {
-		if !d.IsDir() {
-			parts := strings.Split(path, "_")
-			if len(parts) == 0 {
-				return fmt.Errorf("invalid path: %s", path)
-			}
-			date, dErr := time.Parse("2006-01-02-15-04-05", strings.TrimSuffix(parts[len(parts)-1], ".tgz"))
-			if dErr != nil {
-				return dErr
-			}
-			// remove and do not upload samples older than recovery Period
-			if cu.clock().Sub(date.UTC()).Hours() > cu.recoveryPeriod.Hours() {
-				log.Infof("Cloudability sample is outside of recovery range, removing sample")
-				return os.Remove(path)
-			}
-			// add to uploadSet for future shipping & clean up will occur during next upload
-			cu.uploadSet.add(path)
-			cu.RecoveredUploads++
-		}
-		return nil
-	})
-	return err
+// liveClusterID returns the cluster ID set by SetClusterID, or "" before it is known.
+func (cu *CldyUploader) liveClusterID() string {
+	cu.mu.RLock()
+	defer cu.mu.RUnlock()
+	return cu.clusterID
 }
 
 func (cu *CldyUploader) uploadLoop() {
@@ -264,9 +224,13 @@ func (cu *CldyUploader) uploadLoop() {
 }
 
 // uploadCycle packages the pending samples and uploads the queued payloads. It is one tick
-// of uploadLoop.
+// of uploadLoop. Nothing is packaged or uploaded until the live cluster ID is known.
 func (cu *CldyUploader) uploadCycle() {
 	if cu.sampleSet.length() == 0 {
+		return
+	}
+	if cu.liveClusterID() == "" {
+		log.Warnf("Cloudability cluster ID is not known yet; not packaging or uploading samples")
 		return
 	}
 	path, err := cu.ConstructPayload(cu.clock().UTC())
@@ -281,81 +245,156 @@ func (cu *CldyUploader) uploadCycle() {
 	}
 }
 
-func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rerr error) {
-	files := make([]*os.File, 0)
-	for _, samplePath := range cu.sampleSet.contents() {
-		file, err := os.Open(SafePath(samplePath))
-		if err != nil {
-			return "", err
+// ConstructPayload packages every queued sample into one payload for the live cluster ID, named
+// for sampleTime, and returns its path. See buildPayload.
+func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (string, error) {
+	var samples []string
+	for _, sample := range cu.sampleSet.contents() {
+		if _, err := os.Stat(sample); errors.Is(err, fs.ErrNotExist) {
+			// Disk-pressure eviction dequeues a sample before removing it and counts the drop, so
+			// this is a sample removed from outside the agent.
+			log.Errorf("queued Cloudability sample %s vanished before it was packaged; dequeuing it", sample)
+			cu.sampleSet.remove(sample)
+			continue
 		}
-		files = append(files, file)
+		samples = append(samples, sample)
 	}
-	defer safeCloseFiles(files, &rerr)
-
-	path = SafePath(
-		cu.UploadPathDir,
-		fmt.Sprintf(
-			"%s_%s.tgz",
-			cu.clusterID,
-			sampleTime.Format("2006-01-02-15-04-05"),
-		),
-	)
-	tw, err := os.Create(path)
-	if err != nil {
-		return "", err
+	if len(samples) == 0 {
+		return "", errors.New("no samples to package")
 	}
-	defer safeClose(tw.Close, &rerr)
-	if err := crashPoint(crashAfterCreate); err != nil {
-		return "", err
-	}
-	err = cu.createTGZ(tw, files...)
-	if err != nil && !errors.Is(err, ErrDiskSpaceExceeded) {
-		return "", err
-	}
-	// if disk is maxed and cleaning doesn't help, delete sample set and problematic tar before returning error
-	if err != nil && errors.Is(err, ErrDiskSpaceExceeded) {
-		sErr := os.RemoveAll(path)
-		if sErr != nil {
-			log.Warnf("failed to remove problematic tar: %s", sErr)
-		}
-		sErr = cu.removeSamples(files)
-		if sErr != nil {
-			log.Warnf("failed to remove samples: %s", sErr)
-		}
-		return "", err
-	}
-
-	if err := crashPoint(crashBeforeRename); err != nil {
-		return "", err
-	}
-	err = cu.removeSamples(files)
-	if err != nil {
-		return "", err
-	}
-
-	return path, nil
+	return cu.buildPayload(cu.liveClusterID(), sampleTime, samples)
 }
 
-func (cu *CldyUploader) removeSamples(files []*os.File) error {
-	for _, file := range files {
-		cu.sampleSet.remove(file.Name())
-		err := os.RemoveAll(file.Name())
-		// TODO: eval this case, shouldn't happen
-		if err != nil {
-			return err
+// buildPayload packages samples into upload/<clusterID>_<YYYY-MM-DD-HH-MM-SS>.tgz for ts and
+// returns its path. The payload is written to upload/.<name>.partial, closed and fsynced, then
+// renamed into place and the directory fsynced (F-04). The samples are removed only after the
+// rename; on any error before it the temporary file is removed and the samples are kept, still
+// queued (F-50). A name already taken moves ts on by a second, so no payload is overwritten.
+func (cu *CldyUploader) buildPayload(clusterID string, ts time.Time, samples []string) (string, error) {
+	if clusterID == "" {
+		return "", errors.New("no cluster ID: refusing to build a payload")
+	}
+	if err := cu.ensureUploadSpace(); err != nil {
+		if errors.Is(err, ErrDiskSpaceExceeded) {
+			cu.removeSamples(samples)
+			dropData(cu.events, dropReasonDiskPressure, len(samples),
+				fmt.Sprintf("no room on the scratch volume to package %d samples, even after removing old payloads", len(samples)))
 		}
+		return "", err
 	}
 
+	final, partial, f, err := cu.createPayloadFile(clusterID, ts)
+	if err != nil {
+		return "", err
+	}
+	err = crashPoint(crashAfterCreate)
+	if err == nil {
+		err = cu.createTGZ(f, clusterID, samples)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cErr := f.Close(); err == nil {
+		err = cErr
+	}
+	if err == nil {
+		err = crashPoint(crashBeforeRename)
+	}
+	if err == nil {
+		err = os.Rename(partial, final)
+	}
+	if err != nil {
+		if rmErr := os.Remove(partial); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			log.Errorf("failed to remove unfinished Cloudability payload %s; it is discarded at the next start: %v", partial, rmErr)
+		}
+		return "", err
+	}
+	if err := crashPoint(crashAfterRename); err != nil {
+		log.Debugf("crash point %s: %v", crashAfterRename, err)
+	}
+	if err := syncDir(cu.UploadPathDir); err != nil {
+		log.Errorf("payload %s is written but syncing %s failed; it may not survive a node crash: %v", final, cu.UploadPathDir, err)
+	}
+	cu.removeSamples(samples)
+	return final, nil
+}
+
+// createPayloadFile creates the temporary file for the payload named for ts, or for the first
+// later second whose name is free, and returns the final and temporary paths.
+func (cu *CldyUploader) createPayloadFile(clusterID string, ts time.Time) (final, partial string, f *os.File, err error) {
+	for i := range maxPayloadNameAttempts {
+		name := payloadName(clusterID, ts.Add(time.Duration(i)*time.Second))
+		final = SafePath(cu.UploadPathDir, name)
+		if _, err := os.Lstat(final); err == nil {
+			continue
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", "", nil, err
+		}
+		partial = SafePath(cu.UploadPathDir, "."+name+partialSuffix)
+		f, err = os.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", "", nil, err
+		}
+		if i > 0 {
+			log.Infof("Cloudability payload name for %s was taken; using %s", ts.UTC().Format(payloadTimeFormat), name)
+		}
+		return final, partial, f, nil
+	}
+	return "", "", nil, fmt.Errorf("no free payload name within %d seconds of %s", maxPayloadNameAttempts, ts.UTC().Format(payloadTimeFormat))
+}
+
+// removeSamples dequeues and removes samples that are packaged in a payload. A sample that can't
+// be removed is uploaded again after a restart, which at-least-once delivery allows.
+func (cu *CldyUploader) removeSamples(samples []string) {
+	for _, sample := range samples {
+		cu.sampleSet.remove(sample)
+		if err := os.RemoveAll(sample); err != nil {
+			log.Errorf("failed to remove packaged Cloudability sample %s; it will be uploaded again after a restart: %v", sample, err)
+		}
+	}
+}
+
+// ensureUploadSpace checks there is room for a payload twice the size of the last one. If not
+// it removes old payloads (ClearOldUploadSamples) and returns ErrDiskSpaceExceeded if there is
+// still no room. A statfs failure is not pressure: nothing is removed (F-49).
+func (cu *CldyUploader) ensureUploadSpace() error {
+	need := cu.lastUploadSize * 2
+	avail, err := diskAvailable(cu.UploadPathDir)
+	if err != nil {
+		log.Errorf("cannot read free space on the Cloudability scratch volume, not removing anything: %v", err)
+		return nil
+	}
+	if avail >= need {
+		return nil
+	}
+	if err := cu.ClearOldUploadSamples(); err != nil {
+		return err
+	}
+	if avail, err := diskAvailable(cu.UploadPathDir); err == nil && avail < need {
+		return ErrDiskSpaceExceeded
+	}
 	return nil
 }
 
 func (cu *CldyUploader) uploadData(path string) error {
+	if err := verifyPayload(path); err != nil {
+		if !errors.Is(err, errCorruptPayload) {
+			return err
+		}
+		// Dequeued by returning nil: the payload is no longer in upload/.
+		cu.quarantine(path, dropReasonCorruptPayload, err.Error())
+		cu.trimQuarantine()
+		return nil
+	}
 	fileName, hash, err := getFileNameAndHash(path)
 	if err != nil {
 		return err
 	}
 	payload := UploadPayload{
-		ClusterUID:   cu.clusterID,
+		ClusterUID:   cu.liveClusterID(),
 		FileName:     fileName,
 		AgentVersion: cu.agentVersion,
 		UploadHash:   hash,
@@ -383,35 +422,22 @@ func (cu *CldyUploader) uploadData(path string) error {
 	return os.Remove(path)
 }
 
-// createTGZ takes a source and variable writers and walks 'source' writing each file
-// found to the tar writer; the purpose for accepting multiple writers is to allow
-// for multiple outputs
-func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr error) {
-	// create a buffer of double the last upload size
-	if !IsAvailableDiskSpace(cu.lastUploadSize*2, cu.UploadPathDir) {
-		err := cu.ClearOldUploadSamples()
-		if err != nil {
-			return err
-		}
-
-		// Omit current sample if cleaning upload directory does not work
-		if !IsAvailableDiskSpace(cu.lastUploadSize*2, cu.UploadPathDir) {
-			return ErrDiskSpaceExceeded
-		}
-	}
-
+// createTGZ writes the samples to writer as a gzipped tar. Each file is stored as
+// <sample>/<clusterID>/<file>; MANIFEST.json is left out. The tar and gzip writers are closed,
+// and their errors returned, before it returns.
+func (cu *CldyUploader) createTGZ(writer io.Writer, clusterID string, srcs []string) (rerr error) {
 	gzw, _ := gzip.NewWriterLevel(writer, flate.BestCompression)
 	defer safeClose(gzw.Close, &rerr)
 	tw := tar.NewWriter(gzw)
 	defer safeClose(tw.Close, &rerr)
 	for _, src := range srcs {
 		// ensure the src actually exists before trying to tar it
-		if _, err := os.Stat(src.Name()); err != nil {
+		if _, err := os.Stat(src); err != nil {
 			return fmt.Errorf("unable to tar files - %v", err.Error())
 		}
 
 		// walk path
-		err := filepath.Walk(src.Name(), func(file string, fileInfo os.FileInfo, err error) (rerr error) {
+		err := filepath.Walk(src, func(file string, fileInfo os.FileInfo, err error) (rerr error) {
 
 			// return on any error
 			if err != nil {
@@ -435,7 +461,7 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 
 			// if not a directory update the name to correctly reflect the desired destination when untaring
 			if !fileInfo.Mode().IsDir() {
-				header.Name = filepath.Join(filepath.Base(src.Name()), cu.clusterID, strings.TrimPrefix(file, src.Name()))
+				header.Name = filepath.Join(filepath.Base(src), clusterID, strings.TrimPrefix(file, src))
 			}
 			// write the header
 			if err := tw.WriteHeader(header); err != nil {
@@ -468,8 +494,10 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 	return nil
 }
 
+// ClearOldUploadSamples removes payloads older than half the recovery period to make room on the
+// scratch volume. Each removal is a counted drop and dequeues the payload.
 func (cu *CldyUploader) ClearOldUploadSamples() error {
-	log.Infof("Disk space threshold met. Attempting to clean uploads over recovery period.")
+	log.Infof("Disk space threshold met. Attempting to clean uploads older than %s.", cu.recoveryPeriod/2)
 
 	files, err := os.ReadDir(cu.UploadPathDir)
 	if err != nil {
@@ -477,19 +505,25 @@ func (cu *CldyUploader) ClearOldUploadSamples() error {
 	}
 
 	for _, file := range files {
+		if file.IsDir() || isPartialPayload(file.Name()) {
+			continue
+		}
 		filePath := filepath.Join(cu.UploadPathDir, file.Name())
-		fileInfo, err := os.Stat(filePath)
+		fileInfo, err := file.Info()
 		if err != nil {
 			log.Warnf("problem retrieving file information: %s", err)
 			continue
 		}
-
-		if cu.clock().Sub(fileInfo.ModTime()) > cu.recoveryPeriod/2 {
-			err := os.RemoveAll(filePath)
-			if err != nil {
-				log.Warnf("problem deleting file: %s", err)
-			}
+		if cu.clock().Sub(fileInfo.ModTime()) <= cu.recoveryPeriod/2 {
+			continue
 		}
+		if err := os.Remove(filePath); err != nil {
+			log.Errorf("problem deleting file: %s", err)
+			continue
+		}
+		cu.uploadSet.remove(filePath)
+		dropData(cu.events, dropReasonDiskPressure, 1,
+			fmt.Sprintf("removed payload %s, older than half the recovery period, to make room on the scratch volume", file.Name()))
 	}
 
 	return nil

@@ -91,8 +91,10 @@ func (ce *Emitter) discardStaging(dir string) {
 }
 
 // sweepOrphanedStaging removes staging directories older than twice the emission interval, left
-// by a crash or an earlier process. The live current and next directories are never removed:
-// rewriting their files doesn't update the directory mtime, so they can look old after a stall.
+// by a failed Emit. Startup recovery (recovery.go) has already removed the ones an earlier
+// process left, before Init; this sweep only still finds those when the emitter runs without a
+// CldyUploader. The live current and next directories are never removed: rewriting their files
+// doesn't update the directory mtime, so they can look old after a stall.
 func (ce *Emitter) sweepOrphanedStaging() {
 	_, staging, err := sampleDirs(ce.ScratchPath)
 	if err != nil {
@@ -161,8 +163,13 @@ func (ce *Emitter) ensureDiskBudget() bool {
 
 // drop counts and logs lost data. Every drop is logged at Error.
 func (ce *Emitter) drop(reason string, count int, detail string) {
+	dropData(ce.events, reason, count, detail)
+}
+
+// dropData logs lost data at Error and records it in events.
+func dropData(events EventSink, reason string, count int, detail string) {
 	log.Errorf("event=data_dropped emitter=cloudability reason=%s count=%d: %s", reason, count, detail)
-	ce.events.DataDropped(reason, count)
+	events.DataDropped(reason, count)
 }
 
 // setCondition records a condition and logs only when it changes: at Error when raised, at Info
