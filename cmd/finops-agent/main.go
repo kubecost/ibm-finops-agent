@@ -95,6 +95,9 @@ func main() {
 
 	// Initialize/Bootstrap the Agent Data Source
 	emissionInterval := env.GetExporterEmissionInterval()
+	if emissionInterval <= 0 {
+		log.Fatalf("%s must be a positive duration, got %s", env.ExporterEmissionIntervalEnvVar, emissionInterval)
+	}
 
 	// Initialize Kubernetes Client
 	kubeConfig, err := kubeconfig.LoadKubeconfig("")
@@ -178,7 +181,10 @@ func main() {
 	publishHealthCheckers(&healthCheckers, emitters)
 
 	snapshotProvider := emitter.NewConcurrentSnapshotProvider(snapshotConfig)
-	exporter := emitter.NewExporter(dataSource, snapshotProvider, emitters...)
+	exporter := emitter.NewExporterWithConfig(dataSource, snapshotProvider, emitter.ExporterConfig{
+		SnapshotTimeout: env.GetExporterSnapshotTimeout(),
+		EmitTimeout:     env.GetExporterEmitTimeout(),
+	}, emitters...)
 
 	if ok := exporter.Start(emissionInterval); !ok {
 		panic("Failed to start exporter")
