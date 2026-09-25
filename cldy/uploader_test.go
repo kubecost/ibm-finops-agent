@@ -305,36 +305,6 @@ func defaultConfig(tempDir string) cldy.UploaderConfig {
 	}
 }
 
-// sample timestamps need to be unique otherwise .tgz file names will be the same and cause overwrite which would
-// never occur in real data collection/uploading
-func updateAgentTimestamp(filePath string, ts int64) error {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return err
-	}
-	defer safeClose(file.Close)
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return err
-	}
-	measure := testAgentMeasure{}
-	err = json.Unmarshal(data, &measure)
-	if err != nil {
-		return err
-	}
-	measure.Timestamp = ts
-	jsonInfo, err := json.Marshal(&measure)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filePath, jsonInfo, 0644)
-}
-
-type testAgentMeasure struct {
-	Timestamp int64  `json:"ts"`
-	Name      string `json:"name"`
-}
-
 type mockClientService struct {
 	countByPath map[string]int
 }

@@ -74,7 +74,7 @@ func (p *prodScratch) AddIncompleteSample(t testingT, ts time.Time, n int, omit 
 	if err := os.CopyFS(dir, os.DirFS("testdata")); err != nil {
 		t.Fatalf("copying sample to %s: %v", dir, err)
 	}
-	if err := updateAgentTimestamp(filepath.Join(dir, "agent-measurement.json"), ts.Unix()); err != nil {
+	if err := stampAgentMeasurement(filepath.Join(dir, "agent-measurement.json"), ts); err != nil {
 		t.Fatalf("stamping sample %s: %v", dir, err)
 	}
 	for _, f := range omit {
@@ -83,6 +83,25 @@ func (p *prodScratch) AddIncompleteSample(t testingT, ts time.Time, n int, omit 
 		}
 	}
 	return dir
+}
+
+// stampAgentMeasurement sets the "ts" of an agent-measurement.json, which recovery uses as the
+// sample time. It avoids gomega so the harness also works in plain Go tests.
+func stampAgentMeasurement(path string, ts time.Time) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var measure map[string]any
+	if err := json.Unmarshal(b, &measure); err != nil {
+		return err
+	}
+	measure["ts"] = ts.Unix()
+	b, err = json.Marshal(measure)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
 }
 
 // UploadName is the payload file name ConstructPayload uses for a payload built at ts.
