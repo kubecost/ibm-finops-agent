@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/rest"
@@ -144,8 +146,8 @@ type DynamicClusterCache struct {
 	slpCap         int
 	// slpDropped counts short-lived pods dropped at the cap (reason short_lived_pod_overflow).
 	slpDropped atomic.Uint64
-	// slpOverflowing is set from the first drop until the next drain, so each overflow episode
-	// logs one Error.
+	// slpOverflowing is set from the first drop until a drain or commit makes room, so each
+	// overflow episode logs one Error.
 	slpOverflowing bool
 }
 
@@ -188,15 +190,21 @@ func NewDynamicClusterCache(
 
 func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod any) {
 	return func(pod any) {
+		// A pod deleted while the watch was down arrives as a tombstone holding its last known state.
+		if tombstone, ok := pod.(cache2.DeletedFinalStateUnknown); ok {
+			pod = tombstone.Obj
+		}
 		unstructuredPod, ok := pod.(*unstructured.Unstructured)
 		if !ok {
-			log.Warnf("failed to cast interface to unstructured, not capturing delete event")
+			log.Warnf("failed to cast %T to unstructured, not capturing delete event", pod)
 			return
 		}
 		var castedPod corev1.Pod
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredPod.Object, &castedPod)
 		if err != nil {
-			log.Warnf("failed to unstructure object. not capturing delete event. err: %s", err.Error())
+			conversionFailures.add(podsResource, 1)
+			log.Errorf("failed to convert deleted pod %s/%s, dropping it as a short-lived pod: %s",
+				unstructuredPod.GetNamespace(), unstructuredPod.GetName(), err)
 			return
 		}
 		// only capture deleted pods if they have a short lifespan
@@ -316,26 +324,42 @@ func cleanContainers(resource *unstructured.Unstructured, gvk schema.GroupVersio
 	}
 }
 
-// Note: t is the actual struct not pointer
+// ConvertUnstructuredArrayToTypedArray converts each object to *T. An object that fails to
+// convert is skipped and counted in ConversionFailures under its resource, and one Error is
+// logged per call; the others are still returned. Note: T is the struct, not a pointer.
 func ConvertUnstructuredArrayToTypedArray[T any](uObjs []*unstructured.Unstructured) []*T {
 
 	if uObjs == nil {
 		return nil
 	}
 
-	var array []*T
+	array := make([]*T, 0, len(uObjs))
+	failed := 0
+	var firstErr error
+	var firstObj *unstructured.Unstructured
 	for _, o := range uObjs {
 		var obj T
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.Object, &obj)
 		if err != nil {
-			log.Warnf("failed to convert object. err: %s, obj: %v", err.Error(), obj)
-			return nil
+			if failed == 0 {
+				firstErr, firstObj = err, o
+			}
+			failed++
+			continue
 		}
 		array = append(array, &obj)
 	}
 
+	if failed > 0 {
+		resource := resourceName(reflect.TypeFor[T]())
+		conversionFailures.add(resource, uint64(failed))
+		log.Errorf("skipped %d of %d %s that failed to convert; first: %s/%s: %s",
+			failed, len(uObjs), resource, firstObj.GetNamespace(), firstObj.GetName(), firstErr)
+	}
+
 	return array
 }
+
 func (dcc *DynamicClusterCache) Start(stopCh <-chan struct{}) {
 
 	dcc.DynamicSharedInformerFactory.Start(stopCh)
@@ -372,16 +396,54 @@ func (dcc *DynamicClusterCache) GetAllPods() []*corev1.Pod {
 	return AllOf[corev1.Pod](dcc)
 }
 
+// GetAllShortLivedPods drains the short-lived-pod buffer and returns its contents.
 func (dcc *DynamicClusterCache) GetAllShortLivedPods() []*corev1.Pod {
 	dcc.slpMux.Lock()
 	defer dcc.slpMux.Unlock()
 	shortLivedPods := dcc.shortLivedPods
 	dcc.shortLivedPods = []*corev1.Pod{}
-	if dcc.slpOverflowing {
-		dcc.slpOverflowing = false
-		log.Infof("short-lived pod buffer drained; %d pods dropped at the cap so far", dcc.slpDropped.Load())
-	}
+	dcc.endOverflowEpisode()
 	return shortLivedPods
+}
+
+// PeekShortLivedPods implements ShortLivedPodBuffer.
+func (dcc *DynamicClusterCache) PeekShortLivedPods() []*corev1.Pod {
+	dcc.slpMux.RLock()
+	defer dcc.slpMux.RUnlock()
+	return slices.Clone(dcc.shortLivedPods)
+}
+
+// CommitShortLivedPods implements ShortLivedPodBuffer.
+func (dcc *DynamicClusterCache) CommitShortLivedPods(uids []types.UID) int {
+	if len(uids) == 0 {
+		return 0
+	}
+	committed := make(map[types.UID]struct{}, len(uids))
+	for _, uid := range uids {
+		committed[uid] = struct{}{}
+	}
+
+	dcc.slpMux.Lock()
+	defer dcc.slpMux.Unlock()
+	before := len(dcc.shortLivedPods)
+	dcc.shortLivedPods = slices.DeleteFunc(dcc.shortLivedPods, func(p *corev1.Pod) bool {
+		_, ok := committed[p.UID]
+		return ok
+	})
+	removed := before - len(dcc.shortLivedPods)
+	if removed > 0 {
+		dcc.endOverflowEpisode()
+	}
+	return removed
+}
+
+// endOverflowEpisode logs the end of an overflow episode once the buffer has room again. The
+// caller holds slpMux.
+func (dcc *DynamicClusterCache) endOverflowEpisode() {
+	if dcc.slpOverflowing && (dcc.slpCap <= 0 || len(dcc.shortLivedPods) < dcc.slpCap) {
+		dcc.slpOverflowing = false
+		log.Infof("short-lived pod buffer has room again; %d pods dropped at the cap so far", dcc.slpDropped.Load())
+	}
 }
 
 func (dcc *DynamicClusterCache) GetAllServices() []*corev1.Service {
