@@ -6,7 +6,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
@@ -67,7 +66,7 @@ func TestShortLivedPodTombstoneCaptured(t *testing.T) {
 func TestShortLivedPodPeekCommit(t *testing.T) {
 	dcc := &DynamicClusterCache{slpCap: DefaultShortLivedPodBufferCap}
 	pod := func(name string) *corev1.Pod {
-		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, UID: types.UID("uid-" + name)}}
+		return &corev1.Pod{Name: name, UID: types.UID("uid-" + name)}
 	}
 	dcc.addShortLivedPod(pod("a"))
 	dcc.addShortLivedPod(pod("b"))

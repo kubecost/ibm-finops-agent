@@ -1,6 +1,8 @@
 package emitter
 
 import (
+	"slices"
+
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -34,12 +36,7 @@ func requiredComponents(e Emitter) []SnapshotComponent {
 
 // requires reports whether e needs component c.
 func requires(e Emitter, c SnapshotComponent) bool {
-	for _, rc := range requiredComponents(e) {
-		if rc == c {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(requiredComponents(e), c)
 }
 
 // MissingComponent returns the first of required that failed in this snapshot, and its error.

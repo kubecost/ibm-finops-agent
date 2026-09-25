@@ -145,7 +145,7 @@ func TestShortLivedPodsReachASampleThroughTheExporter(t *testing.T) {
 
 	up := &samplesUploader{}
 	ce := cldy.NewEmitterForTest(cldy.EmitterConfig{
-		UploaderConfig:   cldy.UploaderConfig{ScratchDir: t.TempDir()},
+		ScratchDir:       t.TempDir(),
 		EmitAsJson:       true,
 		EmissionInterval: 3 * time.Minute, // production default EMISSION_INTERVAL
 	}, up, clock.Now)
@@ -196,8 +196,8 @@ func TestShortLivedPodsReachASampleThroughTheExporter(t *testing.T) {
 func endedPod(name string) *v1.Pod {
 	now := metav1.Now()
 	return &v1.Pod{
-		TypeMeta:   metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID("uid-" + name)},
+		Kind: "Pod", APIVersion: "v1",
+		Name: name, Namespace: "default", UID: types.UID("uid-" + name),
 		Status: v1.PodStatus{
 			Phase:     v1.PodSucceeded,
 			StartTime: &now,

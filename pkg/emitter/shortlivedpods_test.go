@@ -16,7 +16,6 @@ import (
 	"github.com/ibm/finops-agent/internal/mocks"
 	"github.com/ibm/finops-agent/pkg/cluster"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -117,7 +116,7 @@ func (w *slpWriter) names() []string {
 }
 
 func slp(name string) *corev1.Pod {
-	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID("uid-" + name)}}
+	return &corev1.Pod{Name: name, Namespace: "default", UID: types.UID("uid-" + name)}
 }
 
 func TestShortLivedPodsSurviveFailedEmitAndSnapshot(t *testing.T) {
