@@ -68,7 +68,8 @@ bumped.
   objects with post-restart data only.
 - **Now:**
   - The WAL's bucket store is retried with capped backoff for up to 2 min before the collector
-    starts. If it still can't be built, the collector starts without a WAL and `wal_unavailable`
+    starts. A config file that can't be read, or that doesn't parse as a supported bucket
+    config, fails at once instead of delaying every emitter by the whole budget. If it still can't be built, the collector starts without a WAL and `wal_unavailable`
     is raised. The Kubecost emitter's `Init` then refuses to start the export controllers
     (the exporter retries it every cycle). The WAL can't be attached to a running collector, so
     background retries only switch the condition's reason to `restart_required` once the bucket
@@ -86,9 +87,9 @@ bumped.
 ## Export health
 
 - **Bucket canary.** Every `BUCKET_CANARY_INTERVAL` (default 10m; 0 disables) the emitter writes,
-  reads back (any non-empty content passes, so overlapping pods in a rolling update don't trip
-  it) and deletes `<cluster name>/write-test/test.txt`, the object `ValidateConfig` already uses
-  at startup. A failure or timeout raises `bucket_unavailable`, and the next success clears
+  reads back and deletes `<cluster name>/write-test/canary-<pod name>.txt`. That is one object
+  per pod, under the `write-test/` prefix `ValidateConfig` already uses, so pods that overlap in a
+  rolling update don't interfere. A failure or timeout raises `bucket_unavailable`, and the next success clears
   it. That is 3 small requests per cluster per interval (432 a day at the default). Until OpenCost
   reports export failures itself (U-3), this is the signal that exports are failing.
 - **Write counters.** Every export write (pipelines, heartbeat, diagnostics) is counted, including

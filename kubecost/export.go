@@ -263,11 +263,13 @@ type bucketCanary struct {
 	wg     sync.WaitGroup
 }
 
-func newBucketCanary(store storage.Storage, clusterName string, interval time.Duration, conditions *condition.Set) *bucketCanary {
+func newBucketCanary(store storage.Storage, clusterName, podName string, interval time.Duration, conditions *condition.Set) *bucketCanary {
 	return &bucketCanary{
 		store: store,
-		// the path ValidateConfig already writes, so the canary adds no new bucket paths
-		path:       path.Join(clusterName, "write-test", "test.txt"),
+		// Under ValidateConfig's write-test prefix, one object per pod: pods overlapping in a
+		// rolling update would otherwise read and delete each other's probes (a delete of a
+		// missing blob fails on Azure).
+		path:       path.Join(clusterName, "write-test", "canary-"+podName+".txt"),
 		interval:   interval,
 		conditions: conditions,
 	}
@@ -344,14 +346,12 @@ func (c *bucketCanary) probe() error {
 	if err := c.store.Write(c.path, payload); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
-	// Any content will do: during a rolling update two pods can probe the same object, and some
-	// S3-compatible stores are only eventually consistent.
 	data, err := c.store.Read(c.path)
 	if err != nil {
 		return fmt.Errorf("read: %w", err)
 	}
-	if len(data) == 0 {
-		return errors.New("read: empty object")
+	if string(data) != string(payload) {
+		return errors.New("read: content differs from what was written")
 	}
 	if err := c.store.Remove(c.path); err != nil {
 		return fmt.Errorf("delete: %w", err)

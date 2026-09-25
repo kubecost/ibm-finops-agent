@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/ibm/finops-agent/pkg/condition"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/storage"
+	"gopkg.in/yaml.v2"
 )
 
 // Conditions raised by the collector's write-ahead log. Chunk 08 folds them into readiness.
@@ -118,7 +120,8 @@ func defaultWALOptions() walOptions {
 // the collector (and replays the WAL synchronously), with it. construct gets nil when no bucket
 // is configured.
 //
-// Building the store is retried with backoff for up to opts.startupBudget. If it still fails,
+// Building the store is retried with backoff for up to opts.startupBudget, except that an
+// unreadable or invalid config fails at once. If it still fails,
 // the collector is built without a WAL, so metrics keep flowing for everything else, and
 // wal_unavailable is raised: the Kubecost emitter won't start its export controllers, since
 // exporting without a WAL is what lets a restart overwrite windows with partial data (F-41).
@@ -132,7 +135,9 @@ func openWAL(bucketConfigFile string, opts walOptions, construct func(storage.St
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), opts.startupBudget)
-	store, inFlight, err := wal.buildStore(ctx, bucketConfigFile, opts, opts.maxBackoff)
+	// A config that can't be read or parsed fails at once rather than delaying every emitter
+	// by the whole budget; the background retries still pick up a fixed config.
+	store, inFlight, err := wal.buildStore(ctx, bucketConfigFile, opts, opts.maxBackoff, true)
 	cancel()
 	if err != nil {
 		log.Errorf("Collector starting WITHOUT a write-ahead log: its bucket store could not be built within %s: %s. Kubecost exports stay stopped until the agent restarts with a working bucket.", opts.startupBudget, err)
@@ -162,10 +167,26 @@ func openWAL(bucketConfigFile string, opts walOptions, construct func(storage.St
 	return wal
 }
 
-// attemptResult is the outcome of one attempt to build the store.
+// attemptResult is the outcome of one attempt to build the store. permanent marks errors that
+// retrying won't fix within the startup budget: an unreadable config file or an invalid config.
 type attemptResult struct {
-	store storage.Storage
-	err   error
+	store     storage.Storage
+	err       error
+	permanent bool
+}
+
+// validateBucketConfig does the parsing NewBucketStorage does before it creates a client, so a
+// config that can never work is told apart from a client that fails to connect.
+func validateBucketConfig(data []byte) error {
+	conf := &storage.StorageConfig{}
+	if err := yaml.UnmarshalStrict(data, conf); err != nil {
+		return fmt.Errorf("parsing bucket config: %w", err)
+	}
+	switch strings.ToUpper(string(conf.Type)) {
+	case string(storage.S3), string(storage.GCS), string(storage.AZURE), string(storage.CLUSTER):
+		return nil
+	}
+	return fmt.Errorf("bucket config: storage type %q is not supported", conf.Type)
 }
 
 // attempt reads the bucket config and builds the store in its own goroutine, since
@@ -176,7 +197,11 @@ func (w *WAL) attempt(file string, opts walOptions) <-chan attemptResult {
 	go func() {
 		data, err := opts.readFile(file)
 		if err != nil {
-			ch <- attemptResult{err: fmt.Errorf("reading bucket config: %w", err)}
+			ch <- attemptResult{err: fmt.Errorf("reading bucket config: %w", err), permanent: true}
+			return
+		}
+		if err := validateBucketConfig(data); err != nil {
+			ch <- attemptResult{err: err, permanent: true}
 			return
 		}
 		store, err := opts.newStorage(data)
@@ -189,9 +214,10 @@ func (w *WAL) attempt(file string, opts walOptions) <-chan attemptResult {
 }
 
 // buildStore retries attempt with capped exponential backoff and full jitter until it succeeds
-// or ctx ends. One attempt runs at a time; one still running when ctx ends is returned as
-// inFlight so the caller can keep waiting for it instead of starting another.
-func (w *WAL) buildStore(ctx context.Context, file string, opts walOptions, maxBackoff time.Duration) (store storage.Storage, inFlight <-chan attemptResult, err error) {
+// or ctx ends, or, with failFast, until an attempt fails permanently. One attempt runs at a time;
+// one still running when ctx ends is returned as inFlight so the caller can keep waiting for it
+// instead of starting another.
+func (w *WAL) buildStore(ctx context.Context, file string, opts walOptions, maxBackoff time.Duration, failFast bool) (store storage.Storage, inFlight <-chan attemptResult, err error) {
 	backoff := opts.initialBackoff
 	lastErr := errors.New("no attempt completed")
 	for {
@@ -203,6 +229,9 @@ func (w *WAL) buildStore(ctx context.Context, file string, opts walOptions, maxB
 			}
 			w.storeFailure.Add(1)
 			lastErr = r.err
+			if failFast && r.permanent {
+				return nil, nil, r.err
+			}
 			log.Warnf("Collector WAL: %s; retrying", r.err)
 		case <-ctx.Done():
 			return nil, ch, fmt.Errorf("%w (attempt still running at the deadline)", lastErr)
@@ -237,7 +266,7 @@ func (w *WAL) retryInBackground(file string, opts walOptions, inFlight <-chan at
 				return
 			}
 		}
-		if _, _, err := w.buildStore(ctx, file, opts, opts.backgroundMaxBackoff); err == nil {
+		if _, _, err := w.buildStore(ctx, file, opts, opts.backgroundMaxBackoff, false); err == nil {
 			w.restartRequired()
 		}
 	})

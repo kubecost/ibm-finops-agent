@@ -80,12 +80,12 @@ func (ke *KubecostEmitter) ID() emitter.EmitterID {
 // Init fails while the collector runs without its write-ahead log (F-41): exporting without it
 // lets the next restart overwrite in-progress windows with partial data.
 func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
-	if ke.dataSource != nil {
+	ke.mu.Lock()
+	initialised, stopped := ke.dataSource != nil, ke.stopped
+	ke.mu.Unlock()
+	if initialised {
 		return errors.New("kubecost emitter is already initialised")
 	}
-	ke.mu.Lock()
-	stopped := ke.stopped
-	ke.mu.Unlock()
 	if stopped {
 		return errStopped
 	}
@@ -178,7 +178,11 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 
 	var canary *bucketCanary
 	if ke.config.BucketCanaryInterval > 0 {
-		canary = newBucketCanary(bucketStore, ke.config.ClusterName, ke.config.BucketCanaryInterval, ke.conditions)
+		podName, err := os.Hostname() // the pod name in Kubernetes
+		if err != nil || podName == "" {
+			podName = "unknown"
+		}
+		canary = newBucketCanary(bucketStore, ke.config.ClusterName, podName, ke.config.BucketCanaryInterval, ke.conditions)
 		canary.start()
 	}
 
@@ -211,10 +215,13 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 }
 
 func (ke *KubecostEmitter) Emit(ctx context.Context, snapshot *emitter.ClusterSnapshot) error {
-	if ke.dataSource == nil {
+	ke.mu.Lock()
+	ds := ke.dataSource
+	ke.mu.Unlock()
+	if ds == nil {
 		return errors.New("kubecost emitter is not initialised")
 	}
-	ke.dataSource.Update(snapshot)
+	ds.Update(snapshot)
 
 	return nil
 }

@@ -7,6 +7,7 @@ package opencost
 
 import (
 	"errors"
+	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -103,12 +104,21 @@ func waitFor(cond func() bool) bool {
 	return cond()
 }
 
-// F-41: a bucket config that is unreadable at start and readable a moment later still gets the
-// collector a WAL, because the store is retried before the collector is built.
-func TestWALStoreRetriedUntilBucketConfigReadable(t *testing.T) {
+// F-41: a bucket store that fails transiently at start (e.g. Azure or GCS unreachable for a
+// moment) still gets the collector a WAL, because the store is retried before the collector is
+// built.
+func TestWALStoreRetriedUntilBucketReachable(t *testing.T) {
 	var readable atomic.Bool
-	opts := testWALOptions(&readable, newFaultyStore())
-	time.AfterFunc(50*time.Millisecond, func() { readable.Store(true) })
+	readable.Store(true)
+	store := newFaultyStore()
+	opts := testWALOptions(&readable, store)
+	var failures atomic.Int32
+	opts.newStorage = func([]byte) (storage.Storage, error) {
+		if failures.Add(1) <= 3 {
+			return nil, errors.New("dial tcp: i/o timeout")
+		}
+		return store, nil
+	}
 
 	var got storage.Storage
 	wal := openWAL(walBucketConfigFile, opts, func(store storage.Storage) {
@@ -120,10 +130,37 @@ func TestWALStoreRetriedUntilBucketConfigReadable(t *testing.T) {
 	defer wal.Close()
 
 	if got == nil {
-		t.Fatal("F-41: the collector was built without a WAL although the bucket config became readable 50ms into startup")
+		t.Fatal("F-41: the collector was built without a WAL although the bucket became reachable during startup")
 	}
 	if cs := wal.Conditions(); len(cs) != 0 {
 		t.Errorf("unexpected WAL conditions: %v", conditionTypes(cs))
+	}
+}
+
+// A config that can't be read or parsed won't fix itself within the startup budget, so it fails
+// at once instead of delaying every emitter (Cloudability included) by the whole budget.
+func TestWALFailsFastOnPermanentConfigErrors(t *testing.T) {
+	for name, readFile := range map[string]func(string) ([]byte, error){
+		"missing file": func(string) ([]byte, error) { return nil, os.ErrNotExist },
+		"invalid yaml": func(string) ([]byte, error) { return []byte("type: [S3"), nil },
+		"unknown type": func(string) ([]byte, error) { return []byte("type: FTP"), nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var readable atomic.Bool
+			opts := testWALOptions(&readable, newFaultyStore())
+			opts.readFile = readFile
+			opts.startupBudget = 10 * time.Second
+
+			start := time.Now()
+			wal := openWAL(walBucketConfigFile, opts, func(storage.Storage) {})
+			defer wal.Close()
+			if took := time.Since(start); took > time.Second {
+				t.Errorf("startup waited %s on a permanent config error", took)
+			}
+			if !condition.Has(wal.Conditions(), ConditionWALUnavailable) {
+				t.Errorf("no %s condition: %v", ConditionWALUnavailable, conditionTypes(wal.Conditions()))
+			}
+		})
 	}
 }
 
