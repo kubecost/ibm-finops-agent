@@ -41,15 +41,19 @@ type CldyUploader struct {
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
 	lastUploadSize   uint64
+
+	// now is the uploader's clock. It is nil in production (see clock) and only set by tests.
+	now func() time.Time
 }
 
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
-	uploadPathDir := config.ScratchDir + "/" + uploadPath
-	err := createIfNotExists(uploadPathDir)
-	if err != nil {
-		panic("failed to create upload directory: " + err.Error())
-	}
+	uploader := newCldyUploader(config, newStorageServices(config), stop, nil)
+	go uploader.uploadLoop()
+	return uploader
+}
 
+// newStorageServices builds the storage service selected by the upload configuration.
+func newStorageServices(config UploaderConfig) []StorageService {
 	var storageServices []StorageService
 
 	// Legacy metrics-collector upload path (API key / API Gateway)
@@ -86,7 +90,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		// Azure emitter
 	} else if config.CustomAzureBlobContainerName != "" && config.CustomAzureBlobUrl != "" {
 		blobClient, err := NewCustomBlobClient(config.CustomAzureBlobContainerName, config.CustomAzureBlobUrl, config.CustomAzureTenantID,
-		config.CustomAzureClientID, config.CustomAzureClientSecret)
+			config.CustomAzureClientID, config.CustomAzureClientSecret)
 		if err != nil {
 			log.Errorf("Failed to create custom azure blob uploader: %v", err)
 		}
@@ -99,8 +103,20 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		log.Errorf("No complete upload configurations were detected. Please ensure that you have set the required " +
 			"environment variables for your upload type.")
 	}
+	return storageServices
+}
 
-	uploader := CldyUploader{
+// newCldyUploader creates the upload directory and runs startup recovery, but does not start
+// uploadLoop. now is the uploader's clock; nil means time.Now. Tests use it to drive upload
+// cycles directly (uploadCycle) against fake storage services and a fake clock.
+func newCldyUploader(config UploaderConfig, storageServices []StorageService, stop chan struct{}, now func() time.Time) *CldyUploader {
+	uploadPathDir := config.ScratchDir + "/" + uploadPath
+	err := createIfNotExists(uploadPathDir)
+	if err != nil {
+		panic("failed to create upload directory: " + err.Error())
+	}
+
+	uploader := &CldyUploader{
 		config:        config,
 		sampleSet:     newSet(),
 		uploadSet:     newSet(),
@@ -110,6 +126,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		StorageServices: storageServices,
 		recoveryPeriod:  config.RecoveryPeriod,
 		agentVersion:    version.Version,
+		now:             now,
 	}
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
@@ -119,9 +136,15 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		log.Infof("Cloudability successfully recovered %d samples and prepared %d uploads on startup",
 			uploader.RecoveredSamples, uploader.RecoveredUploads)
 	}
+	return uploader
+}
 
-	go uploader.uploadLoop()
-	return &uploader
+// clock returns the current time from the injected clock, or time.Now when none is set.
+func (cu *CldyUploader) clock() time.Time {
+	if cu.now == nil {
+		return time.Now()
+	}
+	return cu.now()
 }
 
 type UploaderConfig struct {
@@ -271,7 +294,7 @@ func (cu *CldyUploader) recoverUploadFiles() error {
 				return dErr
 			}
 			// remove and do not upload samples older than recovery Period
-			if time.Since(date.UTC()).Hours() > cu.recoveryPeriod.Hours() {
+			if cu.clock().Sub(date.UTC()).Hours() > cu.recoveryPeriod.Hours() {
 				log.Infof("Cloudability sample is outside of recovery range, removing sample")
 				return os.Remove(path)
 			}
@@ -299,20 +322,26 @@ func (cu *CldyUploader) uploadLoop() {
 		case <-cu.stop:
 			return
 		case <-ticker:
-			if cu.sampleSet.length() == 0 {
-				continue
-			}
-			path, err := cu.ConstructPayload(time.Now().UTC())
-			if err != nil {
-				log.Warnf("did not construct cldy payload: %s", err)
-				continue
-			}
-			cu.uploadSet.add(path)
-			err = cu.uploadSet.operateAndRemove(cu.uploadData)
-			if err != nil {
-				log.Warnf("error uploading: %s", err.Error())
-			}
+			cu.uploadCycle()
 		}
+	}
+}
+
+// uploadCycle packages the pending samples and uploads the queued payloads. It is one tick
+// of uploadLoop.
+func (cu *CldyUploader) uploadCycle() {
+	if cu.sampleSet.length() == 0 {
+		return
+	}
+	path, err := cu.ConstructPayload(cu.clock().UTC())
+	if err != nil {
+		log.Warnf("did not construct cldy payload: %s", err)
+		return
+	}
+	cu.uploadSet.add(path)
+	err = cu.uploadSet.operateAndRemove(cu.uploadData)
+	if err != nil {
+		log.Warnf("error uploading: %s", err.Error())
 	}
 }
 
@@ -340,6 +369,9 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 		return "", err
 	}
 	defer safeClose(tw.Close, &rerr)
+	if err := crashPoint(crashAfterCreate); err != nil {
+		return "", err
+	}
 	err = cu.createTGZ(tw, files...)
 	if err != nil && !errors.Is(err, ErrDiskSpaceExceeded) {
 		return "", err
@@ -357,6 +389,9 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 		return "", err
 	}
 
+	if err := crashPoint(crashBeforeRename); err != nil {
+		return "", err
+	}
 	err = cu.removeSamples(files)
 	if err != nil {
 		return "", err
@@ -396,6 +431,9 @@ func (cu *CldyUploader) uploadData(path string) error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := crashPoint(crashAfterUpload); err != nil {
+		return err
 	}
 
 	// retain size of file before removal for disk calculation purposes
@@ -463,6 +501,9 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 			if err := tw.WriteHeader(header); err != nil {
 				return err
 			}
+			if err := crashPoint(crashMidTar); err != nil {
+				return err
+			}
 
 			// open files for taring
 			//nolint gosec
@@ -503,7 +544,7 @@ func (cu *CldyUploader) ClearOldUploadSamples() error {
 			continue
 		}
 
-		if time.Since(fileInfo.ModTime()) > cu.recoveryPeriod/2 {
+		if cu.clock().Sub(fileInfo.ModTime()) > cu.recoveryPeriod/2 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
 				log.Warnf("problem deleting file: %s", err)

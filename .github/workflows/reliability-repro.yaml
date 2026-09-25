@@ -1,0 +1,64 @@
+name: Reliability Reproductions
+
+# Runs the reliability_repro tests nightly. Each one reproduces a finding in
+# docs/reliability/FINDINGS.md and is expected to fail until the chunk that fixes it removes
+# its build tag, so this job reports results and never gates a PR.
+
+on:
+  schedule:
+    - cron: "0 15 * * *"
+  workflow_dispatch:
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - uses: actions/checkout@v6
+        with:
+          path: ./ibm-finops-agent
+
+      - name: Go Mod cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key:
+            ${{ runner.os }}-go-${{ hashFiles('./ibm-finops-agent/**/go.sum') }}
+
+      - name: Run reproductions
+        id: repro
+        continue-on-error: true
+        working-directory: ./ibm-finops-agent
+        run: |
+          set -o pipefail
+          make test-repro 2>&1 | tee repro.log
+
+      - name: Report
+        if: always()
+        working-directory: ./ibm-finops-agent
+        run: |
+          {
+            echo "## Reliability reproductions (outcome: ${{ steps.repro.outcome }})"
+            echo
+            echo "Failing reproductions are expected until their finding is fixed."
+            echo
+            echo '```'
+            grep -aE 'F-[0-9]{2}|^(ok|FAIL|--- FAIL)' repro.log | sed 's/\x1b\[[0-9;]*m//g' | head -200
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reliability-repro-log
+          retention-days: 14
+          path: ./ibm-finops-agent/repro.log

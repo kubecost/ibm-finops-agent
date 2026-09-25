@@ -2,8 +2,12 @@ LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
-ENVTEST_K8S_VERSION = 1.25.0
+# Kubernetes version of the envtest control plane. Keep it on the newest release that
+# kubernetes.io/releases lists and that matches the k8s.io/client-go minor in go.mod
+# (was 1.25.0 until 2026-09; 1.37.0 matches client-go v0.37.0).
+ENVTEST_K8S_VERSION = 1.37.0
 ENVTEST ?= $(LOCALBIN)/setup-envtest
+KUBEBUILDER_ASSETS_CMD = $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path
 
 ifndef TEMP_DIR
 TEMP_DIR:=$(shell mktemp -d /tmp/ibm-finops-agent.XXXXXX)
@@ -14,7 +18,19 @@ IMAGE_TAG:=localhost/e2e/ibm-finops-agent:e2e
 endif
 
 test: envtest
-	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile coverage.out
+	@KUBEBUILDER_ASSETS="$(shell $(KUBEBUILDER_ASSETS_CMD))" go test ./... -coverprofile coverage.out
+
+# test-race runs the unit tests under the race detector, with the same envtest setup as test.
+.PHONY: test-race
+test-race: envtest
+	@KUBEBUILDER_ASSETS="$(shell $(KUBEBUILDER_ASSETS_CMD))" go test -race -count=1 ./...
+
+# test-repro runs the reliability reproduction tests (build tag reliability_repro). Each one
+# reproduces a finding in docs/reliability/FINDINGS.md and is expected to FAIL, naming its
+# finding ID, until the chunk that fixes it removes the tag. It is not part of the PR gate.
+.PHONY: test-repro
+test-repro: envtest
+	@KUBEBUILDER_ASSETS="$(shell $(KUBEBUILDER_ASSETS_CMD))" go test -tags reliability_repro -count=1 ./...
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.

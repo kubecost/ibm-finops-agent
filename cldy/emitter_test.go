@@ -158,8 +158,6 @@ var _ = Describe("Emitter", func() {
 		})
 	})
 	Context("Emission", func() {
-		// Note: This test operates on a timer, so it could fail in a scenario where its execution
-		// is halted or slowed
 		It("should emit each time emission interval is satisifed", func() {
 			tempDir, err := os.MkdirTemp("", "")
 			Expect(err).NotTo(HaveOccurred())
@@ -169,23 +167,22 @@ var _ = Describe("Emitter", func() {
 				SecretManager:    cldy.NewKeyValueSecretManager("", ""),
 				EmissionInterval: time.Duration(200) * time.Millisecond,
 			}
-			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
-			actualEmitter := cldyEmitter.(*cldy.Emitter)
-
+			clock := newFakeClock(time.Now())
 			mockUpload := mockUploader{data: []string{}}
+			cldyEmitter := cldy.NewEmitterForTest(config, &mockUpload, clock.Now)
 
 			data, err := buildTestData()
 			Expect(err).NotTo(HaveOccurred())
 			err = cldyEmitter.Init(data)
 			Expect(err).NotTo(HaveOccurred())
-			actualEmitter.Uploader = &mockUpload
 
 			// Should not emit before interval has been satisfied (<200 milliseconds)
+			clock.Advance(100 * time.Millisecond)
 			err = cldyEmitter.Emit(context.TODO(), data)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(mockUpload.data)).To(Equal(0))
 
-			time.Sleep(time.Duration(200) * time.Millisecond)
+			clock.Advance(100 * time.Millisecond)
 			// Should emit after interval has been satisfied (>=200 milliseconds)
 			err = cldyEmitter.Emit(context.TODO(), data)
 			Expect(err).NotTo(HaveOccurred())

@@ -118,7 +118,8 @@ func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.Metri
 
 	// FIXME: (bolt) use a metrics summary cache duration of 5 minutes while we're using a prometheus data source.
 	// FIXME: (bolt) this should be fine to run on a much faster frequency with a non-promethues metrics querier.
-	if !csp.lastMetricsSummary.IsZero() && time.Since(csp.lastMetricsSummary) < metricsSummaryCacheDuration {
+	// now comes from the provider's injected clock (SnapshotConfig.Now), so tests can drive cache expiry.
+	if !csp.lastMetricsSummary.IsZero() && now.Sub(csp.lastMetricsSummary) < metricsSummaryCacheDuration {
 		return csp.metricsSummary, nil
 	}
 
