@@ -106,6 +106,7 @@ func NewEmitterConfigFromEnv(clusterUID string) *EmitterConfig {
 		KubernetesResourcesRequired:     slices.Clone(emitter.SnapshotAllResources),
 		StreamingExportEnabled:          kcenv.IsStreamingExportEnabled(),
 		StreamingExportCompressionLevel: kcenv.GetStreamingExportCompressionLevel(),
+		BucketCanaryInterval:            kcenv.GetBucketCanaryInterval(),
 	}
 }
 

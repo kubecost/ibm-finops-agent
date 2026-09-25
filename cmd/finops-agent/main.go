@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/ibm/finops-agent/cldy"
 	"github.com/ibm/finops-agent/kubecost"
@@ -25,6 +26,9 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/client-go/kubernetes"
 )
+
+// kubecostStopTimeout bounds how long shutdown waits for Kubecost exports in flight.
+const kubecostStopTimeout = 10 * time.Second
 
 func initLogging() {
 	// Setup viper to read from the env, this allows reading flags from the command line or the env
@@ -71,6 +75,7 @@ func main() {
 	router.HandlerFunc(gohttp.MethodGet, "/healthz", healthzHandler(healthCheck))
 
 	var emitters []emitter.Emitter
+	var kubecostEmitter *kubecost.KubecostEmitter
 
 	// Setup the HTTP server - ensure the goroutine starts before continuing to initialization
 	// of the data source and emitters
@@ -135,12 +140,18 @@ func main() {
 			panic("Public cloud provider pricing API never initialzed. Set OPENCOST_SOURCE_ENABLED=true.")
 		}
 
+		// Kubecost exports wait for the collector's write-ahead log (F-41).
+		if wr, ok := dataSource.(core.WALReporter); ok && wr.WAL() != nil {
+			kubecostEmitterConfig.WAL = wr.WAL()
+		}
+
 		// Update the snapshot config to include the kubecost emitter's required resources
 		snapshotConfig = snapshotConfig.WithKubernetesSnapshotConfig(
 			emitter.NewKubernetesSnapshotConfigFromEnabled(kubecostEmitterConfig.KubernetesResourcesRequired),
 		)
 
-		emitters = append(emitters, kubecost.NewKubecostEmitter(kubecostCloudProvider, diag, kubecostEmitterConfig))
+		kubecostEmitter = kubecost.NewKubecostEmitter(kubecostCloudProvider, diag, kubecostEmitterConfig)
+		emitters = append(emitters, kubecostEmitter)
 	}
 	if env.IsCloudyEmitterEnabled() {
 		cldyConfig, err := cldy.NewEmitterConfigFromEnv()
@@ -190,6 +201,17 @@ func main() {
 		panic("Failed to start exporter")
 	}
 
+	// Deferred calls run last-first: the exporter stops, then the Kubecost controllers and
+	// their in-flight bucket writes.
+	if kubecostEmitter != nil {
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), kubecostStopTimeout)
+			defer cancel()
+			if err := kubecostEmitter.Stop(ctx); err != nil {
+				log.Errorf("Stopping Kubecost exports: %s", err)
+			}
+		}()
+	}
 	defer exporter.Stop()
 
 	WaitForSignal()
