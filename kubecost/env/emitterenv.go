@@ -23,7 +23,19 @@ const (
 	DiagnosticsExportIntervalEnvVar       = "DIAGNOSTICS_EXPORT_INTERVAL"
 	StreamingExportEnabledEnvVar          = "STREAMING_EXPORT_ENABLED"
 	StreamingExportCompressionLevelEnvVar = "STREAMING_EXPORT_COMPRESSION_LEVEL"
+	BucketCanaryIntervalEnvVar            = "BUCKET_CANARY_INTERVAL"
 )
+
+// DefaultBucketCanaryInterval probes the export bucket as often as the pipelines export by
+// default: three small requests per cluster per 10 minutes (432 a day), negligible next to the
+// exports themselves even across a large fleet.
+const DefaultBucketCanaryInterval = 10 * time.Minute
+
+// GetBucketCanaryInterval returns how often the export bucket is probed with a write, read and
+// delete. Zero or negative disables the probe.
+func GetBucketCanaryInterval() time.Duration {
+	return coreenv.GetDuration(BucketCanaryIntervalEnvVar, DefaultBucketCanaryInterval)
+}
 
 // IsMinuteMetricsEnabled returns true if the 10m resolution emitter for kubecost
 // is enabled. This is used to emit 10m resolution allocation and asset pipeline data.

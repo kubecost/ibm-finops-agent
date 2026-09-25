@@ -1,8 +1,6 @@
 package adapters
 
 import (
-	"sync"
-
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/opencost/opencost/core/pkg/clustercache"
 )
@@ -10,23 +8,23 @@ import (
 // ClusterCacheAdapter is an adapter for the OpenCost cluster cache interface. It is used to provide
 // snapshot data to opencost from the emitter.
 type ClusterCacheAdapter struct {
-	lock     sync.RWMutex
-	snapshot *emitter.KubernetesSnapshot
+	src *stateHolder
 }
 
 // NewClusterCacheAdapter creates a new ClusterCacheAdapter instance.
 func NewClusterCacheAdapter(snapshot *emitter.KubernetesSnapshot) *ClusterCacheAdapter {
 	return &ClusterCacheAdapter{
-		snapshot: snapshot,
+		src: newStateHolder(&adapterState{kubernetes: snapshot, metrics: newMetricsState(nil)}),
 	}
 }
 
 // Update refreshes the `KubernetesSnapshot` data driving the adapter.
 func (cca *ClusterCacheAdapter) Update(snapshot *emitter.KubernetesSnapshot) {
-	cca.lock.Lock()
-	defer cca.lock.Unlock()
-
-	cca.snapshot = snapshot
+	cca.src.update(func(s *adapterState) *adapterState {
+		next := *s
+		next.kubernetes = snapshot
+		return &next
+	})
 }
 
 func (cca *ClusterCacheAdapter) Run() {
@@ -38,10 +36,7 @@ func (cca *ClusterCacheAdapter) Stop() {
 }
 
 func (cca *ClusterCacheAdapter) GetAllNamespaces() []*clustercache.Namespace {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var namespaces []*clustercache.Namespace
 	for _, ns := range cc.Namespaces {
@@ -51,10 +46,7 @@ func (cca *ClusterCacheAdapter) GetAllNamespaces() []*clustercache.Namespace {
 }
 
 func (cca *ClusterCacheAdapter) GetAllNodes() []*clustercache.Node {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var nodes []*clustercache.Node
 	for _, node := range cc.Nodes {
@@ -64,10 +56,7 @@ func (cca *ClusterCacheAdapter) GetAllNodes() []*clustercache.Node {
 }
 
 func (cca *ClusterCacheAdapter) GetAllPods() []*clustercache.Pod {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var pods []*clustercache.Pod
 	for _, pod := range cc.Pods {
@@ -77,10 +66,7 @@ func (cca *ClusterCacheAdapter) GetAllPods() []*clustercache.Pod {
 }
 
 func (cca *ClusterCacheAdapter) GetAllServices() []*clustercache.Service {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var services []*clustercache.Service
 	for _, service := range cc.Services {
@@ -90,10 +76,7 @@ func (cca *ClusterCacheAdapter) GetAllServices() []*clustercache.Service {
 }
 
 func (cca *ClusterCacheAdapter) GetAllDaemonSets() []*clustercache.DaemonSet {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var daemonsets []*clustercache.DaemonSet
 	for _, daemonset := range cc.DaemonSets {
@@ -103,10 +86,7 @@ func (cca *ClusterCacheAdapter) GetAllDaemonSets() []*clustercache.DaemonSet {
 }
 
 func (cca *ClusterCacheAdapter) GetAllDeployments() []*clustercache.Deployment {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var deployments []*clustercache.Deployment
 	for _, deployment := range cc.Deployments {
@@ -116,10 +96,7 @@ func (cca *ClusterCacheAdapter) GetAllDeployments() []*clustercache.Deployment {
 }
 
 func (cca *ClusterCacheAdapter) GetAllStatefulSets() []*clustercache.StatefulSet {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var statefulsets []*clustercache.StatefulSet
 	for _, statefulset := range cc.StatefulSets {
@@ -129,10 +106,7 @@ func (cca *ClusterCacheAdapter) GetAllStatefulSets() []*clustercache.StatefulSet
 }
 
 func (cca *ClusterCacheAdapter) GetAllReplicaSets() []*clustercache.ReplicaSet {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var replicasets []*clustercache.ReplicaSet
 	for _, replicaset := range cc.ReplicaSets {
@@ -142,10 +116,7 @@ func (cca *ClusterCacheAdapter) GetAllReplicaSets() []*clustercache.ReplicaSet {
 }
 
 func (cca *ClusterCacheAdapter) GetAllPersistentVolumes() []*clustercache.PersistentVolume {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var pvs []*clustercache.PersistentVolume
 	for _, pv := range cc.PersistentVolumes {
@@ -155,10 +126,7 @@ func (cca *ClusterCacheAdapter) GetAllPersistentVolumes() []*clustercache.Persis
 }
 
 func (cca *ClusterCacheAdapter) GetAllPersistentVolumeClaims() []*clustercache.PersistentVolumeClaim {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var pvcs []*clustercache.PersistentVolumeClaim
 	for _, pvc := range cc.PersistentVolumeClaims {
@@ -168,10 +136,7 @@ func (cca *ClusterCacheAdapter) GetAllPersistentVolumeClaims() []*clustercache.P
 }
 
 func (cca *ClusterCacheAdapter) GetAllStorageClasses() []*clustercache.StorageClass {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var storageClasses []*clustercache.StorageClass
 	for _, stc := range cc.StorageClasses {
@@ -181,10 +146,7 @@ func (cca *ClusterCacheAdapter) GetAllStorageClasses() []*clustercache.StorageCl
 }
 
 func (cca *ClusterCacheAdapter) GetAllJobs() []*clustercache.Job {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var jobs []*clustercache.Job
 	for _, job := range cc.Jobs {
@@ -194,10 +156,7 @@ func (cca *ClusterCacheAdapter) GetAllJobs() []*clustercache.Job {
 }
 
 func (cca *ClusterCacheAdapter) GetAllCronJobs() []*clustercache.CronJob {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var cronJobs []*clustercache.CronJob
 	for _, cronJob := range cc.CronJobs {
@@ -207,10 +166,7 @@ func (cca *ClusterCacheAdapter) GetAllCronJobs() []*clustercache.CronJob {
 }
 
 func (cca *ClusterCacheAdapter) GetAllPodDisruptionBudgets() []*clustercache.PodDisruptionBudget {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var pdbs []*clustercache.PodDisruptionBudget
 	for _, pdb := range cc.PodDisruptionBudgets {
@@ -220,10 +176,7 @@ func (cca *ClusterCacheAdapter) GetAllPodDisruptionBudgets() []*clustercache.Pod
 }
 
 func (cca *ClusterCacheAdapter) GetAllReplicationControllers() []*clustercache.ReplicationController {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var rcs []*clustercache.ReplicationController
 	for _, rc := range cc.ReplicationControllers {
@@ -233,10 +186,7 @@ func (cca *ClusterCacheAdapter) GetAllReplicationControllers() []*clustercache.R
 }
 
 func (cca *ClusterCacheAdapter) GetAllResourceQuotas() []*clustercache.ResourceQuota {
-	cca.lock.RLock()
-	defer cca.lock.RUnlock()
-
-	cc := cca.snapshot
+	cc := cca.src.load().kubernetes
 
 	var rqs []*clustercache.ResourceQuota
 	for _, rq := range cc.ResourceQuotas {
