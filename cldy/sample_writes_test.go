@@ -453,6 +453,32 @@ func TestF22CrashAtEveryWriteStepLeavesOnlyFinalisedSamples(t *testing.T) {
 				t.Errorf("F-22: emitted sample %s is not a valid finalised sample: %v", s, err)
 			}
 		}
+		// A new process on the same directory: whatever the kill left is recovered or swept, the
+		// invariant holds throughout, and emission resumes.
+		clock.Advance(time.Minute)
+		up2 := &mockUploader{}
+		ce2 := newTestEmitter(dir, up2, clock)
+		restore()
+		restore = cldy.SetTestHook(func(point string) error {
+			checkOnlyFinalisedSamples(t, clusterScratchDir(dir), "after restart at "+point)
+			return nil
+		})
+		if err := ce2.Init(data); err != nil {
+			t.Fatalf("Init after restart: %v", err)
+		}
+		for range 9 {
+			clock.Advance(time.Minute)
+			if err := ce2.Emit(context.Background(), data); err != nil {
+				t.Fatalf("Emit after restart: %v", err)
+			}
+		}
+		if len(up2.data) != 3 {
+			t.Errorf("after a restart following a kill at crash point %d: %d samples in 9 ticks, want 3", failAt, len(up2.data))
+		}
+		checkOnlyFinalisedSamples(t, clusterScratchDir(dir), "after the restarted run")
+		if staging := stagingDirs(t, clusterScratchDir(dir)); len(staging) != 1 {
+			t.Errorf("staging directories %v after the restarted run, want only the live one", staging)
+		}
 		return points
 	}
 
@@ -895,5 +921,104 @@ func TestPayloadLeavesOutManifest(t *testing.T) {
 	}
 	if n == 0 {
 		t.Fatalf("empty payload")
+	}
+}
+
+// Baselines live in the next sample's staging directory, which a restart orphans: the first
+// sample after a restart has no baselines and the orphan is swept as an unfinalised discard. The
+// sample after that has its baselines again.
+func TestFirstSampleAfterRestartHasNoBaselines(t *testing.T) {
+	data := loadTestSnapshot(t)
+	dir := t.TempDir()
+	clock := newFakeClock(time.Now().Truncate(time.Minute))
+	ce := newTestEmitter(dir, &mockUploader{}, clock)
+	if err := ce.Init(data); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	clock.Advance(3 * time.Minute)
+	if err := ce.Emit(context.Background(), data); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+
+	// Restart.
+	clock.Advance(time.Minute)
+	up := &mockUploader{}
+	ce2 := newTestEmitter(dir, up, clock)
+	if err := ce2.Init(data); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	for range 6 {
+		clock.Advance(time.Minute)
+		if err := ce2.Emit(context.Background(), data); err != nil {
+			t.Fatalf("Emit: %v", err)
+		}
+	}
+	if len(up.data) != 2 {
+		t.Fatalf("%d samples after restart, want 2", len(up.data))
+	}
+	if got := len(sampleFiles(t, up.data[0], "baseline-summary-*")); got != 0 {
+		t.Errorf("first sample after restart has %d baseline files, want 0", got)
+	}
+	if got := len(sampleFiles(t, up.data[1], "baseline-summary-*")); got != 4 {
+		t.Errorf("second sample after restart has %d baseline files, want 4", got)
+	}
+	if got := ce2.EventsForTest().UnfinalizedDiscarded; got != 1 {
+		t.Errorf("the previous process's staging directory: %d unfinalised discards, want 1", got)
+	}
+}
+
+// F-37: a pending short-lived pod is written however long emission is delayed; the one-hour age
+// filter applies when the pod is drained, not when the sample is finally written.
+func TestF37PendingShortLivedPodsSurviveLongDelay(t *testing.T) {
+	data := loadTestSnapshot(t)
+	dir := t.TempDir()
+	start := time.Now().Truncate(time.Minute)
+	clock := newFakeClock(start)
+	up := &mockUploader{}
+	ce := newTestEmitter(dir, up, clock)
+	if err := ce.Init(data); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	finishedAt := func(name string, at time.Time) *v1.Pod {
+		p := shortLivedPod(name)
+		p.Status.ContainerStatuses[0].State.Terminated.FinishedAt = metav1.NewTime(at)
+		return p
+	}
+	clock.Advance(time.Minute)
+	if err := ce.Emit(context.Background(), withShortLivedPods(data,
+		finishedAt("slp-recent", start.Add(-30*time.Minute)),
+		finishedAt("slp-stale", start.Add(-2*time.Hour)), // filtered when drained, as before
+	)); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+
+	// Every write fails for over an hour.
+	cd := clusterScratchDir(dir)
+	if err := os.Chmod(cd, 0o555); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	for range 65 {
+		clock.Advance(time.Minute)
+		_ = ce.Emit(context.Background(), data)
+	}
+	if err := os.Chmod(cd, 0o755); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	clock.Advance(time.Minute)
+	if err := ce.Emit(context.Background(), data); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	if len(up.data) != 1 {
+		t.Fatalf("setup: %d samples, want 1", len(up.data))
+	}
+	names, err := readPodNames(filepath.Join(up.data[0], "pods.jsonl"))
+	if err != nil {
+		t.Fatalf("reading pods: %v", err)
+	}
+	if missing := missingFrom(names, "slp-recent"); len(missing) > 0 {
+		t.Errorf("F-37: a pending short-lived pod was filtered out and cleared after a delay of over an hour")
+	}
+	if missing := missingFrom(names, "slp-stale"); len(missing) == 0 {
+		t.Errorf("a pod that finished over an hour before it was drained was written; the age filter changed")
 	}
 }

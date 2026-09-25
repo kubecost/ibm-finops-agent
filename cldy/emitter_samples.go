@@ -7,6 +7,7 @@ import (
 
 	"github.com/opencost/opencost/core/pkg/log"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // minSampleBytesEstimate is the disk budget for a sample before one has been finalised.
@@ -20,14 +21,17 @@ func shortLivedPodKey(pod *v1.Pod) string {
 	return pod.Namespace + "/" + pod.Name
 }
 
-// addShortLivedPods adds pods to the pending short-lived pods. A pod already pending is replaced
-// by its newer copy. Past maxPendingShortLivedPods the oldest are dropped and counted.
+// addShortLivedPods adds pods to the pending short-lived pods. The age filter that applies to
+// every written pod (shouldSkipPod) is applied here, when the pods are drained, so that a pending
+// pod is always written however long emission is delayed. A pod already pending is replaced by
+// its newer copy. Past maxPendingShortLivedPods the oldest are dropped and counted.
 func (ce *Emitter) addShortLivedPods(pods []*v1.Pod) {
 	if ce.pendingShortLivedKeys == nil {
 		ce.pendingShortLivedKeys = map[string]int{}
 	}
+	previousHour := ce.clock().UTC().Add(-1 * time.Hour)
 	for _, pod := range pods {
-		if pod == nil {
+		if pod == nil || shouldSkipPod(previousHour, pod) {
 			continue
 		}
 		key := shortLivedPodKey(pod)
@@ -57,16 +61,17 @@ func (ce *Emitter) clearShortLivedPods() {
 	clear(ce.pendingShortLivedKeys)
 }
 
-// withShortLivedPods appends the short-lived pods that aren't also in pods.
-func withShortLivedPods(pods, shortLived []*v1.Pod) []*v1.Pod {
+// podObjects returns the pods to write: the snapshot's pods through the usual filter, then the
+// pending short-lived pods that aren't among them, unfiltered (they were filtered when drained).
+func podObjects(pods, shortLived []*v1.Pod, previousHour time.Time) []runtime.Object {
+	out := convertObj(pods, previousHour)
 	if len(shortLived) == 0 {
-		return pods
+		return out
 	}
 	live := make(map[string]struct{}, len(pods))
 	for _, p := range pods {
 		live[shortLivedPodKey(p)] = struct{}{}
 	}
-	out := append(make([]*v1.Pod, 0, len(pods)+len(shortLived)), pods...)
 	for _, p := range shortLived {
 		if _, ok := live[shortLivedPodKey(p)]; !ok {
 			out = append(out, p)
@@ -134,11 +139,13 @@ func (ce *Emitter) ensureDiskBudget() bool {
 	}
 	for _, name := range finalised {
 		dir := SafePath(ce.ScratchPath, name+"/")
+		// Dequeue first to narrow the window in which the uploader packages a directory being
+		// removed; closing it needs the disk-based queue (chunk 02).
+		ce.Uploader.RemoveSample(dir)
 		if err := os.RemoveAll(dir); err != nil {
 			log.Errorf("failed to evict Cloudability sample %s: %v", name, err)
 			continue
 		}
-		ce.Uploader.RemoveSample(dir)
 		ce.drop(dropReasonDiskPressure, 1, fmt.Sprintf("evicted sample %s to make room on the scratch volume", name))
 
 		avail, err = diskAvailable(ce.ScratchPath)

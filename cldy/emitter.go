@@ -476,7 +476,7 @@ func (ce *Emitter) writeSample(cs *emitter.ClusterSnapshot) (rerr error) {
 	// its baselines, rather than failing every Emit.
 	if _, err := os.Stat(ce.currentSamplePath); errors.Is(err, fs.ErrNotExist) {
 		log.Errorf("Cloudability sample directory %s vanished; recreating it, its baselines are lost", ce.currentSamplePath)
-		if err := os.Mkdir(ce.currentSamplePath, os.ModePerm); err != nil {
+		if err := os.MkdirAll(ce.currentSamplePath, os.ModePerm); err != nil {
 			return err
 		}
 	}
@@ -564,7 +564,7 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 	if snapshot == nil {
 		return fmt.Errorf("k8s snapshot was nil")
 	}
-	for name, objs := range metadataToObj(snapshot, ce.pendingShortLivedPods) {
+	for name, objs := range metadataToObj(snapshot, ce.pendingShortLivedPods, ce.clock()) {
 		err := ce.writeObjects(name, objs)
 		if err != nil {
 			return err
@@ -574,22 +574,24 @@ func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
 }
 
 // metadataToObj returns the objects to write per file. shortLivedPods are the pending short-lived
-// pods; the snapshot's own ShortLivedPods are already among them.
-func metadataToObj(snapshot *emitter.KubernetesSnapshot, shortLivedPods []*v1.Pod) map[string][]runtime.Object {
+// pods, already filtered when drained; the snapshot's own ShortLivedPods are among them.
+func metadataToObj(snapshot *emitter.KubernetesSnapshot, shortLivedPods []*v1.Pod, now time.Time) map[string][]runtime.Object {
+	// safe buffer to allow for longer lived resources to be ingested correctly
+	previousHour := now.UTC().Add(-1 * time.Hour)
 	return map[string][]runtime.Object{
 		//TODO: add cronjobs
 		"nodes":                  checkAndConvertNodes(snapshot.Nodes),
-		"pods":                   convertObj(withShortLivedPods(snapshot.Pods, shortLivedPods)),
-		"deployments":            convertObj(snapshot.Deployments),
-		"replicasets":            convertObj(snapshot.ReplicaSets),
-		"daemonsets":             convertObj(snapshot.DaemonSets),
-		"namespaces":             convertObj(snapshot.Namespaces),
-		"services":               convertObj(snapshot.Services),
-		"replicationcontrollers": convertObj(snapshot.ReplicationControllers),
-		"persistentvolumes":      convertObj(snapshot.PersistentVolumes),
-		"persistentvolumeclaims": convertObj(snapshot.PersistentVolumeClaims),
-		"statefulsets":           convertObj(snapshot.StatefulSets),
-		"jobs":                   convertObj(snapshot.Jobs),
+		"pods":                   podObjects(snapshot.Pods, shortLivedPods, previousHour),
+		"deployments":            convertObj(snapshot.Deployments, previousHour),
+		"replicasets":            convertObj(snapshot.ReplicaSets, previousHour),
+		"daemonsets":             convertObj(snapshot.DaemonSets, previousHour),
+		"namespaces":             convertObj(snapshot.Namespaces, previousHour),
+		"services":               convertObj(snapshot.Services, previousHour),
+		"replicationcontrollers": convertObj(snapshot.ReplicationControllers, previousHour),
+		"persistentvolumes":      convertObj(snapshot.PersistentVolumes, previousHour),
+		"persistentvolumeclaims": convertObj(snapshot.PersistentVolumeClaims, previousHour),
+		"statefulsets":           convertObj(snapshot.StatefulSets, previousHour),
+		"jobs":                   convertObj(snapshot.Jobs, previousHour),
 	}
 }
 
@@ -604,10 +606,10 @@ func checkAndConvertNodes(nodes []*v1.Node) []runtime.Object {
 	return data
 }
 
-func convertObj[T runtime.Object](objs []T) []runtime.Object {
+func convertObj[T runtime.Object](objs []T, previousHour time.Time) []runtime.Object {
 	var data []runtime.Object
 	for _, obj := range objs {
-		if shouldSkipResource(obj) {
+		if shouldSkipResource(previousHour, obj) {
 			continue
 		}
 
@@ -616,9 +618,7 @@ func convertObj[T runtime.Object](objs []T) []runtime.Object {
 	return data
 }
 
-func shouldSkipResource[T runtime.Object](obj T) bool {
-	// safe buffer to allow for longer lived resources to be ingested correctly
-	previousHour := time.Now().UTC().Add(-1 * time.Hour)
+func shouldSkipResource[T runtime.Object](previousHour time.Time, obj T) bool {
 	switch resource := any(obj).(type) {
 	case *batchv1.Job:
 		return shouldSkipJob(previousHour, resource)
