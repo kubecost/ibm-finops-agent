@@ -42,6 +42,9 @@ const (
 	manifestFileName = "MANIFEST.json"
 	// manifestSchemaVersion is the only manifest schema validateSample accepts.
 	manifestSchemaVersion = 1
+	// quarantineDirName is the directory under <SCRATCH_DIR>/scratch/ where startup recovery and
+	// the uploader move what they can't recover or upload. It is never a cluster ID.
+	quarantineDirName = "_quarantine"
 )
 
 // sampleManifest describes a finalised sample. It lists every other file in the sample
