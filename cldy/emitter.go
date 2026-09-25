@@ -48,6 +48,9 @@ type Emitter struct {
 	ClusterID         *string
 	ScratchPath       string
 
+	// now is the emitter's clock. It is nil in production (see clock) and only set by tests.
+	now func() time.Time
+
 	// Node-stats collection diagnostics, updated from each snapshot the emitter receives.
 	// Guarded by nodeStatsMu because Healthy() is invoked from the /healthz handler goroutine
 	// while Emit()/Init() run on the exporter goroutine.
@@ -170,17 +173,32 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 }
 
 func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
-	currentTime := time.Now().UTC()
+	return newEmitter(config, NewCldyUploader(config.UploaderConfig, stop), nil)
+}
 
-	return &Emitter{
+// newEmitter builds an Emitter around the given uploader. now is the emitter's clock; nil
+// means time.Now. Tests use it to inject a fake clock and uploader.
+func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *Emitter {
+	ce := &Emitter{
 		config:           config,
-		Uploader:         NewCldyUploader(config.UploaderConfig, stop),
+		Uploader:         uploader,
 		sampleCt:         initialSampleCt,
-		startTime:        currentTime,
-		lastEmission:     currentTime,
 		emissionInterval: config.EmissionInterval,
 		agentVersion:     version.Version,
+		now:              now,
 	}
+	currentTime := ce.clock().UTC()
+	ce.startTime = currentTime
+	ce.lastEmission = currentTime
+	return ce
+}
+
+// clock returns the current time from the injected clock, or time.Now when none is set.
+func (ce *Emitter) clock() time.Time {
+	if ce.now == nil {
+		return time.Now()
+	}
+	return ce.now()
 }
 
 func createIfNotExists(path string) error {
@@ -226,7 +244,7 @@ func (ce *Emitter) Healthy() bool {
 		return true
 	}
 	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
-	return time.Since(lastSuccess) <= restartThreshold
+	return ce.clock().Sub(lastSuccess) <= restartThreshold
 }
 
 // recordNodeStats captures node-stats collection diagnostics from a snapshot. It advances
@@ -240,7 +258,7 @@ func (ce *Emitter) recordNodeStats(ns *emitter.NodeStatsSummary) {
 		return
 	}
 	if len(ns.Stats) > 0 {
-		ce.lastSuccessfulNodeCollection = time.Now().UTC()
+		ce.lastSuccessfulNodeCollection = ce.clock().UTC()
 	}
 	ce.lastNodeCollectionErr = ns.CollectionErr
 }
@@ -422,7 +440,7 @@ func (ce *Emitter) ClearOldScratchSamples() error {
 			continue
 		}
 
-		if time.Since(fileInfo.ModTime()) > time.Hour*1 {
+		if ce.clock().Sub(fileInfo.ModTime()) > time.Hour*1 {
 			err := os.RemoveAll(filePath)
 			if err != nil {
 				log.Warnf("problem deleting file: %s", err)
@@ -546,7 +564,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	if err != nil {
 		return err
 	}
-	now := time.Now()
+	now := ce.clock()
 	values := map[string]string{}
 	metrics := map[string]int{}
 	values["agent_version"] = ce.agentVersion
@@ -580,7 +598,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	// On the background path (future work) it reports the cache age and grows as it goes stale.
 	var nodeStatsAgeSeconds int64
 	if !lastSuccess.IsZero() {
-		nodeStatsAgeSeconds = int64(time.Since(lastSuccess).Seconds())
+		nodeStatsAgeSeconds = int64(now.Sub(lastSuccess).Seconds())
 	}
 	values["node_stats_age_seconds"] = strconv.FormatInt(nodeStatsAgeSeconds, 10)
 
@@ -628,7 +646,7 @@ func (ce *Emitter) getSuffix() string {
 }
 
 func (ce *Emitter) newNextSamplePath() string {
-	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", time.Now().UTC().UnixMilli(), ce.sampleCt+1))
+	return SafePath(ce.ScratchPath, fmt.Sprintf("%d_%d/", ce.clock().UTC().UnixMilli(), ce.sampleCt+1))
 }
 
 func (ce *Emitter) marshalObject(object runtime.Object) ([]byte, error) {
@@ -667,7 +685,7 @@ func (ce *Emitter) shouldDownsample() bool {
 	bufferedEmissionInterval := float32(ce.emissionInterval) * .9
 	emissionThreshold := ce.lastEmission.Add(time.Duration(bufferedEmissionInterval))
 
-	if time.Now().UTC().After(emissionThreshold) {
+	if ce.clock().UTC().After(emissionThreshold) {
 		ce.lastEmission = ce.lastEmission.Add(ce.emissionInterval)
 		return false
 	}
