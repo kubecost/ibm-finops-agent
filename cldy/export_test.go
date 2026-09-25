@@ -1,6 +1,9 @@
 package cldy
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Test-only access to the package's seams for the external cldy_test package. Nothing here is
 // compiled into production builds.
@@ -144,7 +147,25 @@ func (cu *CldyUploader) EventsForTest() EventCountsSnapshot {
 // storage services and clock (nil means time.Now) and does not start uploadLoop. Drive upload
 // cycles with UploadCycleForTest.
 func NewUploaderForTest(config UploaderConfig, services []StorageService, now func() time.Time) *CldyUploader {
-	return newCldyUploader(config, services, make(chan struct{}), now, nil)
+	cu, err := newCldyUploader(config, services, now, nil)
+	if err != nil {
+		panic(err)
+	}
+	return cu
+}
+
+// StartUploaderForTest is NewUploaderForTest with the upload loop started, owned by ctx, as
+// NewCldyUploader starts it.
+func StartUploaderForTest(ctx context.Context, config UploaderConfig, services []StorageService, now func() time.Time) *CldyUploader {
+	cu := NewUploaderForTest(config, services, now)
+	cu.startLoop(ctx)
+	return cu
+}
+
+// WaitStoppedForTest waits for the last upload cycle started by Stop to end, including one Stop
+// stopped waiting for.
+func (cu *CldyUploader) WaitStoppedForTest() {
+	<-cu.stopped
 }
 
 // UploadCycleForTest runs one tick of uploadLoop.

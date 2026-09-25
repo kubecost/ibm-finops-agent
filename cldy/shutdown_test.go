@@ -97,7 +97,9 @@ func TestStopWithUnreachableBackendKeepsPayloadForNextStart(t *testing.T) {
 	cu.SetClusterID(scratch.ClusterID)
 	scratch.AddCompleteSample(t, time.Now().Add(-time.Minute), 0)
 
-	const budget = 300 * time.Millisecond
+	// Long enough to package the sample even under the race detector; the upload then hangs
+	// until the budget runs out.
+	const budget = 3 * time.Second
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), budget)
 	defer stopCancel()
 	start := time.Now()
@@ -107,6 +109,12 @@ func TestStopWithUnreachableBackendKeepsPayloadForNextStart(t *testing.T) {
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("Stop = %v, want the budget's DeadlineExceeded", err)
+	}
+	down.mu.Lock()
+	started := down.started
+	down.mu.Unlock()
+	if started != 1 {
+		t.Fatalf("%d uploads started before the budget ran out, want 1", started)
 	}
 
 	// The process exits here. The payload was written atomically before the upload started.

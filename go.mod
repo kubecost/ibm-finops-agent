@@ -17,7 +17,6 @@ require (
 	github.com/opencost/opencost/modules/collector-source v1.121.4-0.20260923173606-1aaf85ffd875
 	github.com/opencost/opencost/modules/prometheus-source v1.121.4-0.20260923173606-1aaf85ffd875
 	github.com/prometheus/client_golang v1.24.1
-	github.com/rs/cors v1.11.1
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/viper v1.21.0
 	k8s.io/api v0.37.0

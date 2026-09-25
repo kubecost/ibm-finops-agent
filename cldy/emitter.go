@@ -232,8 +232,23 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	}, nil
 }
 
-func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
-	return newEmitter(config, NewCldyUploader(config.UploaderConfig, stop), nil)
+// NewEmitter builds the Cloudability emitter and its uploader. The upload loop runs until ctx is
+// cancelled or Stop is called.
+func NewEmitter(ctx context.Context, config EmitterConfig) (emitter.Emitter, error) {
+	uploader, err := NewCldyUploader(ctx, config.UploaderConfig)
+	if err != nil {
+		return nil, err
+	}
+	return newEmitter(config, uploader, nil), nil
+}
+
+// Stop drains the emitter's uploader at shutdown (see CldyUploader.Stop). The exporter must be
+// stopped first, so that no sample is written after the last upload cycle packages them.
+func (ce *Emitter) Stop(ctx context.Context) error {
+	if s, ok := ce.Uploader.(interface{ Stop(context.Context) error }); ok {
+		return s.Stop(ctx)
+	}
+	return nil
 }
 
 // newEmitter builds an Emitter around the given uploader. now is the emitter's clock; nil

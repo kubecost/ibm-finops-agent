@@ -67,8 +67,8 @@ type stoppingEmitter struct {
 	during func()
 }
 
-func (s *stoppingEmitter) ID() emitter.EmitterID                              { return s.id }
-func (s *stoppingEmitter) Init(*emitter.ClusterSnapshot) error                { return nil }
+func (s *stoppingEmitter) ID() emitter.EmitterID                                { return s.id }
+func (s *stoppingEmitter) Init(*emitter.ClusterSnapshot) error                  { return nil }
 func (s *stoppingEmitter) Emit(context.Context, *emitter.ClusterSnapshot) error { return nil }
 func (s *stoppingEmitter) Stop(ctx context.Context) error {
 	if s.during != nil {
@@ -193,7 +193,8 @@ func TestRunFailsOnBindError(t *testing.T) {
 }
 
 // agentGoroutines returns the stacks of goroutines started by the agent's own packages, other
-// than this package's tests.
+// than this package's tests, and of client-go informer goroutines: runEnv disables the OpenCost
+// data source, so the only informers are the agent's.
 func agentGoroutines() []string {
 	buf := make([]byte, 1<<20)
 	for {
@@ -205,7 +206,7 @@ func agentGoroutines() []string {
 		buf = make([]byte, 2*len(buf))
 	}
 	var agent []string
-	createdBy := regexp.MustCompile(`created by (github\.com/ibm/finops-agent/\S+)`)
+	createdBy := regexp.MustCompile(`created by (github\.com/ibm/finops-agent/\S+|k8s\.io/client-go/(?:tools/cache|informers|dynamic/dynamicinformer)\S*)`)
 	for _, g := range strings.Split(string(buf), "\n\n") {
 		m := createdBy.FindStringSubmatch(g)
 		if m == nil || strings.HasPrefix(m[1], "github.com/ibm/finops-agent/cmd/finops-agent.Test") {
@@ -306,6 +307,11 @@ func TestRunShutsDownCleanly(t *testing.T) {
 		t.Errorf("/healthz = %d, want 200", code)
 	}
 	time.Sleep(2 * time.Second) // let the exporter run a few cycles
+	if running := agentGoroutines(); !slices.ContainsFunc(running, func(g string) bool {
+		return strings.Contains(g, "created by k8s.io/client-go/tools/cache")
+	}) {
+		t.Errorf("the informers are not running after startup")
+	}
 
 	cancel()
 	select {

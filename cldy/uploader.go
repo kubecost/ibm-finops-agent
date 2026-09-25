@@ -40,7 +40,6 @@ type Uploader interface {
 type CldyUploader struct {
 	config           UploaderConfig
 	mu               sync.RWMutex // guards clusterID
-	stop             chan struct{}
 	clusterID        string
 	agentVersion     string
 	UploadPathDir    string
@@ -70,6 +69,13 @@ type CldyUploader struct {
 	hbMu      sync.Mutex
 	heartbeat UploadHeartbeat
 
+	// cancelLoop stops uploadLoop, and loopDone is closed when it has returned. Both are nil
+	// when the loop was never started. stopped is closed when Stop's last upload cycle ends.
+	cancelLoop context.CancelFunc
+	loopDone   chan struct{}
+	stopOnce   sync.Once
+	stopped    chan struct{}
+
 	// now is the uploader's clock. It is nil in production (see clock) and only set by tests.
 	now func() time.Time
 }
@@ -80,15 +86,67 @@ type headOfLine struct {
 	since    time.Time
 }
 
-func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
+// NewCldyUploader builds the uploader, runs startup recovery and starts the upload loop, which
+// runs until ctx is cancelled or Stop is called.
+func NewCldyUploader(ctx context.Context, config UploaderConfig) (*CldyUploader, error) {
 	services, problems := newStorageServices(config)
-	uploader := newCldyUploader(config, services, stop, nil, nil)
+	uploader, err := newCldyUploader(config, services, nil, nil)
+	if err != nil {
+		return nil, err
+	}
 	uploader.setCondition(conditionUploaderMisconfigured, problems.misconfigured,
 		"the selected Cloudability upload path is missing settings or credentials; see the error above")
 	uploader.setCondition(conditionUploadConnectivityFailed, problems.connectivityFailed,
 		"the Cloudability upload connectivity test failed; uploads are still attempted every cycle")
-	go uploader.uploadLoop()
-	return uploader
+	uploader.startLoop(ctx)
+	return uploader, nil
+}
+
+// startLoop runs uploadLoop until ctx is cancelled or Stop is called.
+func (cu *CldyUploader) startLoop(ctx context.Context) {
+	ctx, cu.cancelLoop = context.WithCancel(ctx)
+	cu.loopDone = make(chan struct{})
+	go func() {
+		defer close(cu.loopDone)
+		cu.uploadLoop(ctx)
+	}()
+}
+
+// Stop drains the uploader at shutdown. It stops the upload loop and waits for the cycle in
+// flight, then runs one last upload cycle, which packages the samples finalised since the last
+// cycle and uploads the queue. Both waits are bounded by ctx; Stop returns ctx's error if it
+// expires. Whatever isn't delivered stays on disk as complete payloads (they are written
+// atomically), which startup recovery uploads on the next start.
+//
+// An upload in flight when ctx expires can't be cancelled (StorageService.Upload takes no
+// context), so its goroutine is left to end with the process. Stop runs the last cycle once.
+func (cu *CldyUploader) Stop(ctx context.Context) error {
+	err := errors.New("the Cloudability uploader was already stopped")
+	cu.stopOnce.Do(func() { err = cu.stop(ctx) })
+	return err
+}
+
+func (cu *CldyUploader) stop(ctx context.Context) error {
+	cu.stopped = make(chan struct{})
+	if cu.cancelLoop != nil {
+		cu.cancelLoop()
+		select {
+		case <-cu.loopDone:
+		case <-ctx.Done():
+			close(cu.stopped)
+			return fmt.Errorf("the Cloudability upload cycle in flight did not end in time; its payloads stay queued on disk: %w", ctx.Err())
+		}
+	}
+	go func() {
+		defer close(cu.stopped)
+		cu.uploadCycle()
+	}()
+	select {
+	case <-cu.stopped:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("the last Cloudability upload cycle did not end in time; undelivered payloads stay queued on disk: %w", ctx.Err())
+	}
 }
 
 // storageServiceProblems records what went wrong building the storage service.
@@ -156,14 +214,14 @@ func newStorageServices(config UploaderConfig) ([]StorageService, storageService
 // not start uploadLoop. now is the uploader's clock; nil means time.Now. Tests use it to drive
 // upload cycles directly (uploadCycle) against fake storage services and a fake clock. events
 // nil means a new EventCounts.
-func newCldyUploader(config UploaderConfig, storageServices []StorageService, stop chan struct{}, now func() time.Time, events EventSink) *CldyUploader {
+func newCldyUploader(config UploaderConfig, storageServices []StorageService, now func() time.Time, events EventSink) (*CldyUploader, error) {
 	if events == nil {
 		events = NewEventCounts()
 	}
 	uploadPathDir := config.ScratchDir + "/" + uploadPath
 	err := createIfNotExists(uploadPathDir)
 	if err != nil {
-		panic("failed to create upload directory: " + err.Error())
+		return nil, fmt.Errorf("failed to create the Cloudability upload directory: %w", err)
 	}
 	recoveryPeriod := config.RecoveryPeriod
 	if recoveryPeriod <= 0 {
@@ -177,7 +235,6 @@ func newCldyUploader(config UploaderConfig, storageServices []StorageService, st
 
 	uploader := &CldyUploader{
 		config:        config,
-		stop:          stop,
 		UploadPathDir: uploadPathDir,
 		// TODO: dynamically pick client based upon upload config
 		StorageServices: storageServices,
@@ -198,7 +255,7 @@ func newCldyUploader(config UploaderConfig, storageServices []StorageService, st
 		log.Infof("Cloudability successfully recovered %d samples and prepared %d uploads on startup",
 			uploader.RecoveredSamples, uploader.RecoveredUploads)
 	}
-	return uploader
+	return uploader, nil
 }
 
 // clock returns the current time from the injected clock, or time.Now when none is set.
@@ -265,8 +322,9 @@ func (cu *CldyUploader) liveClusterID() string {
 }
 
 // uploadLoop runs an upload cycle every UploadFrequency. The first cycle comes after a random
-// part of one interval, so that agents restarted together don't upload in step.
-func (cu *CldyUploader) uploadLoop() {
+// part of one interval, so that agents restarted together don't upload in step. It returns when
+// ctx is done, after the cycle in flight.
+func (cu *CldyUploader) uploadLoop(ctx context.Context) {
 	cu.hbMu.Lock()
 	cu.heartbeat.LoopStart = cu.clock()
 	cu.hbMu.Unlock()
@@ -274,7 +332,7 @@ func (cu *CldyUploader) uploadLoop() {
 	first := time.NewTimer(time.Duration(rand.Int64N(int64(interval))))
 	defer first.Stop()
 	select {
-	case <-cu.stop:
+	case <-ctx.Done():
 		return
 	case <-first.C:
 		cu.uploadCycle()
@@ -283,7 +341,7 @@ func (cu *CldyUploader) uploadLoop() {
 	defer ticker.Stop()
 	for {
 		select {
-		case <-cu.stop:
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			cu.uploadCycle()
