@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -38,9 +37,8 @@ var _ = Describe("Uploader", func() {
 	Context("TestBuildTar", func() {
 		It("should build Tar", func() {
 			config := defaultConfig(tempDir)
-			stopCh := make(chan struct{})
-			defer close(stopCh)
-			uploader := cldy.NewCldyUploader(config, stopCh)
+			// No storage service is built, so nothing is sent to Frontdoor.
+			var uploader cldy.Uploader = cldy.NewUploaderForTest(config, nil, nil)
 
 			sample := scratch.AddCompleteSample(GinkgoT(), time.Now(), 0)
 
@@ -53,73 +51,24 @@ var _ = Describe("Uploader", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
 		})
-		It("should clean old tars on exceeded disk", func() {
-			config := defaultConfig(tempDir)
-			config.RecoveryPeriod = time.Hour
-
-			stopCh := make(chan struct{})
-			defer close(stopCh)
-			uploader := cldy.NewCldyUploader(config, stopCh)
-			uploader.SetClusterID("test_id")
-			actualUploader := uploader.(*cldy.CldyUploader)
-
-			// create existing tar in upload path
-			_, err := os.Create(actualUploader.UploadPathDir + "/test.tgz")
-			Expect(err).ToNot(HaveOccurred())
-
-			// check number of files in upload path
-			files, err := os.ReadDir(actualUploader.UploadPathDir)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(files)).To(BeNumerically("==", 1))
-
-			// do not remove upload since it is recent
-			err = actualUploader.ClearOldUploadSamples()
-			Expect(err).ToNot(HaveOccurred())
-			files, err = os.ReadDir(actualUploader.UploadPathDir)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(files)).To(BeNumerically("==", 1))
-
-			// change file mod time to be very old
-			filePath := filepath.Join(actualUploader.UploadPathDir, files[0].Name())
-			err = os.Chtimes(filePath, time.Now(), time.Date(1, 1, 1, 1, 1, 1, 1, time.Local))
-			Expect(err).ToNot(HaveOccurred())
-
-			// purge old upload
-			err = actualUploader.ClearOldUploadSamples()
-			Expect(err).ToNot(HaveOccurred())
-
-			// check there are no files in the upload path
-			files, err = os.ReadDir(actualUploader.UploadPathDir)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(len(files)).To(BeNumerically("==", 0))
-		})
 	})
 	Context("TestTarCleanup", func() {
 		It("should cleanup Tar", func() {
-			config := defaultConfig(tempDir)
-			stopCh := make(chan struct{})
-			defer close(stopCh)
-			uploader := cldy.NewCldyUploader(config, stopCh)
-
-			sample := scratch.AddCompleteSample(GinkgoT(), time.Now(), 0)
-
+			svc := &fakeStorage{}
+			uploader := cldy.NewUploaderForTest(defaultConfig(tempDir), []cldy.StorageService{svc}, nil)
 			uploader.SetClusterID("test_id")
-			actualUploader := uploader.(*cldy.CldyUploader)
-			mockService := cldy.ApptioServiceImpl{}
-			actualUploader.StorageServices = append(actualUploader.StorageServices, &mockService)
-			uploader.AddSample(sample)
-			time.Sleep(time.Second)
-			fileInfo, err := os.Stat(tempDir + "/upload")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(fileInfo.Size()).To(BeNumerically(">", 0))
+			scratch.AddCompleteSample(GinkgoT(), time.Now(), 0)
+			uploader.UploadCycleForTest()
+			Expect(svc.Uploaded()).To(HaveLen(1))
+			Expect(scratch.Uploads(GinkgoT())).To(BeEmpty())
+			Expect(scratch.ScratchFileCount()).To(Equal(0))
 		})
 	})
 	Context("TestUpload", func() {
 		It("should upload", func() {
 			config := defaultConfig(tempDir)
-			stopCh := make(chan struct{})
-			defer close(stopCh)
-			uploader := cldy.NewCldyUploader(config, stopCh)
+			// No storage service is built, so nothing is sent to Frontdoor.
+			var uploader cldy.Uploader = cldy.NewUploaderForTest(config, nil, nil)
 			sample := scratch.AddCompleteSample(GinkgoT(), time.Now(), 0)
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)
@@ -200,9 +149,8 @@ var _ = Describe("Uploader", func() {
 		})
 		It("should upload via metrics-collector api key", func() {
 			config := defaultConfig(tempDir)
-			stopCh := make(chan struct{})
-			defer close(stopCh)
-			uploader := cldy.NewCldyUploader(config, stopCh)
+			// No storage service is built, so nothing is sent to Frontdoor.
+			var uploader cldy.Uploader = cldy.NewUploaderForTest(config, nil, nil)
 			sample := scratch.AddCompleteSample(GinkgoT(), time.Now(), 0)
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)
@@ -225,9 +173,8 @@ var _ = Describe("Uploader", func() {
 		})
 		It("should upload to custom s3 bucket", func() {
 			config := defaultConfig(tempDir)
-			stopCh := make(chan struct{})
-			defer close(stopCh)
-			uploader := cldy.NewCldyUploader(config, stopCh)
+			// No storage service is built, so nothing is sent to Frontdoor.
+			var uploader cldy.Uploader = cldy.NewUploaderForTest(config, nil, nil)
 			sample := scratch.AddCompleteSample(GinkgoT(), time.Now(), 0)
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)
@@ -263,9 +210,8 @@ var _ = Describe("Uploader", func() {
 			config.CustomAzureClientID = "1"
 			config.CustomAzureClientSecret = cldy.NewValueSecretManager("1")
 
-			stopCh := make(chan struct{})
-			defer close(stopCh)
-			uploader := cldy.NewCldyUploader(config, stopCh)
+			// No storage service is built, so nothing is sent to Frontdoor.
+			var uploader cldy.Uploader = cldy.NewUploaderForTest(config, nil, nil)
 			sample := scratch.AddCompleteSample(GinkgoT(), time.Now(), 0)
 			uploader.SetClusterID("test_id")
 			actualUploader := uploader.(*cldy.CldyUploader)

@@ -88,6 +88,10 @@ type Emitter struct {
 	// the emitter's view of each condition for edge-triggered logging.
 	events     EventSink
 	conditions map[string]bool
+
+	// queue is the upload queue on disk, which the disk budget evicts from. It is the
+	// uploader's, when the uploader is a *CldyUploader.
+	queue *diskQueue
 }
 
 type EmitterConfig struct {
@@ -127,6 +131,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("EMISSION_INTERVAL", "3m")
 	viper.SetDefault("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY", false)
 	viper.SetDefault("RECOVERY_PERIOD", defaultRecoveryPeriod.String())
+	viper.SetDefault("BACKLOG_MAX_MB", defaultBacklogMaxBytes>>20)
 
 	// Pending data older than this at startup is dropped rather than uploaded. A bare number
 	// parses as nanoseconds, so anything under one upload interval is rejected as a mistake.
@@ -134,6 +139,14 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	if recoveryPeriod < UploadFrequencyDuration {
 		return EmitterConfig{}, fmt.Errorf("CLOUDABILITY_RECOVERY_PERIOD must be a duration of at least %s, such as 72h; got %q",
 			UploadFrequencyDuration, viper.GetString("RECOVERY_PERIOD"))
+	}
+
+	// The most the upload queue may hold, samples and payloads together; past it the oldest are
+	// evicted and counted.
+	backlogMaxMB := viper.GetInt64("BACKLOG_MAX_MB")
+	if backlogMaxMB < 1 {
+		return EmitterConfig{}, fmt.Errorf("CLOUDABILITY_BACKLOG_MAX_MB must be a whole number of MiB, at least 1; got %q",
+			viper.GetString("BACKLOG_MAX_MB"))
 	}
 
 	var outboundProxyUrl *url.URL
@@ -192,6 +205,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		UploadFrequency:                 time.Minute * time.Duration(UPLOAD_FREQUENCY),
 		ScratchDir:                      viper.GetString("SCRATCH_DIR"),
 		RecoveryPeriod:                  recoveryPeriod,
+		BacklogMaxBytes:                 backlogMaxMB << 20,
 		EmitAsJson:                      viper.GetBool("EMIT_AS_JSON"),
 		ParseMetricData:                 viper.GetBool("PARSE_METRIC_DATA"),
 		EmissionInterval:                viper.GetDuration("EMISSION_INTERVAL"),
@@ -220,10 +234,15 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 // newEmitter builds an Emitter around the given uploader. now is the emitter's clock; nil
 // means time.Now. Tests use it to inject a fake clock and uploader.
 func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *Emitter {
-	// Share the uploader's sink so that startup recovery and the emitter report through one.
+	// Share the uploader's sink so that startup recovery and the emitter report through one, and
+	// its queue so that the disk budget and packaging don't race.
 	var events EventSink = NewEventCounts()
+	var queue *diskQueue
 	if cu, ok := uploader.(*CldyUploader); ok {
 		events = cu.events
+		queue = cu.queue
+	} else {
+		queue = newDiskQueue(config.ScratchDir, events, now)
 	}
 	ce := &Emitter{
 		config:           config,
@@ -234,6 +253,7 @@ func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *
 		now:              now,
 		events:           events,
 		conditions:       map[string]bool{},
+		queue:            queue,
 	}
 	currentTime := ce.clock().UTC()
 	ce.startTime = currentTime

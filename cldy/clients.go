@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -42,10 +44,88 @@ const s3UploadDescription = "uploading sample to Cloudability S3 using presigned
 const clustersUploadEndpoint = "/v3/internal/containers/clusters/upload"
 const apikeyloginEndpoint = "/service/apikeylogin"
 
-// StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob
+// StorageService is a generic uploader, could be apptio, custom s3 or custom azure blob. Upload
+// returns an *UploadError naming the stage that failed, so the uploader can tell a refused
+// credential from a refused payload (classifyUpload).
 type StorageService interface {
 	Upload(payload UploadPayload) error
 }
+
+// Upload stages, for UploadError.
+const (
+	// UploadStageLogin is the Frontdoor login.
+	UploadStageLogin = "login"
+	// UploadStagePresign is the request for a presigned URL, to Cloudability or the
+	// metrics-collector.
+	UploadStagePresign = "presign"
+	// UploadStagePresignedPut is the PUT of the payload to a presigned URL.
+	UploadStagePresignedPut = "presigned_put"
+	// UploadStageStore is an authenticated write to the customer's own S3 bucket or Azure
+	// container.
+	UploadStageStore = "store"
+)
+
+// UploadError is a failed upload and the stage it failed at. The HTTP status, when the server
+// answered, is in the wrapped error (see uploadStatusCode).
+type UploadError struct {
+	Stage string
+	Err   error
+}
+
+func (e *UploadError) Error() string { return fmt.Sprintf("upload failed at %s: %v", e.Stage, e.Err) }
+
+func (e *UploadError) Unwrap() error { return e.Err }
+
+// HTTPStatusError is a request the server answered with a status other than 200.
+type HTTPStatusError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *HTTPStatusError) Error() string { return e.Message }
+
+// statusErrorf returns an *HTTPStatusError for code with a formatted message.
+func statusErrorf(code int, format string, args ...any) error {
+	return &HTTPStatusError{StatusCode: code, Message: fmt.Sprintf(format, args...)}
+}
+
+// uploadStatusCode returns the HTTP status err carries, if the server answered: from an
+// *HTTPStatusError, an aws-sdk-go request failure or an Azure response error.
+func uploadStatusCode(err error) (int, bool) {
+	if err == nil {
+		return 0, false
+	}
+	if statusErr, ok := errors.AsType[*HTTPStatusError](err); ok {
+		return statusErr.StatusCode, true
+	}
+	var awsErr interface{ StatusCode() int } // awserr.RequestFailure
+	if errors.As(err, &awsErr) && awsErr.StatusCode() != 0 {
+		return awsErr.StatusCode(), true
+	}
+	var azureErr *azcore.ResponseError
+	if errors.As(err, &azureErr) && azureErr.StatusCode != 0 {
+		return azureErr.StatusCode, true
+	}
+	return 0, false
+}
+
+// s3ErrorCode returns " (<Code>...</Code>)" from an S3 XML error body, or "". Only the code is
+// kept: the rest of an S3 error can echo the request, credential scope included.
+func s3ErrorCode(body []byte) string {
+	_, rest, ok := strings.Cut(string(body), "<Code>")
+	if !ok {
+		return ""
+	}
+	code, _, ok := strings.Cut(rest, "</Code>")
+	if !ok || len(code) > 64 {
+		return ""
+	}
+	return " (<Code>" + code + "</Code>)"
+}
+
+// errConnectivityTest marks a failed startup connectivity test. The service is still usable:
+// the test is advisory.
+var errConnectivityTest = errors.New("connectivity test failed")
 
 type ClientService interface {
 	Do(r *http.Request, requestDescription string) (*http.Response, error)
@@ -112,7 +192,8 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 	log.Infof("Testing Cloudability upload connection.")
 	err = apptioService.testUpload()
 	if err != nil {
-		return nil, fmt.Errorf("cloudability test connection failed: %s", err)
+		// Advisory: the service is still returned, and every upload cycle retries it.
+		return apptioService, fmt.Errorf("cloudability %w: %v", errConnectivityTest, err)
 	}
 	log.Infof("Cloudability upload test succeeded.")
 	return apptioService, nil
@@ -215,22 +296,44 @@ func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
 }
 
 func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
-	var presignedURL string
 	var err error
 	// gather opentoken from Frontdoor on first run or if token expired
 	if s.OpenToken == "" || time.Now().UTC().After(s.validTil) {
 		s.OpenToken, err = s.login()
 		if err != nil {
-			return err
+			return &UploadError{Stage: UploadStageLogin, Err: err}
 		}
 	}
-	// using token from Frontdoor get upload URL from Cloudability
-	presignedURL, err = s.getUploadURL(payload)
-	if err != nil {
-		return err
+	return putWithPresign(payload, func() (string, error) {
+		// using token from Frontdoor get upload URL from Cloudability
+		presignedURL, err := s.getUploadURL(payload)
+		if code, ok := uploadStatusCode(err); ok && (code == http.StatusUnauthorized || code == http.StatusForbidden) {
+			// The token was refused: log in again on the next attempt.
+			s.OpenToken = ""
+		}
+		return presignedURL, err
+	}, func(presignedURL string) error {
+		return s.sendData(payload, presignedURL)
+	})
+}
+
+// putWithPresign gets a presigned URL and PUTs the payload to it. A 403 on the PUT means the URL
+// expired, so it presigns once more and retries once. Errors are *UploadError.
+func putWithPresign(payload UploadPayload, presign func() (string, error), put func(url string) error) error {
+	for attempt := 1; ; attempt++ {
+		presignedURL, err := presign()
+		if err != nil {
+			return &UploadError{Stage: UploadStagePresign, Err: err}
+		}
+		err = put(presignedURL)
+		if err == nil {
+			return nil
+		}
+		if code, _ := uploadStatusCode(err); code != http.StatusForbidden || attempt > 1 {
+			return &UploadError{Stage: UploadStagePresignedPut, Err: err}
+		}
+		log.Warnf("the presigned URL for %s was refused (403), probably expired; requesting a new one", payload.FileName)
 	}
-	// upload data using presigned url
-	return s.sendData(payload, presignedURL)
 }
 
 // login gathers the opentoken required to make requests to Cloudability by hitting Frontdoor's apikeylogin endpoint
@@ -274,7 +377,7 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 			return "", fmt.Errorf("error reading response body: %w", err)
 		}
 
-		return "", fmt.Errorf("frontdoor service login call failed with status code: %d and "+
+		return "", statusErrorf(resp.StatusCode, "frontdoor service login call failed with status code: %d and "+
 			"response: %s", resp.StatusCode, body)
 	}
 
@@ -389,7 +492,7 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 	defer safeClose(resp.Body.Close, &rErr)
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("cloudability clusters/upload request call failed with status "+
+		return "", statusErrorf(resp.StatusCode, "cloudability clusters/upload request call failed with status "+
 			"code: %d", resp.StatusCode)
 	}
 
@@ -409,7 +512,11 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) er
 	return uploadPayloadToPresignedURL(s.CldyUploadClient, payload, uploadURL)
 }
 
+// doWithRetry sends req until it gets a 200, at most maxAttempts times. When every attempt
+// fails the error wraps the last one: an *HTTPStatusError if the server answered, or the
+// transport error.
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
+	var lastErr error
 	for i := 1; i <= maxAttempts; i++ {
 		// http.Client.Do always closes the request body, so every retry needs a fresh one.
 		if i > 1 && req.Body != nil && req.Body != http.NoBody {
@@ -428,18 +535,26 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 			return resp, nil
 		}
 		if err != nil {
+			// A presigned URL's query string is a credential: keep it out of the error, which
+			// is logged here and by the uploader.
+			if urlErr, ok := errors.AsType[*url.Error](err); ok {
+				urlErr.URL = removeQueryParameters(urlErr.URL)
+			}
 			log.Warnf("HTTPS request failed with error: %s", err.Error())
+			lastErr = err
 		}
 		if resp != nil {
-			log.Warnf("Request failed with status code: %s", resp.Status)
+			head, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
+			lastErr = statusErrorf(resp.StatusCode, "status %s%s", resp.Status, s3ErrorCode(head))
+			log.Warnf("Request failed with status code: %s", lastErr)
 		}
 		if i < maxAttempts {
 			time.Sleep(retryBackoff(i))
 		}
 	}
-	return nil, fmt.Errorf("failed to complete request after maximum retries")
+	return nil, fmt.Errorf("failed to complete request after maximum retries: %w", lastErr)
 }
 
 // Note: All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
@@ -562,8 +677,8 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 
 	err = cs3c.UploadClient.Do(sampleToUpload)
 	if err != nil {
-		return fmt.Errorf("failed to put sample to custom S3 with error: %w. Please ensure agent "+
-			"is configured to have access to external resources", err)
+		return &UploadError{Stage: UploadStageStore, Err: fmt.Errorf("failed to put sample to custom S3 with error: %w. Please ensure agent "+
+			"is configured to have access to external resources", err)}
 	}
 
 	log.Infof("Successfully uploaded metric sample %s to custom S3 bucket: %s", path.Base(key), cs3c.S3Bucket)
@@ -717,8 +832,8 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 
 	err = cbc.UploadClient.Do(sampleToUpload)
 	if err != nil {
-		return fmt.Errorf("failed to put sample to custom azure blob with error: %s. Please ensure agent "+
-			"is configured to have access to external resources", err)
+		return &UploadError{Stage: UploadStageStore, Err: fmt.Errorf("failed to put sample to custom azure blob with error: %w. Please ensure agent "+
+			"is configured to have access to external resources", err)}
 	}
 
 	log.Infof("Successfully uploaded metric sample %s to custom azure blob: %s", path.Base(key), cbc.BlobContainerName)
