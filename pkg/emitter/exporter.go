@@ -19,7 +19,7 @@ import (
 type Exporter interface {
 	// Start begins the emission process, running the snapshot and emission processes on the
 	// specified interval. If the process starts successfully, it returns true. Otherwise, if the
-	// process is already started, it returns false.
+	// process is already started or the interval isn't positive, it returns false.
 	Start(interval time.Duration) bool
 
 	// Stop halts the emission process and waits for the exporter loop to exit.
@@ -230,6 +230,10 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 	defer de.lifecycle.Unlock()
 
 	if de.done != nil {
+		return false
+	}
+	if interval <= 0 {
+		log.Errorf("exporter interval must be positive, got %s", interval)
 		return false
 	}
 
