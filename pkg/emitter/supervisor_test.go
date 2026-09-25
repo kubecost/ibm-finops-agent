@@ -559,7 +559,7 @@ func TestExporterStalledOnStuckCall(t *testing.T) {
 	}
 }
 
-// failingStats fails node-stats collection outright, failing the snapshot.
+// failingStats fails node-stats collection outright.
 type failingStats struct{}
 
 func (failingStats) GetNodeData() ([]*stats.Summary, error) {
@@ -570,16 +570,27 @@ type failingStatsDataSource struct{ *mocks.MockDataSource }
 
 func (failingStatsDataSource) StatsSummary() nodes.StatSummaryClient { return failingStats{} }
 
-// I1: a failed snapshot that drained short-lived pods counts and reports them.
-func TestFailedSnapshotCountsDrainedShortLivedPods(t *testing.T) {
+// F-14: a failed component no longer fails the snapshot or loses the short-lived pods: the
+// snapshot carries them with the component's error, and nothing is counted as discarded.
+func TestFailedComponentKeepsSnapshotAndShortLivedPods(t *testing.T) {
 	ds := failingStatsDataSource{mocks.NewMockDataSource()}
 	ds.ClusterCache.Pods = []*corev1.Pod{{}, {}, {}}
 	provider := NewConcurrentSnapshotProvider(DefaultSnapshotConfig()).(*ConcurrentSnapshotProvider)
 
-	if _, err := provider.SnapshotOf(ds); err == nil {
-		t.Fatal("snapshot unexpectedly succeeded with failing node stats")
+	snap, err := provider.SnapshotOf(ds)
+	if err != nil {
+		t.Fatalf("snapshot failed with only node stats failing: %v", err)
 	}
-	if got := provider.DiscardedShortLivedPods(); got != 3 {
-		t.Errorf("DiscardedShortLivedPods() = %d; want the 3 drained pods", got)
+	if c, cerr := snap.MissingComponent(AllComponents); c != ComponentNodeStats || cerr == nil {
+		t.Errorf("MissingComponent = %q, %v; want node_stats with its error", c, cerr)
+	}
+	if snap.NodeStats != nil || snap.Kubernetes == nil || snap.Metrics == nil || snap.ClusterInfo == nil {
+		t.Errorf("want only NodeStats nil, got %+v", snap)
+	}
+	if got := len(snap.Kubernetes.ShortLivedPods); got != 3 {
+		t.Errorf("snapshot has %d short-lived pods; want 3", got)
+	}
+	if got := provider.DiscardedShortLivedPods(); got != 0 {
+		t.Errorf("DiscardedShortLivedPods() = %d; want 0", got)
 	}
 }

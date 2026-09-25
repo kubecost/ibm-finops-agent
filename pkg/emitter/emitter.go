@@ -34,11 +34,15 @@ type KubernetesSnapshot struct {
 	PodDisruptionBudgets   []*policyv1.PodDisruptionBudget
 	ReplicationControllers []*v1.ReplicationController
 	ResourceQuotas         []*v1.ResourceQuota
+
+	// shortLivedPodsDrained is set when ShortLivedPods were drained from a cache that can't be
+	// peeked, so discarding this snapshot loses them.
+	shortLivedPodsDrained bool
 }
 
 // NodeStatsSummary contains summary data sets
 type NodeStatsSummary struct {
-	Stats []*stats.Summary
+	Stats         []*stats.Summary
 	CollectionErr error
 }
 
@@ -210,11 +214,22 @@ type MetricsSnapshot struct {
 	ResourceQuotaInfo                    []*source.ResourceQuotaInfoResult
 }
 
+// ClusterSnapshot is one snapshot of every component. Components are collected independently:
+// a component that failed is nil and has an entry in ComponentErrors, and the others are still
+// usable (see ComponentRequirer).
 type ClusterSnapshot struct {
 	ClusterInfo *clusters.ClusterInfo
 	Kubernetes  *KubernetesSnapshot
 	NodeStats   *NodeStatsSummary
 	Metrics     *MetricsSummary
+
+	// ComponentErrors holds the error of each component that failed. It is nil when every
+	// component succeeded.
+	ComponentErrors map[SnapshotComponent]error
+
+	// windows records, per resolution, the metrics windows this snapshot covers, for
+	// WindowCommitter.
+	windows []windowCommit
 }
 
 // Emitter is a contract for an implementation which is directly sent cluster data snapshots on

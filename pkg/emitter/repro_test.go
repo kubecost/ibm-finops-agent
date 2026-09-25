@@ -232,6 +232,11 @@ type lifecycleEmitter struct {
 }
 
 func (e *lifecycleEmitter) ID() EmitterID { return e.id }
+
+// RequiredComponents declares what Cloudability needs: no metrics.
+func (e *lifecycleEmitter) RequiredComponents() []SnapshotComponent {
+	return []SnapshotComponent{ComponentKubernetes, ComponentNodeStats}
+}
 func (e *lifecycleEmitter) Init(*ClusterSnapshot) error {
 	e.inits.Add(1)
 	return nil

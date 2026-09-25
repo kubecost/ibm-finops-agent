@@ -6,6 +6,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -121,6 +122,9 @@ func main() {
 	// from each emitter that is enabled such that we only snapshot the resources that
 	// are required by the emitters.
 	snapshotConfig := emitter.NewSnapshotConfigFromEnv()
+	// Persisted beside scratch/ and upload/, not inside them: Cloudability's startup recovery
+	// removes directories it doesn't recognise under scratch/.
+	snapshotConfig.WatermarkFile = filepath.Join(env.GetScratchDir(), "state", "watermarks.json")
 
 	if env.IsKubecostEmitterEnabled() {
 		kubecostEmitterConfig := kubecost.NewEmitterConfigFromEnv(clusterUID)
