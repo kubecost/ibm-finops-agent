@@ -1,6 +1,7 @@
 package dropevent
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,5 +41,14 @@ func TestBatch(t *testing.T) {
 	b.Flush()
 	if len(b.drops) != 0 || len(b.order) != 0 {
 		t.Errorf("Flush left %v", b.order)
+	}
+}
+
+// A drop's detail can carry an upload error; presigned URL query strings are redacted.
+func TestFormatDropRedactsURLs(t *testing.T) {
+	got := formatDrop("data_dropped", Drop{Emitter: "cloudability", Reason: "rejected_by_backend", Count: 1,
+		Detail: "PUT https://bucket.s3.amazonaws.com/x.tgz?X-Amz-Signature=abc failed"})
+	if want := "https://bucket.s3.amazonaws.com/x.tgz?REDACTED"; !strings.Contains(got, want) || strings.Contains(got, "abc") {
+		t.Errorf("got %s", got)
 	}
 }

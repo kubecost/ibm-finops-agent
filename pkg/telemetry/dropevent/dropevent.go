@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ibm/finops-agent/pkg/condition"
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
@@ -60,7 +61,8 @@ func formatDrop(event string, d Drop) string {
 	}
 	if d.Detail != "" {
 		b.WriteString(": ")
-		b.WriteString(d.Detail)
+		// Details can carry upload errors, and those can carry presigned URLs.
+		b.WriteString(condition.Redact(d.Detail))
 	}
 	return b.String()
 }

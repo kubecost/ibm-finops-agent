@@ -703,12 +703,15 @@ func (de *defaultExporter) callEmitter(ctx context.Context, cfg ExporterConfig, 
 	}
 
 	if ctx.Err() != nil {
-		// Stopping: give the call a bounded chance to observe cancellation and return.
+		// Stopping: give the call a bounded chance to observe cancellation and return. A call
+		// that doesn't is counted as an error.
 		timer := time.NewTimer(cfg.StopGrace)
 		defer timer.Stop()
 		select {
 		case <-done:
+			returned()
 		case <-timer.C:
+			cfg.Observer.EmitterCall(slot.emitter.ID(), EmitResultError)
 			log.Warnf("[%s] still running %s after Stop", slot.emitter.ID(), cfg.StopGrace)
 		}
 		return

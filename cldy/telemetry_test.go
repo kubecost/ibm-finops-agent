@@ -145,3 +145,75 @@ func TestEmitterUploadStatus(t *testing.T) {
 		t.Fatalf("upload status with one undelivered payload = %+v", s)
 	}
 }
+
+// promUploader builds an uploader on scratch whose events go to a fresh Prometheus registry, as in
+// production.
+func promUploader(t *testing.T, scratch *prodScratch, services []cldy.StorageService, clock *fakeClock) (*cldy.CldyUploader, *prometheus.Registry) {
+	t.Helper()
+	m := telemetry.New()
+	reg := prometheus.NewPedanticRegistry()
+	if err := m.Register(reg); err != nil {
+		t.Fatal(err)
+	}
+	config := scratch.UploaderConfig(t)
+	config.RecoveryPeriod = queueRecoveryPeriod
+	config.Events = m.Cloudability()
+	cu := cldy.NewUploaderForTest(config, services, clock.Now)
+	cu.SetClusterID(scratch.ClusterID)
+	return cu, reg
+}
+
+func droppedTotal(got map[string]float64) float64 {
+	var sum float64
+	for k, v := range got {
+		if strings.HasPrefix(k, "finops_agent_data_dropped_total{") {
+			sum += v
+		}
+	}
+	return sum
+}
+
+// A quarantined item evicted to bound the quarantine is counted once, as dropped when it was
+// quarantined, and apart as quarantine_evicted: through the real quarantine and trim.
+func TestQuarantineEvictionCountedOnceInPrometheus(t *testing.T) {
+	restore := cldy.SetQuarantineLimitsForTest(1, 7*24*time.Hour) // any quarantined item is over the bound
+	defer restore()
+	clock := newFakeClock(time.Now().Truncate(time.Second))
+	scratch := newProdScratch(t, t.TempDir(), "cid-quarantine-prom")
+	if err := os.WriteFile(filepath.Join(scratch.UploadDir(), "junk.txt"), []byte("junk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, reg := promUploader(t, scratch, nil, clock)
+
+	got := gathered(t, reg)
+	if got[`finops_agent_data_dropped_total{emitter="cloudability",reason="invalid_payload"}`] != 1 ||
+		got["finops_agent_cldy_quarantine_evicted_total"] != 1 || droppedTotal(got) != 1 {
+		t.Errorf("invalid_payload %v, quarantine_evicted %v, data_dropped_total sum %v; want 1, 1, 1",
+			got[`finops_agent_data_dropped_total{emitter="cloudability",reason="invalid_payload"}`],
+			got["finops_agent_cldy_quarantine_evicted_total"], droppedTotal(got))
+	}
+}
+
+// Disk-pressure evictions through the real disk budget are counted in Prometheus as the uploader
+// counts them.
+func TestDiskPressureEvictionsReachPrometheus(t *testing.T) {
+	clock := newFakeClock(time.Now().Truncate(time.Second))
+	scratch := newProdScratch(t, t.TempDir(), "cid-disk-prom")
+	for i := range 3 {
+		scratch.AddUpload(t, clock.Now().Add(time.Duration(i-3)*time.Hour))
+	}
+	client := &scriptedClient{status: always(503)}
+	cu, reg := promUploader(t, scratch, []cldy.StorageService{apptioService(client)}, clock)
+	restore := cldy.SetDiskAvailableForTest(diskFullWhileUploadsOver(scratch, 1))
+	defer restore()
+	scratch.AddCompleteSample(t, clock.Now(), 0)
+	clock.Advance(10 * time.Minute)
+	cu.UploadCycleForTest()
+
+	got := gathered(t, reg)
+	counts := cu.EventsForTest()
+	evicted := got[`finops_agent_data_dropped_total{emitter="cloudability",reason="disk_pressure"}`]
+	if evicted == 0 || evicted != float64(counts.Dropped[cldy.DropReasonDiskPressure]) || droppedTotal(got) != evicted {
+		t.Errorf("disk_pressure in Prometheus %v, uploader counted %v, total %v", evicted, counts.Dropped, droppedTotal(got))
+	}
+}

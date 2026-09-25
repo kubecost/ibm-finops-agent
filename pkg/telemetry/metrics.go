@@ -45,6 +45,10 @@ type Metrics struct {
 	registry       *health.Registry
 	kubecostExport func() KubecostExportCounters
 	walCounters    func() WALCounters
+	// windowGapsSet: SetWindowGaps was called, so the summary reports window gaps.
+	windowGapsSet bool
+
+	componentsOnce sync.Once
 }
 
 // UploadStatus is the Cloudability upload loop's progress, for the upload gauges and the status
@@ -160,13 +164,14 @@ func New() *Metrics {
 		}
 	})
 
+	// Series are preset only for sources wired on this branch: the Kubecost drops once
+	// SetKubecostExport is called (chunk 07), component failures on the first one (chunk 06).
 	for reason, emitters := range dropReasons {
 		for _, e := range emitters {
-			m.dataDropped.preset(e, reason)
+			if e != EmitterKubecost {
+				m.dataDropped.preset(e, reason)
+			}
 		}
-	}
-	for _, c := range snapshotComponents {
-		m.snapshotComponentFails.preset(c)
 	}
 	for _, s := range uploadServices {
 		for _, r := range uploadResults {
@@ -256,8 +261,9 @@ func (m *Metrics) SetHealthRegistry(r *health.Registry) {
 // KubecostEmitter.Status).
 func (m *Metrics) SetKubecostExport(counters func() KubecostExportCounters) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.kubecostExport = counters
+	m.mu.Unlock()
+	m.dataDropped.preset(EmitterKubecost, ReasonExportRejectedAfterStop)
 }
 
 // SetWAL reads the collector write-ahead log's counters at scrape time (chunk 07: WAL.Status).
@@ -270,6 +276,9 @@ func (m *Metrics) SetWAL(counters func() WALCounters) {
 // SetWindowGaps reads the snapshot provider's window gaps at scrape time (chunk 06:
 // ConcurrentSnapshotProvider.WindowGapsTotal).
 func (m *Metrics) SetWindowGaps(gaps func() []WindowGaps) {
+	m.mu.Lock()
+	m.windowGapsSet = true
+	m.mu.Unlock()
 	for _, res := range windowResolutions {
 		for _, reason := range windowGapReasons {
 			m.windowGaps.preset(res, reason)
@@ -295,6 +304,11 @@ func (m *Metrics) SetConversionFailures(failures func() map[string]uint64) {
 // SnapshotComponentFailed counts a failed snapshot component (chunk 06: ClusterSnapshot.
 // ComponentErrors).
 func (m *Metrics) SnapshotComponentFailed(component string) {
+	m.componentsOnce.Do(func() {
+		for _, c := range snapshotComponents {
+			m.snapshotComponentFails.preset(c)
+		}
+	})
 	m.snapshotComponentFails.add(1, closed("component", component, snapshotComponents))
 }
 

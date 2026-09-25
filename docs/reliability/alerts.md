@@ -31,22 +31,32 @@ label ever holds a file name, node name, error string or URL. A value outside it
 as `unknown` and logged once at Error.
 
 Counters restart from zero when the agent restarts; use `increase()` or `rate()`. Series with
-closed label sets are exported at 0 from the start, so `increase()` sees their first increment.
+closed label sets are exported at 0 from the start, so `increase()` sees an increment that
+happens after the first scrape. Drops counted before the first scrape (startup recovery, in a new
+pod) appear in a series whose first sample is already non-zero, which `increase()` can't see; the
+DataDropped rule below also catches those.
+
+Some metrics are fed by chunks 06 and 07, which merge separately. Until they are wired
+(`telemetry.Metrics.SetWindowGaps`, `SetConversionFailures`, `SetKubecostExport`, `SetWAL`, and
+the exporter's `SnapshotComponentFailed` calls), those metrics export no series at all, and the
+uploaded summary leaves out `window_gaps_total`, so a missing measurement is never read as zero.
+They are marked "after chunk 06" or "after chunk 07" below.
 
 ### Collection and the exporter
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
 | `exporter_cycle_last_end_timestamp_seconds` | gauge | | When the last snapshot-and-emit cycle ended; the agent's start until one has |
+| `exporter_stall_threshold_seconds` | gauge | | How long after the last cycle ended the exporter is overdue: snapshot deadline + emit deadline + 2 × interval (12 min at the defaults) |
 | `exporter_cycle_overruns_total` | counter | | Ticks skipped because a cycle took longer than the interval |
 | `exporter_snapshot_timeouts_total` | counter | | Cycles with no snapshot within the snapshot deadline |
 | `exporter_emit_timeouts_total` | counter | | Init or Emit calls that outlived the emit deadline |
 | `snapshot_duration_seconds` | histogram | | Duration of each snapshot, successful or not |
-| `snapshot_component_failures_total` | counter | `component` (`cluster_info`, `kubernetes`, `node_stats`, `metrics`) | Failed snapshot components (from chunk 06) |
-| `snapshot_object_conversion_failures_total` | counter | `resource` (Kubernetes resource kinds) | Objects left out of a snapshot because they failed typed conversion (from chunk 06) |
+| `snapshot_component_failures_total` | counter | `component` (`cluster_info`, `kubernetes`, `node_stats`, `metrics`) | Failed snapshot components (after chunk 06) |
+| `snapshot_object_conversion_failures_total` | counter | `resource` (Kubernetes resource kinds) | Objects left out of a snapshot because they failed typed conversion (after chunk 06) |
 | `node_stats_duration_seconds` | histogram | | Duration of each node-stats collection across all nodes |
-| `window_gaps_total` | counter | `resolution` (`10m`, `1h`, `1d`), `reason` (`backfill_limit`) | Closed metrics windows never queried (from chunk 06) |
-| `emit_total` | counter | `emitter` (`cloudability`, `kubecost`, `turbonomic`), `result` (`ok`, `error`, `skipped`) | Init and Emit calls per cycle. `skipped`: the previous call was still running. A call past its deadline counts once, as `error` |
+| `window_gaps_total` | counter | `resolution` (`10m`, `1h`, `1d`), `reason` (`backfill_limit`) | Closed metrics windows never queried (after chunk 06) |
+| `emit_total` | counter | `emitter` (`cloudability`, `kubecost`, `turbonomic`), `result` (`ok`, `error`, `skipped`) | Init and Emit calls per cycle. `skipped`: the previous call was still running. A call past its deadline, or cut off at shutdown, counts once, as `error` |
 | `emitter_ready` | gauge | `emitter` | 1 when the emitter has initialised and its last 3 cycles haven't all failed |
 | `emission_slots_skipped_total` | counter | | Cloudability emission slots skipped after a stall. Not a loss: the next sample covers their usage |
 
@@ -71,10 +81,10 @@ closed label sets are exported at 0 from the start, so `increase()` sees their f
 | `data_dropped_total` | counter | `emitter` (`cloudability`, `exporter`, `kubecost`), `reason` | Collected data lost. Summed over every series it is the total loss, each item counted once |
 | `health_condition` | gauge | `component`, `type` | The number of active conditions of that type; 0 once cleared |
 
-### Kubecost export (from chunk 07)
+### Kubecost export (after chunk 07)
 
 Exported once chunk 07's counters are wired in (see `telemetry.Metrics.SetKubecostExport` and
-`SetWAL`).
+`SetWAL`); until then these series don't exist.
 
 Totals and failures are separate counters (a failure rate is
 `rate(..._failures_total) / rate(..._total)`).
@@ -127,7 +137,7 @@ is also logged at Info.
 | `backlog_age` | cloudability | Queued data older than the recovery period | A long upload outage |
 | `snapshot_failed` | exporter | Short-lived pods drained by a snapshot that then failed | Snapshot failures |
 | `snapshot_abandoned` | exporter | Short-lived pods in a snapshot completed but never emitted | A snapshot finished after a newer one, or after shutdown began |
-| `export_rejected_after_stop` | kubecost | A Kubecost export refused because the emitter had stopped | Shutdown didn't drain in time |
+| `export_rejected_after_stop` | kubecost | A Kubecost export refused because the emitter had stopped (after chunk 07) | Shutdown didn't drain in time |
 
 #### Quarantine evictions are not counted twice
 
@@ -166,7 +176,8 @@ Both upload channels carry the same summary, `agent_health` (`telemetry.Summary`
 }
 ```
 
-Timestamps are Unix seconds; `last_upload_success_ts` is 0 until a payload has been delivered
+`window_gaps_total` is left out until window gaps are measured (after chunk 06). Timestamps are
+Unix seconds; `last_upload_success_ts` is 0 until a payload has been delivered
 since the start. Counters count since `counters_since_ts`, the agent's start, and reset when it
 restarts. Condition messages are never sent: only component, type and reason.
 
@@ -207,17 +218,29 @@ spec:
             summary: "FinOps agent {{ $labels.pod }} has not delivered a Cloudability payload for 30 minutes with a backlog"
             runbook: "docs/reliability/alerts.md#finopsagentuploadstale"
         - alert: FinOpsAgentDataDropped
-          expr: sum by (namespace, pod, emitter, reason) (increase(finops_agent_data_dropped_total[15m])) > 0
+          # The second half catches drops counted before the first scrape of a new pod (startup
+          # recovery), whose series starts non-zero and so has no increase().
+          expr: |
+            sum by (namespace, pod, emitter, reason) (increase(finops_agent_data_dropped_total[15m])) > 0
+            or
+            sum by (namespace, pod, emitter, reason) (
+              finops_agent_data_dropped_total > 0 unless finops_agent_data_dropped_total offset 15m
+            )
           labels: {severity: warning}
           annotations:
             summary: "FinOps agent {{ $labels.pod }} lost {{ $value }} items ({{ $labels.emitter }}, {{ $labels.reason }})"
             runbook: "docs/reliability/alerts.md#finopsagentdatadropped"
         - alert: FinOpsAgentExporterStalled
-          expr: time() - finops_agent_exporter_cycle_last_end_timestamp_seconds > 300
+          # The threshold is derived from the agent's own interval and deadlines (12 min at the
+          # defaults of a 1m interval and 5m snapshot and emit deadlines), so a slow but healthy
+          # cycle doesn't fire it at any EXPORTER_EMISSION_INTERVAL.
+          expr: |
+            time() - finops_agent_exporter_cycle_last_end_timestamp_seconds
+              > finops_agent_exporter_stall_threshold_seconds
           for: 5m
           labels: {severity: critical}
           annotations:
-            summary: "FinOps agent {{ $labels.pod }} has not finished a collection cycle for over 5 minutes"
+            summary: "FinOps agent {{ $labels.pod }} has not finished a collection cycle within its deadlines"
             runbook: "docs/reliability/alerts.md#finopsagentexporterstalled"
         - alert: FinOpsAgentNotReady
           expr: kube_pod_status_ready{namespace="ibm-finops-agent", pod=~".*finops-agent.*", condition="true"} == 0
@@ -305,8 +328,10 @@ the queue, but they don't help either.
 
 ### FinOpsAgentExporterStalled
 
-**Means**: no collection cycle has finished for over 5 minutes, so nothing new is collected for
-either product. If the loop is truly wedged, liveness fails and the kubelet restarts the pod on
+**Means**: no collection cycle has finished for longer than a cycle can take when both its
+snapshot and its emitters run to their deadlines, plus two intervals
+(`finops_agent_exporter_stall_threshold_seconds`, 12 minutes at the defaults), for 5 minutes. Nothing
+new is collected for either product. If the loop is truly wedged, liveness fails and the kubelet restarts the pod on
 its own; this alert catches the time before that, and a loop that is slow rather than stuck.
 
 **Check**:
@@ -338,8 +363,8 @@ shows them in Prometheus. By condition:
 | `uploads_failing`, `upload_*`, `uploader_*` | cldy-emitter | See FinOpsAgentUploadStale |
 | `disk_pressure`, `disk_space_unknown` | cldy-emitter | The scratch volume is full, or its free space can't be read |
 | `cldy_emitter_uninitialised` | cldy-emitter | No cluster ID yet: the `default` namespace isn't visible to the agent |
-| `region_fallback` | cldy-emitter | `CLOUDABILITY_UPLOAD_REGION` isn't a known region; data is going to the US endpoints |
-| `bucket_unavailable`, `wal_*` | kubecost-emitter | The Kubecost export bucket can't be written or read. Check the bucket config and credentials |
+| `region_fallback` (after chunk 03) | cldy-emitter | `CLOUDABILITY_UPLOAD_REGION` isn't a known region; data is going to the US endpoints |
+| `bucket_unavailable`, `wal_*` (after chunk 07) | kubecost-emitter | The Kubecost export bucket can't be written or read. Check the bucket config and credentials |
 
 ### FinOpsAgentRestarting
 

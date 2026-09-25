@@ -28,9 +28,9 @@ const (
 // unknown replaces a label value outside its closed set.
 const unknown = "unknown"
 
-// Drop reasons: the closed enum of finops_agent_data_dropped_total{reason}. Each is raised by
-// exactly one emitter (dropReasons). Summing the counter over every reason counts each lost item
-// once.
+// Drop reasons: the closed enum of finops_agent_data_dropped_total{reason}. dropReasons lists the
+// emitters that raise each one (short_lived_pod_overflow has two, for two different buffers).
+// Summing the counter over every series counts each lost item once.
 const (
 	// Cloudability emitter: sample writes and the disk budget (chunk 04).
 

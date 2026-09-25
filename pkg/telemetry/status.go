@@ -15,6 +15,8 @@ import (
 var (
 	descCycleLastEnd = prometheus.NewDesc(prefix+"exporter_cycle_last_end_timestamp_seconds",
 		"When the exporter's last snapshot-and-emit cycle ended, or when the agent started if none has.", nil, nil)
+	descStallThreshold = prometheus.NewDesc(prefix+"exporter_stall_threshold_seconds",
+		"How long after the last cycle ended the exporter is overdue: a cycle that runs to both its snapshot and emit deadlines, plus two intervals. Alert when time() - exporter_cycle_last_end_timestamp_seconds exceeds it.", nil, nil)
 	descCycleOverruns = prometheus.NewDesc(prefix+"exporter_cycle_overruns_total",
 		"Exporter ticks skipped because a cycle took longer than the interval.", nil, nil)
 	descSnapshotTimeouts = prometheus.NewDesc(prefix+"exporter_snapshot_timeouts_total",
@@ -74,7 +76,7 @@ type statusCollector struct {
 
 func (c *statusCollector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{
-		descCycleLastEnd, descCycleOverruns, descSnapshotTimeouts, descEmitTimeouts, descEmitterReady,
+		descCycleLastEnd, descStallThreshold, descCycleOverruns, descSnapshotTimeouts, descEmitTimeouts, descEmitterReady,
 		descUploadLastSuccess, descBacklogFiles, descBacklogBytes, descHealthCondition,
 		descKubecostWrites, descKubecostWriteFailures, descKubecostRejectedAfterStop, descKubecostCanary,
 		descKubecostCanaryFailures, descKubecostCanaryLastSuccess, descKubecostForcedSwaps,
@@ -101,15 +103,28 @@ func (c *statusCollector) Collect(ch chan<- prometheus.Metric) {
 	if exporterStatus != nil {
 		s := exporterStatus()
 		gauge(descCycleLastEnd, m.timestamp(s.LastCycleEnd))
+		gauge(descStallThreshold, StallThreshold(s).Seconds())
 		counter(descCycleOverruns, s.CycleOverrunsTotal)
 		counter(descSnapshotTimeouts, s.SnapshotTimeoutsTotal)
 		counter(descEmitTimeouts, s.EmitTimeoutsTotal)
+		// Emitter IDs outside the closed set share the unknown label; export one series for them,
+		// ready only if all are, so the scrape never has duplicate series.
+		ready := map[string]bool{}
+		var names []string
 		for _, es := range s.Emitters {
-			ready := 0.0
-			if EmitterReady(es) {
-				ready = 1
+			name := EmitterName(es.ID)
+			prev, seen := ready[name]
+			if !seen {
+				names = append(names, name)
 			}
-			gauge(descEmitterReady, ready, EmitterName(es.ID))
+			ready[name] = EmitterReady(es) && (!seen || prev)
+		}
+		for _, name := range names {
+			v := 0.0
+			if ready[name] {
+				v = 1
+			}
+			gauge(descEmitterReady, v, name)
 		}
 	}
 	if uploadStatus != nil {
@@ -185,6 +200,12 @@ func (m *Metrics) timestamp(t time.Time) float64 {
 		t = m.start
 	}
 	return float64(t.UnixNano()) / 1e9
+}
+
+// StallThreshold is how long after its last cycle ended the exporter is overdue: a cycle that
+// runs to both deadlines, plus two intervals (the wait for the next tick and slack).
+func StallThreshold(s emitter.ExporterStatus) time.Duration {
+	return s.SnapshotTimeout + s.EmitTimeout + 2*s.Interval
 }
 
 // EmitterReady reports whether an emitter has initialised and its recent cycles haven't all

@@ -75,8 +75,10 @@ func main() {
 	registerHealthRoutes(router, registry)
 
 	// Reliability metrics, drop counters and the status summary uploaded to IBM (chunk 09). They
-	// are registered once OpenCost has registered its own, so a name collision is an error here
-	// rather than a panic in OpenCost's MustRegister.
+	// are registered after the data source has registered OpenCost's own metrics, so a collision
+	// with those is logged here rather than panicking in OpenCost's MustRegister. OpenCost metrics
+	// registered later (the Kubecost emitter's Init) could still panic on a collision; no name
+	// collides today (pkg/telemetry TestRegistersAlongsideOpenCostMetrics).
 	metrics := telemetry.New()
 	metrics.SetHealthRegistry(registry)
 	nodes.SetDefaultDurationObserver(metrics.NodeStatsDuration())

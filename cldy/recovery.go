@@ -225,7 +225,9 @@ func (cu *CldyUploader) recoverClusterSamples(clusterID, clusterDir string) erro
 			continue
 		}
 		if payload == "" {
-			continue // evicted, and counted, to make room
+			// evicted, and counted as a drop, to make room
+			cu.events.RecoveryItem(telemetry.RecoveryKindSample, telemetry.RecoveryDropped, 1)
+			continue
 		}
 		cu.RecoveredSamples++
 		cu.RecoveredUploads++

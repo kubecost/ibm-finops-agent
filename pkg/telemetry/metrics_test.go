@@ -355,6 +355,7 @@ func TestHeartbeatGauges(t *testing.T) {
 	end := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 	status := emitter.ExporterStatus{
 		LastCycleEnd: end, CycleOverrunsTotal: 4,
+		Interval: time.Minute, SnapshotTimeout: 5 * time.Minute, EmitTimeout: 5 * time.Minute,
 		Emitters: []emitter.EmitterStatus{
 			{ID: emitter.CldyEmitterID, State: emitter.EmitterReady},
 			{ID: emitter.KubecostEmitterID, State: emitter.EmitterReady, ConsecutiveFailures: emitter.NotReadyAfterFailures},
@@ -367,6 +368,7 @@ func TestHeartbeatGauges(t *testing.T) {
 	for k, want := range map[string]float64{
 		"finops_agent_exporter_cycle_last_end_timestamp_seconds":       float64(end.Unix()),
 		"finops_agent_exporter_cycle_overruns_total":                   4,
+		"finops_agent_exporter_stall_threshold_seconds":                12 * 60,
 		`finops_agent_emitter_ready{emitter="cloudability"}`:           1,
 		`finops_agent_emitter_ready{emitter="kubecost"}`:               0,
 		"finops_agent_cldy_upload_backlog_files":                       2,
@@ -421,6 +423,10 @@ func TestHeartbeatMetadataCarriesTheSummary(t *testing.T) {
 	if strings.Contains(string(body), "secret") {
 		t.Errorf("the heartbeat carries a condition message: %s", body)
 	}
+	// Nothing measures window gaps yet (chunk 06), so none are reported, rather than 0.
+	if strings.Contains(string(body), "window_gaps_total") {
+		t.Errorf("the heartbeat reports window gaps nothing measured: %s", body)
+	}
 }
 
 // Window gaps (chunk 06) are read at scrape time, per resolution, and summed in the summary.
@@ -439,13 +445,39 @@ func TestWindowGapsAndConversionFailures(t *testing.T) {
 		`finops_agent_window_gaps_total{reason="backfill_limit",resolution="1d"}`:  3,
 		`finops_agent_window_gaps_total{reason="backfill_limit",resolution="1h"}`:  0,
 		`finops_agent_snapshot_object_conversion_failures_total{resource="pods"}`:  2,
-		`finops_agent_snapshot_component_failures_total{component="node_stats"}`:   0,
 	} {
 		if got, ok := s[k]; !ok || got != want {
 			t.Errorf("%s = %v (present %v); want %v", k, got, ok, want)
 		}
 	}
-	if got := m.Summary().WindowGapsTotal; got != 4 {
-		t.Errorf("summary window gaps = %d; want 4", got)
+	if got := m.Summary().WindowGapsTotal; got == nil || *got != 4 {
+		t.Errorf("summary window gaps = %v; want 4", got)
+	}
+}
+
+// Metrics fed only once chunks 06 and 07 merge export no series until their hooks are set, so
+// dashboards don't read an unwired 0 as "none".
+func TestUnwiredMetricsExportNothing(t *testing.T) {
+	_, reg := newRegistered(t)
+	for k := range series(t, reg) {
+		for _, unwired := range []string{"window_gaps", "conversion_failures", "component_failures", "kubecost", "collector_wal"} {
+			if strings.Contains(k, unwired) {
+				t.Errorf("series %s exported before its source is wired", k)
+			}
+		}
+	}
+}
+
+// Two emitter IDs outside the closed set share one emitter_ready series instead of breaking the
+// scrape with duplicates.
+func TestUnknownEmittersShareOneReadySeries(t *testing.T) {
+	m, reg := newRegistered(t)
+	m.SetExporter(func() emitter.ExporterStatus {
+		return emitter.ExporterStatus{Emitters: []emitter.EmitterStatus{
+			{ID: "a", State: emitter.EmitterReady}, {ID: "b"},
+		}}
+	})
+	if got, ok := series(t, reg)[`finops_agent_emitter_ready{emitter="unknown"}`]; !ok || got != 0 {
+		t.Errorf("emitter_ready{unknown} = %v (present %v); want 0", got, ok)
 	}
 }

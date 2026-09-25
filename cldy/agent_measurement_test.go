@@ -50,6 +50,7 @@ func goldenEmitter(t *testing.T) *Emitter {
 	ce.config.Region = "us-west-2"
 	ce.config.CustomS3UploadBucket = "bucket"
 	ce.config.CustomS3UploadRegion = "us-east-1"
+	gaps := uint64(4)
 	ce.config.StatusSummary = func() telemetry.Summary {
 		return telemetry.Summary{
 			SchemaVersion: telemetry.SummarySchemaVersion,
@@ -65,7 +66,7 @@ func goldenEmitter(t *testing.T) *Emitter {
 				telemetry.EmitterExporter:     {telemetry.ReasonSnapshotFailed: 2},
 			},
 			QuarantineEvictedTotal:    1,
-			WindowGapsTotal:           4,
+			WindowGapsTotal:           &gaps,
 			EmissionSlotsSkippedTotal: 6,
 			BacklogFiles:              7,
 			BacklogBytes:              8192,
@@ -142,7 +143,7 @@ func TestAgentMeasurementGolden(t *testing.T) {
 			t.Fatalf("agent-measurement.json has no %s object", telemetry.SummaryKey)
 		}
 		for _, k := range []string{"ready", "data_dropped_total", "backlog_files", "backlog_bytes", "last_upload_success_ts",
-			"window_gaps_total", "active_conditions", "counters_since_ts"} {
+			"active_conditions", "counters_since_ts"} {
 			if _, ok := h[k]; !ok {
 				t.Errorf("%s.%s missing", telemetry.SummaryKey, k)
 			}

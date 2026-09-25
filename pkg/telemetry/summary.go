@@ -29,11 +29,13 @@ type Summary struct {
 	ActiveConditions []SummaryCondition `json:"active_conditions"`
 	// DataDroppedTotal is every item lost; DataDropped splits it by emitter and reason (only
 	// those with drops).
-	DataDroppedTotal          uint64                       `json:"data_dropped_total"`
-	DataDropped               map[string]map[string]uint64 `json:"data_dropped,omitempty"`
-	QuarantineEvictedTotal    uint64                       `json:"quarantine_evicted_total"`
-	WindowGapsTotal           uint64                       `json:"window_gaps_total"`
-	EmissionSlotsSkippedTotal uint64                       `json:"emission_slots_skipped_total"`
+	DataDroppedTotal       uint64                       `json:"data_dropped_total"`
+	DataDropped            map[string]map[string]uint64 `json:"data_dropped,omitempty"`
+	QuarantineEvictedTotal uint64                       `json:"quarantine_evicted_total"`
+	// WindowGapsTotal is left out until something measures window gaps (chunk 06), so a
+	// missing measurement is never read as "no gaps".
+	WindowGapsTotal           *uint64 `json:"window_gaps_total,omitempty"`
+	EmissionSlotsSkippedTotal uint64  `json:"emission_slots_skipped_total"`
 	// Cloudability upload queue at the end of the last upload cycle, and when a payload was last
 	// delivered (Unix seconds, 0 if none since the start).
 	BacklogFiles        int   `json:"backlog_files"`
@@ -55,7 +57,7 @@ type SummaryCondition struct {
 // without one the summary is ready with no conditions.
 func (m *Metrics) Summary() Summary {
 	m.mu.Lock()
-	registry, uploadStatus := m.registry, m.uploadStatus
+	registry, uploadStatus, windowGapsSet := m.registry, m.uploadStatus, m.windowGapsSet
 	m.mu.Unlock()
 
 	s := Summary{
@@ -91,9 +93,13 @@ func (m *Metrics) Summary() Summary {
 		s.DataDropped[labels[0]][labels[1]] += uint64(v)
 		s.DataDroppedTotal += uint64(v)
 	}
-	gaps, _ := m.windowGaps.totals()
-	for _, v := range gaps {
-		s.WindowGapsTotal += uint64(v)
+	if windowGapsSet {
+		gaps, _ := m.windowGaps.totals()
+		var total uint64
+		for _, v := range gaps {
+			total += uint64(v)
+		}
+		s.WindowGapsTotal = &total
 	}
 	s.QuarantineEvictedTotal = counterValue(m.quarantineEvicted)
 	s.EmissionSlotsSkippedTotal = counterValue(m.emissionSlotsSkipped)
