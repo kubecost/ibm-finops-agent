@@ -5,6 +5,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/ibm/finops-agent/pkg/telemetry"
+	"github.com/ibm/finops-agent/pkg/telemetry/dropevent"
 	"github.com/opencost/opencost/core/pkg/log"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -138,13 +140,19 @@ func (ce *Emitter) ensureDiskBudget() bool {
 
 // drop counts and logs lost data. Every drop is logged at Error.
 func (ce *Emitter) drop(reason string, count int, detail string) {
-	dropData(ce.events, reason, count, detail)
+	dropData(ce.events, dropevent.Drop{Reason: reason, Count: count, Detail: detail})
 }
 
-// dropData logs lost data at Error and records it in events.
-func dropData(events EventSink, reason string, count int, detail string) {
-	log.Errorf("event=data_dropped emitter=cloudability reason=%s count=%d: %s", reason, count, detail)
-	events.DataDropped(reason, count)
+// dropData logs lost data (telemetry.LogDrop) and records it in events. A quarantine eviction
+// is logged at Warn: it was logged as a drop when it was quarantined.
+func dropData(events EventSink, d dropevent.Drop) {
+	d.Emitter = telemetry.EmitterCloudability
+	if d.Reason == dropReasonQuarantineEvicted {
+		dropevent.LogQuarantineEvicted(d)
+	} else {
+		dropevent.Log(d)
+	}
+	events.DataDropped(d.Reason, d.Count)
 }
 
 // setCondition records one of the emitter's conditions, logging only when it changes.
@@ -153,14 +161,14 @@ func (ce *Emitter) setCondition(name string, active bool, msg string) {
 }
 
 // recordCondition records a condition in events and state, and logs only when it changes: at
-// Error when raised, at Info when cleared. A condition never raised is not cleared.
+// Warn when raised, at Info when cleared. A condition never raised is not cleared.
 func recordCondition(events EventSink, state *conditionStore, name string, active bool, msg string) {
 	if !state.set(name, active, msg) {
 		return
 	}
 	events.SetCondition(name, active)
 	if active {
-		log.Errorf("condition=%s active: %s", name, msg)
+		log.Warnf("condition=%s active: %s", name, msg)
 	} else {
 		log.Infof("condition=%s cleared: %s", name, msg)
 	}

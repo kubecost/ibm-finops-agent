@@ -42,6 +42,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ibm/finops-agent/pkg/telemetry"
+	"github.com/ibm/finops-agent/pkg/telemetry/dropevent"
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
@@ -123,23 +125,31 @@ func (cu *CldyUploader) recoverUploadFiles(dir string) error {
 			}
 			log.Infof("Removed unfinished Cloudability payload %s left by a crash; its samples are recovered from scratch", name)
 			cu.events.UnfinalizedDiscarded(1)
+			cu.events.RecoveryItem(telemetry.RecoveryKindPayload, telemetry.RecoveryDiscardedUnfinalized, 1)
 			continue
 		}
 		_, ts, ok := parsePayloadName(name)
 		if !ok || !e.Type().IsRegular() {
 			cu.quarantine(path, dropReasonInvalidPayload, "not a <clusterID>_<timestamp>.tgz payload")
+			cu.events.RecoveryItem(telemetry.RecoveryKindPayload, telemetry.RecoveryQuarantined, 1)
 			continue
 		}
 		if age := cu.clock().Sub(ts); age > cu.recoveryPeriod {
+			var size int64
+			if info, err := e.Info(); err == nil {
+				size = info.Size()
+			}
 			if err := os.Remove(path); err != nil {
 				log.Errorf("failed to remove expired Cloudability payload %s: %v", name, err)
 				continue
 			}
-			dropData(cu.events, dropReasonRecoveryExpired, 1,
-				fmt.Sprintf("payload %s is %s old, past the recovery period of %s", name, age.Round(time.Second), cu.recoveryPeriod))
+			dropData(cu.events, dropevent.Drop{Reason: dropReasonRecoveryExpired, Count: 1, Bytes: size, WindowStart: ts, WindowEnd: ts,
+				Detail: fmt.Sprintf("payload %s is %s old, past the recovery period of %s", name, age.Round(time.Second), cu.recoveryPeriod)})
+			cu.events.RecoveryItem(telemetry.RecoveryKindPayload, telemetry.RecoveryDropped, 1)
 			continue
 		}
 		cu.RecoveredUploads++
+		cu.events.RecoveryItem(telemetry.RecoveryKindPayload, telemetry.RecoveryRecovered, 1)
 	}
 	return nil
 }
@@ -189,11 +199,13 @@ func (cu *CldyUploader) recoverClusterSamples(clusterID, clusterDir string) erro
 			}
 			log.Infof("Removed unfinalised Cloudability sample %s left by the previous process", name)
 			cu.events.UnfinalizedDiscarded(1)
+			cu.events.RecoveryItem(telemetry.RecoveryKindSample, telemetry.RecoveryDiscardedUnfinalized, 1)
 			continue
 		}
 		m, err := validateSample(path, true)
 		if err != nil {
 			cu.quarantine(path, dropReasonInvalidSample, fmt.Sprintf("not a valid finalised sample: %v", err))
+			cu.events.RecoveryItem(telemetry.RecoveryKindSample, telemetry.RecoveryQuarantined, 1)
 			continue
 		}
 		if age := cu.clock().Sub(m.Timestamp); age > cu.recoveryPeriod {
@@ -201,8 +213,9 @@ func (cu *CldyUploader) recoverClusterSamples(clusterID, clusterDir string) erro
 				log.Errorf("failed to remove expired Cloudability sample %s: %v", name, err)
 				continue
 			}
-			dropData(cu.events, dropReasonRecoveryExpired, 1,
-				fmt.Sprintf("sample %s is %s old, past the recovery period of %s", name, age.Round(time.Second), cu.recoveryPeriod))
+			dropData(cu.events, dropevent.Drop{Reason: dropReasonRecoveryExpired, Count: 1, Bytes: m.totalBytes(), WindowStart: m.Timestamp, WindowEnd: m.Timestamp,
+				Detail: fmt.Sprintf("sample %s is %s old, past the recovery period of %s", name, age.Round(time.Second), cu.recoveryPeriod)})
+			cu.events.RecoveryItem(telemetry.RecoveryKindSample, telemetry.RecoveryDropped, 1)
 			continue
 		}
 		payload, err := cu.buildPayload(clusterID, m.Timestamp, []string{path + string(filepath.Separator)}, m.totalBytes())
@@ -212,10 +225,11 @@ func (cu *CldyUploader) recoverClusterSamples(clusterID, clusterDir string) erro
 			continue
 		}
 		if payload == "" {
-			continue // evicted to make room
+			continue // evicted, and counted, to make room
 		}
 		cu.RecoveredSamples++
 		cu.RecoveredUploads++
+		cu.events.RecoveryItem(telemetry.RecoveryKindSample, telemetry.RecoveryRecovered, 1)
 	}
 	return errs
 }
@@ -236,7 +250,8 @@ func (cu *CldyUploader) quarantine(path, reason, detail string) {
 	}
 	now := cu.clock()
 	dest := filepath.Join(cu.quarantineDir(), fmt.Sprintf("%d_%s_%s", now.UnixNano(), reason, filepath.Base(path)))
-	dropData(cu.events, reason, 1, fmt.Sprintf("%s: %s; quarantining to %s", filepath.Base(path), detail, dest))
+	dropData(cu.events, dropevent.Drop{Reason: reason, Count: 1, Bytes: diskUsage(path),
+		Detail: fmt.Sprintf("%s: %s; quarantining to %s", filepath.Base(path), detail, dest)})
 	err := os.MkdirAll(cu.quarantineDir(), os.ModePerm)
 	if err == nil {
 		err = os.Rename(path, dest)
@@ -282,14 +297,18 @@ func (cu *CldyUploader) trimQuarantine() {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].mod.Before(items[j].mod) })
 	now := cu.clock()
+	batch := dropevent.NewBatch(telemetry.EmitterCloudability)
+	defer batch.Flush()
 	for _, it := range items {
 		expired := now.Sub(it.mod) > quarantineMaxAge
 		if !expired && total <= quarantineMaxBytes {
 			break
 		}
 		// Counted first: a kill before the removal over-counts rather than losing silently.
-		dropData(cu.events, dropReasonQuarantineEvicted, 1,
-			fmt.Sprintf("evicting %s from the quarantine (%d bytes, quarantined %s ago)", it.name, it.size, now.Sub(it.mod).Round(time.Second)))
+		detail := fmt.Sprintf("evicting %s from the quarantine (%d bytes, quarantined %s ago)", it.name, it.size, now.Sub(it.mod).Round(time.Second))
+		log.Infof("Cloudability quarantine: %s", detail)
+		cu.events.DataDropped(dropReasonQuarantineEvicted, 1)
+		batch.Add(dropReasonQuarantineEvicted, 1, it.size, time.Time{}, detail)
 		if err := os.RemoveAll(filepath.Join(dir, it.name)); err != nil {
 			log.Errorf("failed to evict %s from the Cloudability quarantine: %v", it.name, err)
 			continue

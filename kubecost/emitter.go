@@ -10,6 +10,7 @@ import (
 	"github.com/ibm/finops-agent/kubecost/adapters"
 	"github.com/ibm/finops-agent/pkg/emitter"
 	"github.com/ibm/finops-agent/pkg/version"
+	"github.com/opencost/opencost/core/pkg/clusters"
 	"github.com/opencost/opencost/core/pkg/diagnostics"
 	diagexporter "github.com/opencost/opencost/core/pkg/diagnostics/exporter"
 	ocexporter "github.com/opencost/opencost/core/pkg/exporter"
@@ -116,10 +117,7 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	pipelineControllers.KubeModelExportController.Start(ke.config.ExportIntervals.KubeModelInterval)
 
 	// agent presence and heartbeat
-	heartbeatMetadata := heartbeatexporter.NewMultiMetadataProvider(
-		heartbeatexporter.NewClusterInfoMetadataProvider(clusterInfo),
-		heartbeatexporter.NewLogLevelMetadataProvider(),
-	)
+	heartbeatMetadata := ke.heartbeatMetadata(clusterInfo)
 	agentHeartbeat := heartbeatexporter.NewHeartbeatExportController(ke.config.AppName, ke.config.ClusterName, version.FriendlyVersion(), bucketStore, heartbeatMetadata)
 	if ke.config.HeartbeatExportEnabled {
 		agentHeartbeat.Start(ke.config.ExportIntervals.HeartbeatInterval)
@@ -139,6 +137,19 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	ke.diagController = diagnosticsExporter
 
 	return nil
+}
+
+// heartbeatMetadata is the metadata sent with every heartbeat: the cluster info, the log level,
+// and config.HeartbeatMetadata if set.
+func (ke *KubecostEmitter) heartbeatMetadata(clusterInfo clusters.ClusterInfoProvider) heartbeatexporter.HeartbeatMetadataProvider {
+	providers := []heartbeatexporter.HeartbeatMetadataProvider{
+		heartbeatexporter.NewClusterInfoMetadataProvider(clusterInfo),
+		heartbeatexporter.NewLogLevelMetadataProvider(),
+	}
+	if ke.config.HeartbeatMetadata != nil {
+		providers = append(providers, ke.config.HeartbeatMetadata)
+	}
+	return heartbeatexporter.NewMultiMetadataProvider(providers...)
 }
 
 func (ke *KubecostEmitter) Emit(ctx context.Context, snapshot *emitter.ClusterSnapshot) error {

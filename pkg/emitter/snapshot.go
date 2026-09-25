@@ -12,6 +12,7 @@ import (
 	clustercache "github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/nodes"
+	"github.com/ibm/finops-agent/pkg/telemetry/dropevent"
 	"github.com/opencost/opencost/core/pkg/clusters"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/opencost"
@@ -141,7 +142,8 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOfContext(ctx context.Context, ds
 		if k8sSnapshot != nil && len(k8sSnapshot.ShortLivedPods) > 0 {
 			dropped := len(k8sSnapshot.ShortLivedPods)
 			csp.discardedShortLivedPods.Add(uint64(dropped))
-			log.Errorf("snapshot failed after draining %d short-lived pods; they are dropped", dropped)
+			dropevent.Log(dropevent.Drop{Emitter: "exporter", Reason: DropReasonSnapshotFailed, Count: dropped,
+				Detail: "the snapshot failed after draining these short-lived pods from the cluster cache"})
 		}
 		return nil, fmt.Errorf("failed to generate cluster snapshot: %w", err)
 	}
