@@ -1,5 +1,3 @@
-//go:build reliability_repro
-
 package cluster
 
 // Reliability reproductions for the cluster-cache findings in docs/reliability/FINDINGS.md.

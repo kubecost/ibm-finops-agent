@@ -3,8 +3,11 @@ package cluster
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/tools/cache"
 )
 
 // F-25 / I7: the short-lived-pod buffer is capped; overflow drops the oldest and counts it.
@@ -32,5 +35,27 @@ func TestShortLivedPodBufferCap(t *testing.T) {
 	}
 	if got := dcc.ShortLivedPodsDropped(); got != 2 {
 		t.Errorf("ShortLivedPodsDropped() = %d after drain; want 2", got)
+	}
+}
+
+// F-47: a pod deleted during a watch gap arrives as a DeletedFinalStateUnknown tombstone. It is
+// still a short-lived pod and must be buffered.
+func TestShortLivedPodTombstoneCaptured(t *testing.T) {
+	dcc := &DynamicClusterCache{slpCap: DefaultShortLivedPodBufferCap, slpDuration: time.Hour}
+	pod := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata":   map[string]any{"name": "gone", "namespace": "default", "uid": "uid-gone"},
+		"status":     map[string]any{"startTime": time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)},
+	}}
+
+	dcc.captureShortLivedPodFunc()(cache.DeletedFinalStateUnknown{Key: "default/gone", Obj: pod})
+
+	var names []string
+	for _, p := range dcc.GetAllShortLivedPods() {
+		names = append(names, p.Name)
+	}
+	if fmt.Sprint(names) != "[gone]" {
+		t.Errorf("F-47: a pod deleted during a watch gap (tombstone) was not buffered: got %v, want [gone]", names)
 	}
 }
