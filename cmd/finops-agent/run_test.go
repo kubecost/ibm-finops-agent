@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -207,7 +208,7 @@ func agentGoroutines() []string {
 	}
 	var agent []string
 	createdBy := regexp.MustCompile(`created by (github\.com/ibm/finops-agent/\S+|k8s\.io/client-go/(?:tools/cache|informers|dynamic/dynamicinformer)\S*)`)
-	for _, g := range strings.Split(string(buf), "\n\n") {
+	for g := range strings.SplitSeq(string(buf), "\n\n") {
 		m := createdBy.FindStringSubmatch(g)
 		if m == nil || strings.HasPrefix(m[1], "github.com/ibm/finops-agent/cmd/finops-agent.Test") {
 			continue
@@ -255,9 +256,7 @@ func runEnv(t *testing.T, overrides map[string]string) {
 		"EXPORTER_EMISSION_INTERVAL":       "1s",
 		"INFORMER_SYNC_TIMEOUT":            "30s",
 	}
-	for k, v := range overrides {
-		env[k] = v
-	}
+	maps.Copy(env, overrides)
 	for k, v := range env {
 		t.Setenv(k, v)
 	}

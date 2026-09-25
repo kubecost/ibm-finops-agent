@@ -53,8 +53,7 @@ func TestStopDeliversUnpackagedSample(t *testing.T) {
 	config.UploadFrequency = 24 * time.Hour // the loop's own cycle never runs in the test
 	svc := &fakeStorage{}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	cu := cldy.StartUploaderForTest(ctx, config, []cldy.StorageService{svc}, nil)
 	cu.SetClusterID(scratch.ClusterID)
 	scratch.AddCompleteSample(t, time.Now().Add(-time.Minute), 0)
@@ -91,8 +90,7 @@ func TestStopWithUnreachableBackendKeepsPayloadForNextStart(t *testing.T) {
 	config.UploadFrequency = 24 * time.Hour
 	down := &blockingStorage{release: make(chan struct{})}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	cu := cldy.StartUploaderForTest(ctx, config, []cldy.StorageService{down}, nil)
 	cu.SetClusterID(scratch.ClusterID)
 	scratch.AddCompleteSample(t, time.Now().Add(-time.Minute), 0)
