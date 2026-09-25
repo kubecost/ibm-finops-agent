@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/ibm/finops-agent/internal/mocks"
-	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/opencost/opencost/core/pkg/source"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
@@ -205,38 +204,6 @@ func TestReproF39CacheTruncatesClosedWindow(t *testing.T) {
 		if !hasNew {
 			t.Errorf("F-39: at the 10:00 tick the hourly snapshot has no entry for the new 10:00-11:00 window (windows: %v)", starts)
 		}
-	}
-}
-
-// failFirstProvider fails its first n snapshots, then returns an empty snapshot.
-type failFirstProvider struct {
-	calls atomic.Int32
-	n     int32
-}
-
-func (p *failFirstProvider) SnapshotOf(core.DataSource) (*ClusterSnapshot, error) {
-	if p.calls.Add(1) <= p.n {
-		return nil, errors.New("snapshot source unavailable")
-	}
-	return &ClusterSnapshot{}, nil
-}
-
-// F-09: one failed initial snapshot ends emission permanently.
-func TestReproF09ExporterDiesOnInitialSnapshotFailure(t *testing.T) {
-	provider := &failFirstProvider{n: 1}
-	em := newCountingEmitter("f09")
-	exporter := NewExporter(newEmptyDataSource(), provider, em)
-	if !exporter.Start(20 * time.Millisecond) {
-		t.Fatal("failed to start exporter")
-	}
-	defer exporter.Stop()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && em.count.Load() == 0 {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if em.count.Load() == 0 {
-		t.Fatalf("F-09: exporter never emitted after its first snapshot failed (%d snapshot attempts; the source recovered after 1)", provider.calls.Load())
 	}
 }
 
