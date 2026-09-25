@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -56,9 +57,7 @@ func (f *counterFamily) addSource(src func(add func(v uint64, labelValues ...str
 func (f *counterFamily) totals() (map[string]float64, []string) {
 	f.mu.Lock()
 	values := make(map[string]float64, len(f.added))
-	for k, v := range f.added {
-		values[k] = v
-	}
+	maps.Copy(values, f.added)
 	order := slices.Clone(f.order)
 	sources := slices.Clone(f.sources)
 	f.mu.Unlock()

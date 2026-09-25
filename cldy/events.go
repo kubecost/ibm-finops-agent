@@ -1,6 +1,7 @@
 package cldy
 
 import (
+	"maps"
 	"sync"
 	"time"
 
@@ -211,21 +212,11 @@ func (c *EventCounts) Snapshot() EventCountsSnapshot {
 		HeadDeferred:         c.headDeferred,
 		RecoveryItems:        map[string]int{},
 	}
-	for k, v := range c.dropped {
-		s.Dropped[k] = v
-	}
-	for k, v := range c.emitResults {
-		s.EmitResults[k] = v
-	}
-	for k, v := range c.conditions {
-		s.Conditions[k] = v
-	}
-	for k, v := range c.uploadAttempts {
-		s.UploadAttempts[k] = v
-	}
-	for k, v := range c.recoveryItems {
-		s.RecoveryItems[k] = v
-	}
+	maps.Copy(s.Dropped, c.dropped)
+	maps.Copy(s.EmitResults, c.emitResults)
+	maps.Copy(s.Conditions, c.conditions)
+	maps.Copy(s.UploadAttempts, c.uploadAttempts)
+	maps.Copy(s.RecoveryItems, c.recoveryItems)
 	return s
 }
 
