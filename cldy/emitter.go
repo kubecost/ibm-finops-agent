@@ -35,6 +35,11 @@ const scratchPath = "scratch"
 const uploadPath = "upload"
 const agentName = "ibm-finops-agent"
 
+// maxPendingShortLivedPods caps the short-lived pods the emitter holds between samples. Chunk 05
+// caps the cluster cache's buffer; this is the emitter's own bound until chunk 06 moves the
+// commit into the exporter.
+const maxPendingShortLivedPods = 10000
+
 type Emitter struct {
 	config            EmitterConfig
 	startTime         time.Time
@@ -57,6 +62,9 @@ type Emitter struct {
 	nodeStatsMu                  sync.RWMutex
 	lastSuccessfulNodeCollection time.Time
 	lastNodeCollectionErr        error
+
+	// events receives drops, discards, emit outcomes and condition changes.
+	events EventSink
 }
 
 type EmitterConfig struct {
@@ -186,6 +194,7 @@ func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *
 		emissionInterval: config.EmissionInterval,
 		agentVersion:     version.Version,
 		now:              now,
+		events:           NewEventCounts(),
 	}
 	currentTime := ce.clock().UTC()
 	ce.startTime = currentTime
