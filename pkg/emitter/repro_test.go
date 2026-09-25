@@ -1,10 +1,7 @@
-//go:build reliability_repro
-
 package emitter
 
-// Reliability reproductions for the snapshot and exporter findings in
-// docs/reliability/FINDINGS.md. Each test fails, naming its finding, until the chunk that fixes
-// the finding removes the build tag.
+// Reliability reproductions for the snapshot findings in docs/reliability/FINDINGS.md (chunk 06:
+// F-06, F-14, F-39). Each assertion names its finding.
 
 import (
 	"context"
@@ -104,48 +101,68 @@ func mustTime(t *testing.T, s string) time.Time {
 	return ts
 }
 
-// F-06: a snapshot failure lasting several 10m windows drops the windows in between. Every
-// closed window must be snapshotted after it closes, or the gap reported.
+// commitDelivered tells the provider that snap's metrics reached their consumer, as the
+// exporter does after Kubecost's Emit succeeds. Providers without window bookkeeping ignore it.
+func commitDelivered(provider SnapshotProvider, snap *ClusterSnapshot) {
+	if c, ok := provider.(interface{ CommitWindows(*ClusterSnapshot) }); ok {
+		c.CommitWindows(snap)
+	}
+}
+
+// windowGapsTotal returns the windows the provider reported as gaps at resolution, or 0 if it
+// reports none.
+func windowGapsTotal(provider SnapshotProvider, resolution time.Duration) uint64 {
+	if g, ok := provider.(interface{ WindowGapsTotal(time.Duration) uint64 }); ok {
+		return g.WindowGapsTotal(resolution)
+	}
+	return 0
+}
+
+// F-06: a metrics failure lasting several 10m windows drops the windows in between. Every
+// closed window must be snapshotted after it closes, or reported as a gap.
 func TestReproF06WindowsDroppedAfterSnapshotFailure(t *testing.T) {
 	clock := newTimeBender()
 	ds := newReproDataSource()
+	querier := &recordingQuerier{MetricsQuerier: ds.metrics, now: clock.now}
+	ds.metrics = querier
 	provider := NewConcurrentSnapshotProvider(&SnapshotConfig{
 		MinutelyMetricsEnabled: true,
 		KubernetesSnapshot:     NewKubernetesSnapshotConfig().EnableAll(),
 		Now:                    clock.now,
 	})
 
-	// closedAt records, per 10m window start, whether a successful snapshot covered it after
+	// closedAt records, per 10m window start, whether a delivered snapshot covered it after
 	// the window had closed.
 	closedAt := map[time.Time]bool{}
-	snapshotAt := func(at time.Time) error {
+	snapshotAt := func(at time.Time) bool {
 		clock.current = at
 		snap, err := provider.SnapshotOf(ds)
-		if err != nil {
-			return err
+		if err != nil || snap.Metrics == nil {
+			return false
 		}
 		for _, m := range snap.Metrics.Minutely {
 			if !at.Before(*m.Window.End()) {
 				closedAt[*m.Window.Start()] = true
 			}
 		}
-		return nil
+		commitDelivered(provider, snap)
+		return true
 	}
 
 	start := mustTime(t, "2026-01-01T09:05:00Z")
-	if err := snapshotAt(start); err != nil {
-		t.Fatalf("initial snapshot: %v", err)
+	if !snapshotAt(start) {
+		t.Fatal("initial snapshot has no metrics")
 	}
-	// 35 minutes of failing snapshots, one per minute, 09:06..09:40.
-	ds.statsFail.Store(true)
+	// 35 minutes of failing metrics, one snapshot per minute, 09:06..09:40.
+	querier.fail.Store(true)
 	for m := 1; m <= 35; m++ {
-		if err := snapshotAt(start.Add(time.Duration(m) * time.Minute)); err == nil {
-			t.Fatalf("snapshot at +%dm unexpectedly succeeded", m)
+		if snapshotAt(start.Add(time.Duration(m) * time.Minute)) {
+			t.Fatalf("metrics at +%dm unexpectedly succeeded", m)
 		}
 	}
-	ds.statsFail.Store(false)
-	if err := snapshotAt(mustTime(t, "2026-01-01T09:41:00Z")); err != nil {
-		t.Fatalf("recovery snapshot: %v", err)
+	querier.fail.Store(false)
+	if !snapshotAt(mustTime(t, "2026-01-01T09:41:00Z")) {
+		t.Fatal("recovery snapshot has no metrics")
 	}
 
 	var missing []string
@@ -154,8 +171,8 @@ func TestReproF06WindowsDroppedAfterSnapshotFailure(t *testing.T) {
 			missing = append(missing, fmt.Sprintf("%s-%s", w.Format("15:04"), w.Add(10*time.Minute).Format("15:04")))
 		}
 	}
-	if len(missing) > 0 {
-		t.Fatalf("F-06: after a 35 min snapshot failure, closed 10m windows %v were never snapshotted after closing, and no gap was reported", missing)
+	if gaps := windowGapsTotal(provider, 10*time.Minute); uint64(len(missing)) != gaps {
+		t.Fatalf("F-06: after a 35 min metrics failure, closed 10m windows %v were never snapshotted after closing, and %d were reported as gaps", missing, gaps)
 	}
 }
 
@@ -181,6 +198,7 @@ func TestReproF39CacheTruncatesClosedWindow(t *testing.T) {
 		if err != nil {
 			t.Fatalf("snapshot at %s: %v", at.Format("15:04"), err)
 		}
+		commitDelivered(provider, snap)
 		if at.Equal(rollover) {
 			atRollover = snap.Metrics
 		}
@@ -214,6 +232,11 @@ type lifecycleEmitter struct {
 }
 
 func (e *lifecycleEmitter) ID() EmitterID { return e.id }
+
+// RequiredComponents declares what Cloudability needs: no metrics.
+func (e *lifecycleEmitter) RequiredComponents() []SnapshotComponent {
+	return []SnapshotComponent{ComponentKubernetes, ComponentNodeStats}
+}
 func (e *lifecycleEmitter) Init(*ClusterSnapshot) error {
 	e.inits.Add(1)
 	return nil

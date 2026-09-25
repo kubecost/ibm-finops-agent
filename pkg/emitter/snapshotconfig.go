@@ -196,6 +196,10 @@ type SnapshotConfig struct {
 
 	// Now is the func used to determine the current time.
 	Now Now
+
+	// WatermarkFile is where the metrics window watermarks are persisted, so a restart backfills
+	// or reports the windows it missed. Empty means they are kept in memory only.
+	WatermarkFile string
 }
 
 // WithKubernetesSnapshotConfig appends the provided KubernetesSnapshotConfig to the current SnapshotConfig.

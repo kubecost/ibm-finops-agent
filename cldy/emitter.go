@@ -57,6 +57,9 @@ type Emitter struct {
 	nodeStatsMu                  sync.RWMutex
 	lastSuccessfulNodeCollection time.Time
 	lastNodeCollectionErr        error
+
+	// writtenPods are the short-lived pods in samples queued for upload (see WrittenShortLivedPods).
+	writtenPods writtenPods
 }
 
 type EmitterConfig struct {
@@ -356,6 +359,7 @@ func (ce *Emitter) Emit(ctx context.Context, cs *emitter.ClusterSnapshot) error 
 	}
 
 	ce.Uploader.AddSample(ce.currentSamplePath)
+	ce.writtenPods.add(cs.Kubernetes.ShortLivedPods)
 	ce.sampleCt++
 	ce.currentSamplePath = ce.nextSamplePath
 	log.Debugf("Emitted sample to Cldy: %d", ce.sampleCt)
