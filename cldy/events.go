@@ -1,5 +1,7 @@
 package cldy
 
+import "maps"
+
 import "sync"
 
 // Drop reasons for finops_agent_data_dropped_total{reason} raised by this package. Chunk 09
@@ -208,17 +210,9 @@ func (c *EventCounts) Snapshot() EventCountsSnapshot {
 		UploadAttempts:       map[string]int{},
 		HeadDeferred:         c.headDeferred,
 	}
-	for k, v := range c.dropped {
-		s.Dropped[k] = v
-	}
-	for k, v := range c.emitResults {
-		s.EmitResults[k] = v
-	}
-	for k, v := range c.conditions {
-		s.Conditions[k] = v
-	}
-	for k, v := range c.uploadAttempts {
-		s.UploadAttempts[k] = v
-	}
+	maps.Copy(s.Dropped, c.dropped)
+	maps.Copy(s.EmitResults, c.emitResults)
+	maps.Copy(s.Conditions, c.conditions)
+	maps.Copy(s.UploadAttempts, c.uploadAttempts)
 	return s
 }
