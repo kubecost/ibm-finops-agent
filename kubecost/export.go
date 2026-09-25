@@ -32,8 +32,9 @@ const (
 // errStopped is returned for exports attempted after Stop.
 var errStopped = errors.New("kubecost emitter is stopping")
 
-// quietPeriod is how long Stop waits with no compute or write in flight before it considers the
-// controllers drained. It covers the gap between a compute returning and its write starting.
+// quietPeriod is how long Stop waits with no compute, existence check or write in flight before
+// it considers the controllers drained. It covers the gap between a compute returning and its
+// write starting (the Exists check is tracked; encoding the set is not).
 const quietPeriod = 250 * time.Millisecond
 
 // exportActivity tracks the export controllers' computes and bucket writes, so Stop can wait for
@@ -41,7 +42,7 @@ const quietPeriod = 250 * time.Millisecond
 type exportActivity struct {
 	mu         sync.Mutex
 	stopping   bool // no new computes
-	closed     bool // no new writes
+	closed     bool // no new writes: set only when Stop's bound expires
 	active     int
 	lastChange time.Time
 
@@ -66,17 +67,13 @@ func (a *exportActivity) end() {
 	a.lastChange = time.Now()
 }
 
-// drain refuses new computes, waits until nothing has been in flight for quietPeriod or ctx
-// ends, and then refuses new writes.
+// drain refuses new computes and waits until nothing has been in flight for quietPeriod. Writes
+// stay allowed, so a computation that finished just before Stop still gets its window written
+// (a closed window is exported only once). If ctx ends first, new writes are refused from then on.
 func (a *exportActivity) drain(ctx context.Context) error {
 	a.mu.Lock()
 	a.stopping = true
 	a.mu.Unlock()
-	defer func() {
-		a.mu.Lock()
-		a.closed = true
-		a.mu.Unlock()
-	}()
 
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
@@ -91,6 +88,9 @@ func (a *exportActivity) drain(ctx context.Context) error {
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
+			a.mu.Lock()
+			a.closed = true
+			a.mu.Unlock()
 			return fmt.Errorf("%d Kubecost exports still in flight: %w", active, ctx.Err())
 		}
 	}
@@ -142,6 +142,15 @@ func (s *exportStore) WriteStream(path string) (io.WriteCloser, error) {
 	return &exportStreamWriter{WriteCloser: w, store: s}, nil
 }
 
+// Exists is the first bucket call of every export, so it counts as activity for Stop.
+func (s *exportStore) Exists(path string) (bool, error) {
+	if err := s.begin(path); err != nil {
+		return false, err
+	}
+	defer s.activity.end()
+	return s.Storage.Exists(path)
+}
+
 func (s *exportStore) Remove(path string) error {
 	if err := s.begin(path); err != nil {
 		return err
@@ -153,14 +162,27 @@ func (s *exportStore) Remove(path string) error {
 // exportStreamWriter ends a streamed write's activity when it is closed.
 type exportStreamWriter struct {
 	io.WriteCloser
-	store *exportStore
-	once  sync.Once
+	store  *exportStore
+	failed bool
+	once   sync.Once
+}
+
+func (w *exportStreamWriter) Write(p []byte) (int, error) {
+	n, err := w.WriteCloser.Write(p)
+	if err != nil {
+		w.failed = true
+	}
+	return n, err
 }
 
 func (w *exportStreamWriter) Close() error {
 	err := w.WriteCloser.Close()
 	w.once.Do(func() {
-		w.store.result(err)
+		result := err
+		if result == nil && w.failed {
+			result = errors.New("stream write failed")
+		}
+		w.store.result(result)
 		w.store.activity.end()
 	})
 	return err
@@ -322,12 +344,14 @@ func (c *bucketCanary) probe() error {
 	if err := c.store.Write(c.path, payload); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
+	// Any content will do: during a rolling update two pods can probe the same object, and some
+	// S3-compatible stores are only eventually consistent.
 	data, err := c.store.Read(c.path)
 	if err != nil {
 		return fmt.Errorf("read: %w", err)
 	}
-	if string(data) != string(payload) {
-		return errors.New("read: content differs from what was written")
+	if len(data) == 0 {
+		return errors.New("read: empty object")
 	}
 	if err := c.store.Remove(c.path); err != nil {
 		return fmt.Errorf("delete: %w", err)

@@ -239,3 +239,16 @@ func TestWALWriteFailuresRaiseAndClearCondition(t *testing.T) {
 		t.Errorf("%s still raised after a successful WAL write", ConditionWALWriteFailing)
 	}
 }
+
+// If the collector doesn't start the WAL it was given (NewWalinator failed, log-only), the WAL is
+// as absent as in F-41.
+func TestWALNotStartedRaisesUnavailable(t *testing.T) {
+	var readable atomic.Bool
+	readable.Store(true)
+	wal := openWAL(walBucketConfigFile, testWALOptions(&readable, newFaultyStore()), func(storage.Storage) {})
+	defer wal.Close()
+
+	if !condition.Has(wal.Conditions(), ConditionWALUnavailable) {
+		t.Errorf("collector ignored its WAL store and no %s condition was raised: %v", ConditionWALUnavailable, conditionTypes(wal.Conditions()))
+	}
+}

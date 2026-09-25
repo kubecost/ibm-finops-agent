@@ -210,3 +210,34 @@ func TestStopIsBounded(t *testing.T) {
 		t.Errorf("Stop with a hung write returned %v; want a deadline error", err)
 	}
 }
+
+// A computation that finished just before Stop still gets its window written: OpenCost exports a
+// closed window only once, so refusing that write would lose it. Writes are refused only after
+// Stop's bound expires, and new computations as soon as Stop starts.
+func TestDrainKeepsWritesOpenUntilBound(t *testing.T) {
+	activity := &exportActivity{}
+	store := &exportStore{Storage: storage.NewMemoryStorage(), activity: activity}
+
+	if err := activity.drain(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if activity.begin(false) {
+		t.Error("a computation started after Stop")
+	}
+	if err := store.Write("w/late", []byte("x")); err != nil {
+		t.Errorf("a write after a clean drain was refused: %v", err)
+	}
+
+	activity.begin(true) // a write that never finishes
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := activity.drain(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("drain with a hung write returned %v", err)
+	}
+	if err := store.Write("w/after-bound", []byte("x")); !errors.Is(err, errStopped) {
+		t.Errorf("a write after Stop's bound expired returned %v; want errStopped", err)
+	}
+	if got := activity.rejectedAfterStopTotal.Load(); got != 1 {
+		t.Errorf("rejectedAfterStopTotal = %d; want 1", got)
+	}
+}

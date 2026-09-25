@@ -201,7 +201,9 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 		agentHeartbeat.Stop()
 		diagnosticsExporter.Stop()
 		if canary != nil {
-			_ = canary.stop(context.Background())
+			ctx, cancel := context.WithTimeout(context.Background(), canary.interval)
+			_ = canary.stop(ctx)
+			cancel()
 		}
 		return errStopped
 	}
@@ -269,9 +271,9 @@ func (ke *KubecostEmitter) Status() ExportStatus {
 	return status
 }
 
-// Stop stops every export controller and the bucket canary, then waits for computations and
-// bucket writes in flight until they finish or ctx ends. Exports that would start after that are
-// refused and counted. Call it after the exporter has stopped; it is safe to call more than once
+// Stop stops every export controller and the bucket canary, refuses new computations, and waits
+// until no computation, existence check or bucket write has been in flight for a short quiet
+// period, or ctx ends. Only if ctx ends first are later writes refused (and counted). Call it after the exporter has stopped; it is safe to call more than once
 // and before Init.
 func (ke *KubecostEmitter) Stop(ctx context.Context) error {
 	ke.mu.Lock()

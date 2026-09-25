@@ -34,6 +34,8 @@ const (
 	// walReasonRestartRequired: the bucket store can be built now, but the collector already
 	// started without a WAL and it can't be attached to a running collector.
 	walReasonRestartRequired = "restart_required"
+	// walReasonNotStarted: the store was built but the collector didn't start the WAL.
+	walReasonNotStarted = "not_started"
 )
 
 // WAL reports the state of the collector's write-ahead log (docs/reliability/FINDINGS.md F-20,
@@ -44,6 +46,7 @@ type WAL struct {
 	conditions *condition.Set
 
 	restoring                   atomic.Bool
+	restoreLists                atomic.Uint64
 	restoreErrors               atomic.Uint64
 	writesTotal, writeFailures  atomic.Uint64
 	storeAttempts, storeFailure atomic.Uint64
@@ -142,6 +145,14 @@ func openWAL(bucketConfigFile string, opts walOptions, construct func(storage.St
 	wal.restoring.Store(true)
 	construct(&walStore{Storage: store, wal: wal})
 	wal.restoring.Store(false)
+
+	// The Walinator lists the bucket as it starts. No List means the collector didn't create it
+	// (NewWalinator failed, which is log-only) and runs without a WAL.
+	if wal.restoreLists.Load() == 0 {
+		log.Errorf("Collector started WITHOUT a write-ahead log although its bucket store was built; see the collector's walinator error. Kubecost exports stay stopped.")
+		wal.conditions.Raise(ConditionWALUnavailable, walReasonNotStarted, "the collector did not start its write-ahead log")
+		return wal
+	}
 
 	if n := wal.restoreErrors.Load(); n > 0 {
 		msg := fmt.Sprintf("%d bucket list or read errors while replaying the WAL; in-progress windows restored incompletely will be overwritten with partial data by the next export", n)
@@ -252,6 +263,9 @@ func (s *walStore) restoreError(err error) {
 }
 
 func (s *walStore) List(path string) ([]*storage.StorageInfo, error) {
+	if s.wal.restoring.Load() {
+		s.wal.restoreLists.Add(1)
+	}
 	infos, err := s.Storage.List(path)
 	s.restoreError(err)
 	return infos, err

@@ -73,6 +73,8 @@ bumped.
     (the exporter retries it every cycle). The WAL can't be attached to a running collector, so
     background retries only switch the condition's reason to `restart_required` once the bucket
     works again.
+  - If the store was built but the collector didn't start the WAL (`NewWalinator` failed, which
+    OpenCost only logs), `wal_unavailable` is raised with reason `not_started`.
   - A bucket List or Read error while the WAL replays raises `wal_restore_failed`. Exports still
     run: holding them back would lose every later window too.
   - A failed WAL write raises `wal_write_failing` until the next write succeeds. Scrapes in that
@@ -84,8 +86,9 @@ bumped.
 ## Export health
 
 - **Bucket canary.** Every `BUCKET_CANARY_INTERVAL` (default 10m; 0 disables) the emitter writes,
-  reads back and deletes `<cluster name>/write-test/test.txt`, the object `ValidateConfig` already
-  uses at startup. A failure or timeout raises `bucket_unavailable`, and the next success clears
+  reads back (any non-empty content passes, so overlapping pods in a rolling update don't trip
+  it) and deletes `<cluster name>/write-test/test.txt`, the object `ValidateConfig` already uses
+  at startup. A failure or timeout raises `bucket_unavailable`, and the next success clears
   it. That is 3 small requests per cluster per interval (432 a day at the default). Until OpenCost
   reports export failures itself (U-3), this is the signal that exports are failing.
 - **Write counters.** Every export write (pipelines, heartbeat, diagnostics) is counted, including
@@ -100,9 +103,14 @@ bumped.
 
 1. Stops every controller and the canary.
 2. Refuses new computations.
-3. Waits until no computation or write has been in flight for 250 ms, or until `ctx` ends.
-4. Refuses writes from then on, counting each one in `WritesRejectedAfterStopTotal` with an Error
-   log.
+3. Waits until no computation, existence check or write has been in flight for 250 ms. Writes
+   stay allowed while it waits, so a window whose computation just finished still gets written.
+   OpenCost exports a closed window only once.
+4. If `ctx` ends first, refuses writes from then on, counting each one in
+   `WritesRejectedAfterStopTotal` with an Error log.
+
+Encoding a set between the existence check and the write isn't tracked. If it runs longer than
+the quiet period, that write can still happen after `Stop` returns.
 
 `main` calls it after the exporter stops, with a 10 s bound. The OpenCost controllers have no way
 to wait for their loops (U-6), which is why the emitter tracks activity itself.
