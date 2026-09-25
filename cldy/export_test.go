@@ -216,11 +216,11 @@ func RegionURLsForTest(region string) (frontdoor, cloudability, metricsCollector
 // pointed at endpoint with static credentials.
 func NewCustomS3ClientForTest(bucket, endpoint string) StorageService {
 	sess := session.Must(session.NewSession(&aws.Config{
-		Region:           aws.String("us-east-1"),
-		Endpoint:         aws.String(endpoint),
-		S3ForcePathStyle: aws.Bool(true),
+		Region:           new("us-east-1"),
+		Endpoint:         new(endpoint),
+		S3ForcePathStyle: new(true),
 		Credentials:      credentials.NewStaticCredentials("id", "secret", ""),
-		MaxRetries:       aws.Int(3),
+		MaxRetries:       new(3),
 	}))
 	return CustomS3Client{S3Bucket: bucket, S3Region: "us-east-1",
 		UploadClient: &CustomS3Uploader{Uploader: s3manager.NewUploaderWithClient(s3.New(sess))}}
