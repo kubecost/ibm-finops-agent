@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"io"
+	"math/rand/v2"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,13 +13,12 @@ import (
 	"time"
 )
 
-// maxAttempts is the number of times an HTTP request is attempted before giving up.
-const maxAttempts = 3
-
-// retryBackoff returns the wait before the next attempt: 2s, 4s, ...
-// It is a variable so tests can shorten it.
+// retryBackoff returns the wait after the given attempt: capped exponential backoff with jitter,
+// a random wait between half and all of 2s, 4s, 8s, ... up to maxRetryBackoff. It is a variable
+// so tests can shorten it.
 var retryBackoff = func(attempt int) time.Duration {
-	return time.Duration(1<<attempt) * time.Second
+	d := min(time.Duration(1)<<min(attempt, 10)*time.Second, maxRetryBackoff)
+	return d/2 + rand.N(d/2+1)
 }
 
 func safeClose(closer func() error, err *error) {
@@ -27,19 +27,18 @@ func safeClose(closer func() error, err *error) {
 	}
 }
 
-func getFileNameAndHash(filePath string) (string, string, error) {
+func getFileNameAndHash(filePath string) (fileName, hash string, err error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return "", "", err
 	}
 	defer safeClose(file.Close, &err)
 
-	fileName := path.Base(filePath)
-	hash := md5.New()
-	if _, err = io.Copy(hash, file); err != nil {
+	digest := md5.New()
+	if _, err = io.Copy(digest, file); err != nil {
 		return "", "", err
 	}
-	return fileName, base64.StdEncoding.EncodeToString(hash.Sum(nil)), nil
+	return path.Base(filePath), base64.StdEncoding.EncodeToString(digest.Sum(nil)), nil
 }
 
 // SafePath joins elements and creates a path that prevents file traversal while maintaining trailing separators

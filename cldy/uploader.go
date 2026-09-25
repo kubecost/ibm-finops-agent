@@ -190,6 +190,8 @@ func newCldyUploader(config UploaderConfig, storageServices []StorageService, st
 		now:             now,
 	}
 	uploader.checkConfigured()
+	uploader.setCondition(conditionRegionFallback, regionFallback(config.ApptioConfig),
+		fmt.Sprintf("CLOUDABILITY_UPLOAD_REGION %q is not a known region; uploading to the US endpoints", config.Region))
 	err = uploader.recoverDataOnStartup()
 	if err != nil {
 		log.Errorf("Cloudability startup recovery was incomplete: %v", err)
@@ -265,8 +267,24 @@ func (cu *CldyUploader) liveClusterID() string {
 }
 
 // uploadLoop runs an upload cycle every UploadFrequency. The first cycle comes after a random
-// part of one interval, so that agents restarted together don't upload in step.
+// part of one interval, so that agents restarted together don't upload in step. Closing stop
+// cancels the upload in flight.
 func (cu *CldyUploader) uploadLoop() {
+	ctx, cancel := context.WithCancel(context.Background())
+	watcher := make(chan struct{})
+	go func() {
+		defer close(watcher)
+		select {
+		case <-cu.stop:
+		case <-ctx.Done():
+		}
+		cancel()
+	}()
+	defer func() {
+		cancel()
+		<-watcher
+	}()
+
 	interval := max(cu.config.UploadFrequency, time.Second)
 	first := time.NewTimer(time.Duration(rand.Int64N(int64(interval))))
 	defer first.Stop()
@@ -274,7 +292,7 @@ func (cu *CldyUploader) uploadLoop() {
 	case <-cu.stop:
 		return
 	case <-first.C:
-		cu.uploadCycle()
+		cu.uploadCycle(ctx)
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -283,7 +301,7 @@ func (cu *CldyUploader) uploadLoop() {
 		case <-cu.stop:
 			return
 		case <-ticker.C:
-			cu.uploadCycle()
+			cu.uploadCycle(ctx)
 		}
 	}
 }
@@ -292,7 +310,7 @@ func (cu *CldyUploader) uploadLoop() {
 // bounds and uploads the queued payloads, oldest first. A packaging failure never stops the
 // upload step, and the upload step runs whether or not there were new samples. Nothing is
 // packaged or uploaded until the live cluster ID is known.
-func (cu *CldyUploader) uploadCycle() {
+func (cu *CldyUploader) uploadCycle(ctx context.Context) {
 	cu.hbMu.Lock()
 	cu.heartbeat.LastCycleStart = cu.clock()
 	cu.hbMu.Unlock()
@@ -320,7 +338,7 @@ func (cu *CldyUploader) uploadCycle() {
 		log.Errorf("failed to package Cloudability samples; they stay queued for the next cycle: %v", err)
 	}
 	cu.queue.enforceBounds(clusterID, cu.recoveryPeriod, cu.backlogMaxBytes)
-	failed = !cu.uploadQueued(clusterID)
+	failed = !cu.uploadQueued(ctx, clusterID)
 }
 
 // checkConfigured raises uploader_unconfigured while there is no storage service. The queue is
@@ -530,8 +548,8 @@ func removeSamples(samples []string) {
 
 // uploadQueued uploads the queued payloads in order (queue.go) and reports whether the cycle
 // got through the queue without stopping on a failure. See classifyUpload for what each
-// failure does.
-func (cu *CldyUploader) uploadQueued(clusterID string) bool {
+// failure does. Each upload has a deadline sized to the payload (uploadDeadline), inside ctx.
+func (cu *CldyUploader) uploadQueued(ctx context.Context, clusterID string) bool {
 	if len(cu.StorageServices) == 0 {
 		return true
 	}
@@ -592,7 +610,7 @@ func (cu *CldyUploader) uploadQueued(clusterID string) bool {
 			return false
 		}
 
-		err := cu.uploadData(p.path, clusterID)
+		err := cu.uploadData(ctx, p.path, clusterID)
 		cu.events.UploadAttempt(uploadResult(err))
 		outcome := classifyUpload(err)
 		cu.queue.finishUpload(func() {
@@ -620,6 +638,10 @@ func (cu *CldyUploader) uploadQueued(clusterID string) bool {
 			return false
 		default:
 			log.Warnf("uploading Cloudability payload %s failed; the queue is retried from it next cycle: %v", name, err)
+			if ctx.Err() != nil {
+				// The uploader is stopping: not the payload's fault.
+				return false
+			}
 			if cu.headFailed(p, err) {
 				quarantined = true // or deferred; either way the next payload is now the head
 				continue
@@ -718,12 +740,19 @@ func (cu *CldyUploader) deferPayload(path string, now time.Time) bool {
 	return true
 }
 
-// uploadData uploads the payload at path to every storage service.
-func (cu *CldyUploader) uploadData(path, clusterID string) error {
+// uploadData uploads the payload at path to every storage service, within a deadline sized to
+// the payload (uploadDeadline).
+func (cu *CldyUploader) uploadData(ctx context.Context, path, clusterID string) error {
 	fileName, hash, err := getFileNameAndHash(path)
 	if err != nil {
 		return err
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, uploadDeadline(cu.config.ApptioConfig, info.Size()))
+	defer cancel()
 	payload := UploadPayload{
 		ClusterUID:   clusterID,
 		FileName:     fileName,
@@ -732,7 +761,7 @@ func (cu *CldyUploader) uploadData(path, clusterID string) error {
 		FilePath:     path,
 	}
 	for _, service := range cu.StorageServices {
-		if err := service.Upload(payload); err != nil {
+		if err := service.Upload(ctx, payload); err != nil {
 			return err
 		}
 	}

@@ -132,6 +132,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY", false)
 	viper.SetDefault("RECOVERY_PERIOD", defaultRecoveryPeriod.String())
 	viper.SetDefault("BACKLOG_MAX_MB", defaultBacklogMaxBytes>>20)
+	viper.SetDefault("UPLOAD_MIN_THROUGHPUT_KBPS", defaultMinThroughput>>10)
 
 	// Pending data older than this at startup is dropped rather than uploaded. A bare number
 	// parses as nanoseconds, so anything under one upload interval is rejected as a mistake.
@@ -147,6 +148,14 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	if backlogMaxMB < 1 {
 		return EmitterConfig{}, fmt.Errorf("CLOUDABILITY_BACKLOG_MAX_MB must be a whole number of MiB, at least 1; got %q",
 			viper.GetString("BACKLOG_MAX_MB"))
+	}
+
+	// The slowest upload allowed to finish: each upload's deadline is HTTPS_CLIENT_TIMEOUT plus
+	// the time its payload takes at this rate.
+	minThroughputKBps := viper.GetInt64("UPLOAD_MIN_THROUGHPUT_KBPS")
+	if minThroughputKBps < 1 {
+		return EmitterConfig{}, fmt.Errorf("CLOUDABILITY_UPLOAD_MIN_THROUGHPUT_KBPS must be a whole number of KiB per second, at least 1; got %q",
+			viper.GetString("UPLOAD_MIN_THROUGHPUT_KBPS"))
 	}
 
 	var outboundProxyUrl *url.URL
@@ -202,6 +211,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		CustomAzureClientID:             viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
 		CustomAzureClientSecret:         NewValueSecretManager(azureBlobClientSecret),
 		UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
+		MinThroughput:                   minThroughputKBps << 10,
 		UploadFrequency:                 time.Minute * time.Duration(UPLOAD_FREQUENCY),
 		ScratchDir:                      viper.GetString("SCRATCH_DIR"),
 		RecoveryPeriod:                  recoveryPeriod,
@@ -740,6 +750,7 @@ func (ce *Emitter) writeAgentFile() (err error) {
 	values["emission_interval"] = ce.emissionInterval.String()
 	values["parse_metric_data"] = strconv.FormatBool(ce.config.ParseMetricData)
 	values["upload_region"] = ce.config.Region
+	values["region_fallback"] = strconv.FormatBool(regionFallback(ce.config.ApptioConfig))
 	values["custom_s3_bucket"] = ce.config.CustomS3UploadBucket
 	values["custom_s3_region"] = ce.config.CustomS3UploadRegion
 	values["custom_azure_blob_name"] = ce.config.CustomAzureBlobContainerName
