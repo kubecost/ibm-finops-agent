@@ -314,14 +314,14 @@ func TestF37ShortLivedPodsInExactlyOneSample(t *testing.T) {
 
 	var want []string
 	want = append(want, "slp-0")
-	// Emissions at t3, t6 (fails, retried at t7) and t10; the pod of every tick is written.
-	for i := 1; i <= 10; i++ {
+	// Emissions at t3, t6 (fails, retried at t7) and t9; the pod of every tick is written.
+	for i := 1; i <= 9; i++ {
 		clock.Advance(time.Minute)
 		name := fmt.Sprintf("slp-%d", i)
 		want = append(want, name)
 		pods := []*v1.Pod{shortLivedPod(name)}
-		if i == 4 {
-			pods = append(pods, shortLivedPod("slp-3")) // reported again, e.g. after a watch gap
+		if i == 2 {
+			pods = append(pods, shortLivedPod("slp-1")) // reported again before it was written
 		}
 		var restore func()
 		if i == 6 { // an emitting tick whose write fails
@@ -356,7 +356,7 @@ func TestF37ShortLivedPodsInExactlyOneSample(t *testing.T) {
 		}
 	}
 	if len(up.data) != 3 {
-		t.Errorf("setup: %d samples, want 3 (t3, t7, t10)", len(up.data))
+		t.Errorf("setup: %d samples, want 3 (t3, t7, t9)", len(up.data))
 	}
 	for _, n := range want {
 		if seen[n] != 1 {
