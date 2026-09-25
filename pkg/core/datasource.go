@@ -66,7 +66,17 @@ func NewAgentDataSource(
 		log.Fatalf("Failed to build Kubernetes client: %s", err.Error())
 	}
 
-	k8sCache.Start(context.Background().Done())
+	// Informers run for the life of the process. Startup waits for them to sync for at most the
+	// sync timeout; any still unsynced keep retrying, and the agent stays up not ready with
+	// informers_unsynced rather than hanging or exiting (F-12, D9).
+	if sr, ok := k8sCache.(cluster.SyncReporter); ok {
+		if unsynced := sr.StartWithTimeout(context.Background(), informerCfg.SyncTimeout); len(unsynced) > 0 {
+			log.Errorf("Kubernetes %s after %s; starting anyway, not ready, and they keep retrying",
+				cluster.InformersUnsyncedMessage(unsynced), informerCfg.SyncTimeout)
+		}
+	} else {
+		k8sCache.Start(context.Background().Done())
+	}
 
 	var nodeStatsProvider nodes.StatSummaryClient
 	nodeClientConfig, err := nodes.NewNodeClientConfigFromEnv()
@@ -83,7 +93,9 @@ func NewAgentDataSource(
 
 		nodeStatsProvider = nodesProvider
 	} else {
-		nodeStatsProvider = nodeStatsSummaryClient
+		// record collection times for node-stats freshness (D1), which the background provider
+		// records itself
+		nodeStatsProvider = nodes.NewCollectionRecorder(nodeStatsSummaryClient)
 	}
 
 	var opencostCloudCostProvider models.Provider

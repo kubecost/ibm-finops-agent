@@ -17,6 +17,10 @@ const (
 	// Exporter Emission Interval
 	ExporterEmissionIntervalEnvVar = "EXPORTER_EMISSION_INTERVAL"
 
+	// Exporter deadlines for one snapshot, and for one emitter's Init or Emit call
+	ExporterSnapshotTimeoutEnvVar = "EXPORTER_SNAPSHOT_TIMEOUT"
+	ExporterEmitTimeoutEnvVar     = "EXPORTER_EMIT_TIMEOUT"
+
 	// Go Debug
 	PProfEnabledEnvVar = "PPROF_ENABLED"
 
@@ -49,6 +53,9 @@ const (
 	// InformerResyncIntervalEnvVar is the resync interval for informers
 	InformerResyncIntervalEnvVar = "INFORMER_RESYNC_INTERVAL"
 
+	// InformerSyncTimeoutEnvVar bounds how long startup waits for the informers to sync
+	InformerSyncTimeoutEnvVar = "INFORMER_SYNC_TIMEOUT"
+
 	// ParseMetricDataEnvVar env var for sanitizing k8s resources
 	ParseMetricDataEnvVar = "PARSE_METRIC_DATA"
 
@@ -77,6 +84,18 @@ func IsTurboEmitterEnabled() bool {
 // to all the emitters. The default is 1 minute.
 func GetExporterEmissionInterval() time.Duration {
 	return env.GetDuration(ExporterEmissionIntervalEnvVar, 1*time.Minute)
+}
+
+// GetExporterSnapshotTimeout returns the deadline for one exporter snapshot. The default, 0,
+// means 5 × the emission interval.
+func GetExporterSnapshotTimeout() time.Duration {
+	return env.GetDuration(ExporterSnapshotTimeoutEnvVar, 0)
+}
+
+// GetExporterEmitTimeout returns the deadline for one emitter's Init or Emit call. The default,
+// 0, means 5 × the emission interval.
+func GetExporterEmitTimeout() time.Duration {
+	return env.GetDuration(ExporterEmitTimeoutEnvVar, 0)
 }
 
 func IsOpenCostDataSourceEnabled() bool {
@@ -166,6 +185,20 @@ func GetNodeStatsClusterIDName() string {
 // GetInformerReSyncInterval returns the informer resync interval
 func GetInformerReSyncInterval() time.Duration {
 	return getValueWithPotentialPrefixOrDefault(InformerResyncIntervalEnvVar, CloudabilityPrefix, 24*time.Hour, cast.ToDuration)
+}
+
+// DefaultInformerSyncTimeout is how long startup waits for the informers to sync by default.
+const DefaultInformerSyncTimeout = 5 * time.Minute
+
+// GetInformerSyncTimeout returns how long startup waits for the informers to sync before it
+// carries on, not ready, with the unsynced informers still retrying (D9). A value that isn't a
+// positive duration means the default.
+func GetInformerSyncTimeout() time.Duration {
+	timeout := getValueWithPotentialPrefixOrDefault(InformerSyncTimeoutEnvVar, CloudabilityPrefix, DefaultInformerSyncTimeout, cast.ToDuration)
+	if timeout <= 0 {
+		return DefaultInformerSyncTimeout
+	}
+	return timeout
 }
 
 // GetSanitizeData returns bool that further sanitizes k8s resources if true

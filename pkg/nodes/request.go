@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
@@ -12,16 +13,23 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// AttemptEndPoint will hit a specified endpoint with as many retries as it is allotted.
-func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) ([]byte, error) {
+// AttemptEndPoint will hit a specified endpoint with as many retries as it is allotted. It gives
+// up when ctx is done, including during the wait between retries.
+func (c *Client) AttemptEndPoint(ctx context.Context, method string, URL string, bearerToken string) ([]byte, error) {
 	attempts := c.retries + 1
 
 	for i := range attempts {
 		if i > 0 {
-			time.Sleep(time.Duration(int64(math.Pow(2, float64(i)))) * time.Second)
+			timer := time.NewTimer(time.Duration(int64(math.Pow(2, float64(i)))) * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, fmt.Errorf("requests to %v failed: %w", URL, ctx.Err())
+			case <-timer.C:
+			}
 		}
 
-		data, err := c.makeRequest(method, URL, bearerToken)
+		data, err := c.makeRequest(ctx, method, URL, bearerToken)
 		if err == nil {
 			return data, nil
 		}
@@ -33,8 +41,8 @@ func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) 
 
 // makeRequest will call out to an endpoint and attempt to decode the body into an existing
 // data type.
-func (c *Client) makeRequest(method string, URL string, bearerToken string) (data []byte, err error) {
-	request, err := http.NewRequest(method, URL, nil)
+func (c *Client) makeRequest(ctx context.Context, method string, URL string, bearerToken string) (data []byte, err error) {
+	request, err := http.NewRequestWithContext(ctx, method, URL, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package kubecost
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -49,16 +50,13 @@ func (ke *KubecostEmitter) ID() emitter.EmitterID {
 	return emitter.KubecostEmitterID
 }
 
+// Init builds the adapters and cost model and starts the export controllers. Every failure
+// returns before anything is started or assigned, so a failed Init can be retried; the exporter
+// retries it each cycle and never calls it again after it succeeds.
 func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
-	clusterInfo := adapters.NewClusterInfoProviderAdapter(snapshot.ClusterInfo)
-	clusterMap := adapters.NewClusterMapAdapter(snapshot.ClusterInfo)
-	clusterCache := adapters.NewClusterCacheAdapter(snapshot.Kubernetes)
-	metricsQuerier := adapters.NewMetricsQuerierAdapter(snapshot.Metrics)
-
-	// create our updateable adapter that will drive the opencost exporters
-	dataSource := adapters.NewOpenCostDataSourceAdapter(clusterInfo, clusterMap, clusterCache, metricsQuerier, ke.config.QueryResolution)
-
-	costModel := costmodel.NewCostModel(ke.config.ClusterUID, dataSource, ke.cloudCostProvider, clusterCache, clusterMap, dataSource.BatchDuration())
+	if ke.dataSource != nil {
+		return errors.New("kubecost emitter is already initialised")
+	}
 
 	// Setup exporters for kubecost pipelines
 	bucketConfig, err := os.ReadFile(ke.config.BucketConfigFile)
@@ -74,6 +72,16 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 	}
 
 	log.Infof("Successfully created bucket storage")
+
+	clusterInfo := adapters.NewClusterInfoProviderAdapter(snapshot.ClusterInfo)
+	clusterMap := adapters.NewClusterMapAdapter(snapshot.ClusterInfo)
+	clusterCache := adapters.NewClusterCacheAdapter(snapshot.Kubernetes)
+	metricsQuerier := adapters.NewMetricsQuerierAdapter(snapshot.Metrics)
+
+	// create our updateable adapter that will drive the opencost exporters
+	dataSource := adapters.NewOpenCostDataSourceAdapter(clusterInfo, clusterMap, clusterCache, metricsQuerier, ke.config.QueryResolution)
+
+	costModel := costmodel.NewCostModel(ke.config.ClusterUID, dataSource, ke.cloudCostProvider, clusterCache, clusterMap, dataSource.BatchDuration())
 
 	pipelineConfig := exporter.NewPipelinesExportConfig(ke.config.AppName, ke.config.ClusterUID, ke.config.ClusterName, ke.config.EmitLegacyDateModels, ke.config.EmitKubeModel)
 	if ke.config.EmitAllocationMinuteResolution {
@@ -134,6 +142,9 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 }
 
 func (ke *KubecostEmitter) Emit(ctx context.Context, snapshot *emitter.ClusterSnapshot) error {
+	if ke.dataSource == nil {
+		return errors.New("kubecost emitter is not initialised")
+	}
 	ke.dataSource.Update(snapshot)
 
 	return nil

@@ -53,11 +53,11 @@ type CldyUploader struct {
 	// queue is the upload queue on disk. The emitter built around this uploader shares it.
 	queue *diskQueue
 
-	// events receives drops, discards, conditions and upload attempts. The emitter built around
-	// this uploader shares it. conditions is the uploader's view of its conditions, for
-	// edge-triggered logging; only the upload loop changes it once the loop has started.
+	// events receives drops, discards, conditions and upload attempts. conditions holds the
+	// active conditions, for edge-triggered logging and health checks. The emitter built around
+	// this uploader shares both.
 	events     EventSink
-	conditions map[string]bool
+	conditions *conditionStore
 
 	// head is the payload at the head of the queue and its run of failures, for the
 	// head-of-line rule. Only the upload loop touches it.
@@ -186,7 +186,7 @@ func newCldyUploader(config UploaderConfig, storageServices []StorageService, st
 		agentVersion:    version.Version,
 		queue:           newDiskQueue(config.ScratchDir, events, now),
 		events:          events,
-		conditions:      map[string]bool{},
+		conditions:      newConditionStore(now),
 		now:             now,
 	}
 	uploader.checkConfigured()
@@ -267,6 +267,9 @@ func (cu *CldyUploader) liveClusterID() string {
 // uploadLoop runs an upload cycle every UploadFrequency. The first cycle comes after a random
 // part of one interval, so that agents restarted together don't upload in step.
 func (cu *CldyUploader) uploadLoop() {
+	cu.hbMu.Lock()
+	cu.heartbeat.LoopStart = cu.clock()
+	cu.hbMu.Unlock()
 	interval := max(cu.config.UploadFrequency, time.Second)
 	first := time.NewTimer(time.Duration(rand.Int64N(int64(interval))))
 	defer first.Stop()
@@ -301,7 +304,6 @@ func (cu *CldyUploader) uploadCycle() {
 	defer func() {
 		files, bytes := cu.queue.stats(clusterID)
 		cu.hbMu.Lock()
-		defer cu.hbMu.Unlock()
 		cu.heartbeat.LastCycleEnd = cu.clock()
 		cu.heartbeat.BacklogFiles, cu.heartbeat.BacklogBytes = files, bytes
 		if failed {
@@ -309,6 +311,9 @@ func (cu *CldyUploader) uploadCycle() {
 		} else {
 			cu.heartbeat.ConsecutiveFailures = 0
 		}
+		hb := cu.heartbeat
+		cu.hbMu.Unlock()
+		cu.checkUploadsFailing(hb)
 	}()
 
 	cu.checkConfigured()
@@ -319,6 +324,7 @@ func (cu *CldyUploader) uploadCycle() {
 	if err := cu.packageSamples(clusterID); err != nil {
 		log.Errorf("failed to package Cloudability samples; they stay queued for the next cycle: %v", err)
 	}
+	cu.progress()
 	cu.queue.enforceBounds(clusterID, cu.recoveryPeriod, cu.backlogMaxBytes)
 	failed = !cu.uploadQueued(clusterID)
 }
@@ -593,6 +599,7 @@ func (cu *CldyUploader) uploadQueued(clusterID string) bool {
 		}
 
 		err := cu.uploadData(p.path, clusterID)
+		cu.progress()
 		cu.events.UploadAttempt(uploadResult(err))
 		outcome := classifyUpload(err)
 		cu.queue.finishUpload(func() {
@@ -643,6 +650,13 @@ const maxConsecutiveRejections = 3
 type rejection struct {
 	path   string
 	detail string
+}
+
+// progress records that the running upload cycle made progress, for UploadStalled.
+func (cu *CldyUploader) progress() {
+	cu.hbMu.Lock()
+	cu.heartbeat.LastProgress = cu.clock()
+	cu.hbMu.Unlock()
 }
 
 // delivered records a delivered payload.
@@ -838,16 +852,20 @@ func uploadResult(err error) string {
 // UploadHeartbeat is the upload loop's progress, for readiness and /status (chunk 08) and
 // metrics (chunk 09).
 type UploadHeartbeat struct {
-	LastCycleStart time.Time
-	LastCycleEnd   time.Time
+	// LoopStart is when the upload loop started; zero if it hasn't.
+	LoopStart      time.Time `json:"loopStart"`
+	LastCycleStart time.Time `json:"lastCycleStart"`
+	LastCycleEnd   time.Time `json:"lastCycleEnd"`
+	// LastProgress is when the running cycle last finished packaging or an upload attempt.
+	LastProgress time.Time `json:"lastProgress"`
 	// LastSuccess is when a payload was last delivered.
-	LastSuccess time.Time
+	LastSuccess time.Time `json:"lastSuccess"`
 	// ConsecutiveFailures counts the cycles in a row that stopped on a failed upload.
-	ConsecutiveFailures int
+	ConsecutiveFailures int `json:"consecutiveFailures"`
 	// BacklogFiles and BacklogBytes are the queued payloads and samples at the end of the last
 	// cycle.
-	BacklogFiles int
-	BacklogBytes int64
+	BacklogFiles int   `json:"backlogFiles"`
+	BacklogBytes int64 `json:"backlogBytes"`
 }
 
 // UploadHeartbeatSource is implemented by *CldyUploader.
