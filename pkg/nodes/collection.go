@@ -39,8 +39,9 @@ const (
 	// DefaultCollectionTimeout bounds a context-free GetNodeData call when the config sets none.
 	DefaultCollectionTimeout = 5 * time.Minute
 	// DefaultNodeTimeout bounds the collection from one node across every connection method:
-	// a direct attempt plus the API-server-proxy fallback, each bounded by the client timeout.
-	DefaultNodeTimeout = 2 * DefaultHttpClientTimeout
+	// a direct attempt plus the API-server-proxy fallback, each bounded by the client timeout,
+	// with a margin so the fallback isn't cut short of its own timeout.
+	DefaultNodeTimeout = 2*DefaultHttpClientTimeout + 5*time.Second
 	// fanoutDeadlineShare is the share of the caller's remaining time the fan-out may use, so
 	// partial results are returned before the caller's own deadline.
 	fanoutDeadlineShare = 0.9

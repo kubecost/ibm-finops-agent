@@ -34,9 +34,10 @@ type Exporter interface {
 // Heartbeat exposes the exporter loop's liveness and per-emitter state to health checks,
 // metrics and status reporting.
 type Heartbeat interface {
-	// Stalled reports whether the exporter loop has stopped making progress: a cycle started and
-	// hasn't ended within its deadlines plus slack, or no cycle has started within two intervals
-	// plus slack of the previous one ending (or of Start). Snapshot and emitter failures do not make the loop stalled; they are in Status.
+	// Stalled reports whether the exporter has stopped making progress in a way a restart can
+	// fix: a cycle started and hasn't ended within its deadlines plus slack, no cycle has started
+	// within two intervals plus slack of the previous one ending (or of Start), or an Init or
+	// Emit call has run StuckCallCycles intervals past its deadline. Snapshot and emitter failures do not make the loop stalled; they are in Status.
 	Stalled(now time.Time) bool
 
 	// Status returns a copy of the exporter's current state.
@@ -110,9 +111,12 @@ type ExporterConfig struct {
 	MaxBackoff time.Duration
 	// StallSlack is added to the Stalled thresholds. Default interval.
 	StallSlack time.Duration
-	// StopGrace is how long Stop waits for in-flight Init and Emit calls to return after their
-	// context is cancelled. Default 5s.
+	// StopGrace is how long Stop waits for in-flight snapshots and Init and Emit calls to return
+	// after their context is cancelled. Default 5s.
 	StopGrace time.Duration
+	// StuckCallCycles is how many intervals past EmitTimeout an Init or Emit call may keep
+	// running before Stalled reports the exporter stalled. Default 5.
+	StuckCallCycles int
 	// Now is the clock for heartbeat timestamps. Default time.Now.
 	Now func() time.Time
 }
@@ -121,8 +125,9 @@ type ExporterConfig struct {
 // It's generous on purpose: the deadline exists to end hung cycles, not to cut slow ones short.
 const DefaultTimeoutIntervals = 5
 
-// maxSnapshotsInFlight bounds the snapshots running at once: the current one plus one that
-// outlived its deadline. While both are running, new cycles fail without starting another.
+// maxSnapshotsInFlight bounds the snapshots running at once. A snapshot that outlives its
+// deadline keeps running and its result is used when it completes; a second one is started
+// only if the first has been running for more than two snapshot deadlines (it looks hung).
 const maxSnapshotsInFlight = 2
 
 func (c ExporterConfig) withDefaults(interval time.Duration) ExporterConfig {
@@ -144,6 +149,9 @@ func (c ExporterConfig) withDefaults(interval time.Duration) ExporterConfig {
 	if c.StopGrace <= 0 {
 		c.StopGrace = 5 * time.Second
 	}
+	if c.StuckCallCycles <= 0 {
+		c.StuckCallCycles = 5
+	}
 	if c.Now == nil {
 		c.Now = time.Now
 	}
@@ -161,10 +169,11 @@ type ContextSnapshotProvider interface {
 // defaultExporter is the default implementation of the Exporter interface: a supervised
 // snapshot and emission loop that runs on a specified interval until Stop is called.
 //
-// The loop never exits on a failure. Snapshots and emitter calls run under deadlines; a call
-// that outlives its deadline is abandoned (it keeps running in its own goroutine and is waited
-// for before the same work is started again), so one hung component can't stop the loop or
-// the other emitters.
+// The loop never exits on a failure. Snapshots and emitter calls run under deadlines, which end
+// the cycle but not the call: a call that outlives its deadline keeps running in its own
+// goroutine. A late snapshot's result is used by the cycle in which it completes, so a slow
+// source still gets through; a late Init or Emit keeps its emitter busy (and skipped) until it
+// returns, so one hung component can't stop the loop or the other emitters.
 type defaultExporter struct {
 	ds               core.DataSource
 	snapshotProvider SnapshotProvider
@@ -177,6 +186,12 @@ type defaultExporter struct {
 	done      chan struct{}
 
 	snapshotsInFlight atomic.Int32
+
+	// Owned by the loop goroutine: snapshots started and not yet collected, the sequence number
+	// of the last one started, and of the last one whose result was used.
+	pending     []*snapshotCall
+	snapshotSeq uint64
+	lastUsedSeq uint64
 
 	// mu guards the heartbeat fields below and every slot's status.
 	mu                          sync.Mutex
@@ -200,6 +215,10 @@ type emitterSlot struct {
 	emitter Emitter
 	busy    atomic.Bool
 	status  EmitterStatus
+	// callStarted is when the running call started (zero when idle), and skipLogged whether
+	// the skip for a call past its deadline has been logged. Both guarded by mu.
+	callStarted time.Time
+	skipLogged  bool
 }
 
 // NewExporter creates an exporter with default deadlines.
@@ -257,8 +276,12 @@ func (de *defaultExporter) Start(interval time.Duration) bool {
 	return true
 }
 
-// Stop halts the emission process and waits for the loop to exit. Init and Emit calls in flight
-// have their context cancelled and are waited for up to StopGrace.
+// Stop halts the emission process and waits for the loop to exit. Snapshots and Init and Emit
+// calls in flight have their context cancelled and are waited for up to StopGrace. A call that
+// ignores cancellation for longer is left running (bounded: at most maxSnapshotsInFlight
+// snapshots and one call per emitter); a snapshot that completes afterwards is discarded and
+// its short-lived pods counted, and a busy emitter is skipped after a restart until its call
+// returns.
 func (de *defaultExporter) Stop() {
 	de.lifecycle.Lock()
 	defer de.lifecycle.Unlock()
@@ -288,6 +311,8 @@ func (de *defaultExporter) Emitters() []EmitterID {
 // exponential backoff and jitter; after that they run on the interval. It returns only when ctx
 // is cancelled.
 func (de *defaultExporter) run(ctx context.Context, interval time.Duration, cfg ExporterConfig) {
+	defer de.releasePending(cfg)
+
 	backoff := cfg.InitialBackoff
 	for !de.cycle(ctx, cfg) {
 		// full jitter over [backoff/2, backoff)
@@ -344,6 +369,9 @@ func (de *defaultExporter) cycle(ctx context.Context, cfg ExporterConfig) bool {
 
 	snapshot, err := de.takeSnapshot(ctx, cfg)
 	if ctx.Err() != nil {
+		if err == nil {
+			discardSnapshot(de, snapshot, "the exporter stopped before it was emitted")
+		}
 		return false
 	}
 
@@ -367,9 +395,12 @@ func (de *defaultExporter) cycle(ctx context.Context, cfg ExporterConfig) bool {
 	var calls sync.WaitGroup
 	for _, slot := range de.slots {
 		if !slot.busy.CompareAndSwap(false, true) {
-			de.recordEmitterFailure(slot, cfg, errors.New("previous Init or Emit is still running past its deadline; skipped this cycle"))
+			de.recordSkip(slot, cfg)
 			continue
 		}
+		de.mu.Lock()
+		slot.callStarted = cfg.Now()
+		de.mu.Unlock()
 		calls.Go(func() { de.callEmitter(ctx, cfg, slot, snapshot) })
 	}
 	calls.Wait()
@@ -377,63 +408,191 @@ func (de *defaultExporter) cycle(ctx context.Context, cfg ExporterConfig) bool {
 	return true
 }
 
-// snapshotCall is one snapshot attempt. The goroutine running it and the cycle waiting on it
-// agree through mu on whether the result was delivered or abandoned.
+// snapshotCall is one snapshot, run in its own goroutine. snapshot and err are written before
+// done is closed. orphaned (under mu) is set when the loop exits without collecting the call;
+// the goroutine then discards the result itself.
 type snapshotCall struct {
-	mu        sync.Mutex
-	finished  bool
-	abandoned bool
-	snapshot  *ClusterSnapshot
-	err       error
-	done      chan struct{}
+	seq      uint64
+	started  time.Time
+	done     chan struct{}
+	snapshot *ClusterSnapshot
+	err      error
+
+	mu       sync.Mutex
+	orphaned bool
 }
 
-// takeSnapshot runs one snapshot under the snapshot deadline. A snapshot that outlives its
-// deadline is abandoned: the cycle fails, and the snapshot's goroutine discards its result
-// when it eventually returns.
+func (c *snapshotCall) finished() bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// takeSnapshot returns a snapshot for this cycle. It first uses any snapshot that completed
+// since the last cycle, then starts one if none is running (or the running one looks hung),
+// and waits for a result up to the snapshot deadline. A snapshot still running at the deadline
+// fails this cycle but is not abandoned: its result is used when it completes.
 func (de *defaultExporter) takeSnapshot(ctx context.Context, cfg ExporterConfig) (*ClusterSnapshot, error) {
-	if n := de.snapshotsInFlight.Load(); n >= maxSnapshotsInFlight {
-		return nil, fmt.Errorf("%d snapshots are still running past their deadline; not starting another", n)
+	if snapshot, _ := de.collectSnapshots(); snapshot != nil {
+		return snapshot, nil
 	}
 
-	sctx, cancel := context.WithTimeout(ctx, cfg.SnapshotTimeout)
-	defer cancel()
+	if de.shouldStartSnapshot(cfg) {
+		de.startSnapshot(ctx, cfg)
+	}
+	if len(de.pending) == 0 {
+		return nil, fmt.Errorf("%d snapshots are still running after the exporter restarted; not starting another", de.snapshotsInFlight.Load())
+	}
 
-	call := &snapshotCall{done: make(chan struct{})}
+	timer := time.NewTimer(cfg.SnapshotTimeout)
+	defer timer.Stop()
+	for {
+		var first, second <-chan struct{}
+		first = de.pending[0].done
+		if len(de.pending) > 1 {
+			second = de.pending[1].done
+		}
+		select {
+		case <-first:
+		case <-second:
+		case <-timer.C:
+			de.snapshotTimeouts.Add(1)
+			oldest := de.pending[0]
+			return nil, fmt.Errorf("no snapshot within the %s deadline; one has been running for %s and its result will be used when it completes: %w",
+				cfg.SnapshotTimeout, time.Since(oldest.started).Round(time.Second), context.DeadlineExceeded)
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+
+		snapshot, err := de.collectSnapshots()
+		if snapshot != nil {
+			return snapshot, nil
+		}
+		if err != nil && len(de.pending) == 0 {
+			return nil, err
+		}
+		if len(de.pending) == 0 {
+			// only superseded snapshots completed; start a fresh one
+			if !de.shouldStartSnapshot(cfg) {
+				return nil, errors.New("only superseded snapshots completed and the in-flight bound is reached")
+			}
+			de.startSnapshot(ctx, cfg)
+		}
+	}
+}
+
+// collectSnapshots removes completed snapshots from pending. It returns the newest successful
+// one not older than the last snapshot used, discarding (and counting) any others, or else the
+// newest error.
+func (de *defaultExporter) collectSnapshots() (*ClusterSnapshot, error) {
+	var best *snapshotCall
+	var lastErr error
+	remaining := de.pending[:0]
+	for _, call := range de.pending {
+		if !call.finished() {
+			remaining = append(remaining, call)
+			continue
+		}
+		switch {
+		case call.err != nil:
+			lastErr = call.err
+		case call.seq < de.lastUsedSeq:
+			discardSnapshot(de, call.snapshot, "a newer snapshot was already emitted")
+		case best == nil || call.seq > best.seq:
+			if best != nil {
+				discardSnapshot(de, best.snapshot, "a newer snapshot completed in the same cycle")
+			}
+			best = call
+		default:
+			discardSnapshot(de, call.snapshot, "a newer snapshot completed in the same cycle")
+		}
+	}
+	clear(de.pending[len(remaining):])
+	de.pending = remaining
+
+	if best != nil {
+		de.lastUsedSeq = best.seq
+		return best.snapshot, nil
+	}
+	return nil, lastErr
+}
+
+// shouldStartSnapshot reports whether to start a snapshot: none is running, or every running
+// one has taken more than two snapshot deadlines, and the in-flight bound allows it.
+func (de *defaultExporter) shouldStartSnapshot(cfg ExporterConfig) bool {
+	if de.snapshotsInFlight.Load() >= maxSnapshotsInFlight {
+		return false
+	}
+	for _, call := range de.pending {
+		if time.Since(call.started) <= 2*cfg.SnapshotTimeout {
+			return false
+		}
+	}
+	return true
+}
+
+// startSnapshot starts a snapshot bounded by the snapshot deadline and the run context.
+func (de *defaultExporter) startSnapshot(ctx context.Context, cfg ExporterConfig) {
+	de.snapshotSeq++
+	call := &snapshotCall{seq: de.snapshotSeq, started: time.Now(), done: make(chan struct{})}
+	de.pending = append(de.pending, call)
 	de.snapshotsInFlight.Add(1)
+
 	go func() {
 		defer de.snapshotsInFlight.Add(-1)
-		snapshot, err := de.safeSnapshot(sctx)
+		sctx, cancel := context.WithTimeout(ctx, cfg.SnapshotTimeout)
+		defer cancel()
+
+		call.snapshot, call.err = de.safeSnapshot(sctx)
+		close(call.done)
 
 		call.mu.Lock()
-		defer call.mu.Unlock()
-		call.finished = true
-		call.snapshot, call.err = snapshot, err
-		close(call.done)
-		if call.abandoned && snapshot != nil && snapshot.Kubernetes != nil {
-			if dropped := len(snapshot.Kubernetes.ShortLivedPods); dropped > 0 {
-				de.abandonedShortLivedPods.Add(uint64(dropped))
-				log.Errorf("discarded %d short-lived pods from a snapshot that completed after its deadline", dropped)
-			}
+		orphaned := call.orphaned
+		call.mu.Unlock()
+		if orphaned && call.err == nil {
+			discardSnapshot(de, call.snapshot, "it completed after the exporter stopped")
 		}
 	}()
+}
 
-	select {
-	case <-call.done:
-	case <-sctx.Done():
+// releasePending runs when the loop exits. It waits up to StopGrace for running snapshots
+// (their context is cancelled), discards completed ones, and hands the rest to their own
+// goroutines to discard when they complete.
+func (de *defaultExporter) releasePending(cfg ExporterConfig) {
+	grace, cancel := context.WithTimeout(context.Background(), cfg.StopGrace)
+	defer cancel()
+	for _, call := range de.pending {
+		select {
+		case <-call.done:
+		case <-grace.Done():
+		}
+		call.mu.Lock()
+		if call.finished() {
+			if call.err == nil {
+				discardSnapshot(de, call.snapshot, "the exporter stopped before it was emitted")
+			}
+		} else {
+			call.orphaned = true
+			log.Warnf("snapshot still running %s after Stop; it will be discarded when it completes", cfg.StopGrace)
+		}
+		call.mu.Unlock()
 	}
+	de.pending = nil
+}
 
-	call.mu.Lock()
-	defer call.mu.Unlock()
-	if call.finished {
-		return call.snapshot, call.err
+// discardSnapshot counts and logs the short-lived pods in a successful snapshot that will
+// never be emitted. The pods were drained from the cluster cache, so they are lost (I1).
+func discardSnapshot(de *defaultExporter, snapshot *ClusterSnapshot, reason string) {
+	if snapshot == nil || snapshot.Kubernetes == nil {
+		return
 	}
-	call.abandoned = true
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
+	if dropped := len(snapshot.Kubernetes.ShortLivedPods); dropped > 0 {
+		de.abandonedShortLivedPods.Add(uint64(dropped))
+		log.Errorf("discarded a snapshot because %s, dropping %d short-lived pods", reason, dropped)
 	}
-	de.snapshotTimeouts.Add(1)
-	return nil, fmt.Errorf("snapshot exceeded its %s deadline: %w", cfg.SnapshotTimeout, context.DeadlineExceeded)
 }
 
 // safeSnapshot takes a snapshot, converting a panic into an error.
@@ -461,7 +620,7 @@ func (de *defaultExporter) callEmitter(ctx context.Context, cfg ExporterConfig, 
 
 	done := make(chan struct{})
 	go func() {
-		defer slot.busy.Store(false)
+		defer de.callReturned(slot, cfg)
 		defer close(done)
 		if ready {
 			de.recordEmitResult(slot, cfg, emit(ectx, slot.emitter, snapshot))
@@ -474,6 +633,12 @@ func (de *defaultExporter) callEmitter(ctx context.Context, cfg ExporterConfig, 
 	case <-done:
 		return
 	case <-ectx.Done():
+	}
+	// both may have been ready; a call that did finish is not a timeout
+	select {
+	case <-done:
+		return
+	default:
 	}
 
 	if ctx.Err() != nil {
@@ -494,6 +659,38 @@ func (de *defaultExporter) callEmitter(ctx context.Context, cfg ExporterConfig, 
 		op = "Emit"
 	}
 	de.recordEmitterFailure(slot, cfg, fmt.Errorf("%s exceeded its %s deadline: %w", op, cfg.EmitTimeout, context.DeadlineExceeded))
+}
+
+// callReturned marks slot idle when its call returns, however late, and logs the end of a skip
+// episode.
+func (de *defaultExporter) callReturned(slot *emitterSlot, cfg ExporterConfig) {
+	de.mu.Lock()
+	started := slot.callStarted
+	slot.callStarted = time.Time{}
+	logged := slot.skipLogged
+	slot.skipLogged = false
+	de.mu.Unlock()
+	slot.busy.Store(false)
+	if logged {
+		log.Infof("[%s] call that overran its deadline returned after %s; resuming", slot.emitter.ID(), cfg.Now().Sub(started).Round(time.Second))
+	}
+}
+
+// recordSkip records a cycle skipped because slot's previous call is still running. It logs
+// once per stuck call.
+func (de *defaultExporter) recordSkip(slot *emitterSlot, cfg ExporterConfig) {
+	de.mu.Lock()
+	started := slot.callStarted
+	first := !slot.skipLogged
+	slot.skipLogged = true
+	slot.status.LastEmitError = errors.New("previous Init or Emit is still running past its deadline; skipped this cycle")
+	slot.status.LastEmitErrorTime = cfg.Now()
+	slot.status.ConsecutiveFailures++
+	de.mu.Unlock()
+	if first {
+		log.Errorf("[%s] Init or Emit still running %s after it started; skipping this emitter until it returns",
+			slot.emitter.ID(), cfg.Now().Sub(started).Round(time.Second))
+	}
 }
 
 func (de *defaultExporter) recordInitResult(slot *emitterSlot, cfg ExporterConfig, err error) {
@@ -576,6 +773,13 @@ func (de *defaultExporter) Stalled(now time.Time) bool {
 		return false
 	}
 	cfg := de.effective
+	// An Init or Emit stuck well past its deadline is a local wedge that a restart can fix.
+	stuckAfter := cfg.EmitTimeout + time.Duration(cfg.StuckCallCycles)*de.interval
+	for _, slot := range de.slots {
+		if !slot.callStarted.IsZero() && now.Sub(slot.callStarted) > stuckAfter {
+			return true
+		}
+	}
 	if de.inCycle {
 		return now.Sub(de.lastCycleStart) > cfg.SnapshotTimeout+cfg.EmitTimeout+cfg.StallSlack
 	}

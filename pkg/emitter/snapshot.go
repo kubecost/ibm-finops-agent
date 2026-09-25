@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -44,6 +45,14 @@ type ConcurrentSnapshotProvider struct {
 	metricsSummary     *MetricsSummary
 	lastSnapshot       time.Time
 	lastMetricsSummary time.Time
+
+	discardedShortLivedPods atomic.Uint64
+}
+
+// DiscardedShortLivedPods returns the number of short-lived pods drained from the cluster cache
+// by snapshots that then failed, so they were never emitted.
+func (csp *ConcurrentSnapshotProvider) DiscardedShortLivedPods() uint64 {
+	return csp.discardedShortLivedPods.Load()
 }
 
 // NewConcurrentSnapshotProvider creates a new instance of `ConcurrentSnapshotProvider`.
@@ -127,6 +136,13 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOfContext(ctx context.Context, ds
 
 	err := group.Wait()
 	if err != nil {
+		// The short-lived-pod buffer was drained by this snapshot; failing loses those pods.
+		// Count and report them (I1) until the drain is committed only on success (chunk 06).
+		if k8sSnapshot != nil && len(k8sSnapshot.ShortLivedPods) > 0 {
+			dropped := len(k8sSnapshot.ShortLivedPods)
+			csp.discardedShortLivedPods.Add(uint64(dropped))
+			log.Errorf("snapshot failed after draining %d short-lived pods; they are dropped", dropped)
+		}
 		return nil, fmt.Errorf("failed to generate cluster snapshot: %w", err)
 	}
 

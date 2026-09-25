@@ -13,6 +13,7 @@ import (
 	"github.com/ibm/finops-agent/internal/mocks"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/nodes"
+	corev1 "k8s.io/api/core/v1"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
@@ -105,7 +106,7 @@ func TestExporterHungSnapshotEndsCycleAtDeadline(t *testing.T) {
 	t.Cleanup(func() { close(provider.release) })
 
 	em := newCountingEmitter("hung-snapshot")
-	exporter := NewExporter(newEmptyDataSource(), provider, em)
+	exporter := NewExporterWithConfig(newEmptyDataSource(), provider, ExporterConfig{StopGrace: 10 * time.Millisecond}, em)
 	if !exporter.Start(20 * time.Millisecond) {
 		t.Fatal("failed to start exporter")
 	}
@@ -196,7 +197,7 @@ func TestExporterHungEmitterDoesNotBlockOthers(t *testing.T) {
 	t.Cleanup(func() { close(hung.release) })
 	steady := newCountingEmitter("steady")
 
-	exporter := NewExporter(newEmptyDataSource(), newEmptySnapshotProvider(), hung, steady)
+	exporter := NewExporterWithConfig(newEmptyDataSource(), newEmptySnapshotProvider(), ExporterConfig{StopGrace: 10 * time.Millisecond}, hung, steady)
 	if !exporter.Start(20 * time.Millisecond) {
 		t.Fatal("failed to start exporter")
 	}
@@ -290,21 +291,23 @@ func TestExporterHungSnapshotHeartbeat(t *testing.T) {
 	exporter := NewExporterWithConfig(newEmptyDataSource(), provider, ExporterConfig{
 		SnapshotTimeout: 30 * time.Millisecond,
 		InitialBackoff:  5 * time.Millisecond,
+		StopGrace:       10 * time.Millisecond,
 	}, newCountingEmitter("x"))
 	if !exporter.Start(20 * time.Millisecond) {
 		t.Fatal("failed to start exporter")
 	}
 	defer exporter.Stop()
 
-	if !waitFor(3*time.Second, func() bool { return exporter.Status().CyclesTotal >= 6 }) {
+	// Each hung cycle ends at the deadline and records a failure before the next one starts.
+	if !waitFor(3*time.Second, func() bool { return exporter.Status().ConsecutiveSnapshotFailures >= 6 }) {
 		t.Fatalf("cycles stopped while snapshots hung: %+v", exporter.Status())
 	}
 	status := exporter.Status()
 	if status.SnapshotTimeoutsTotal < 2 {
 		t.Errorf("SnapshotTimeoutsTotal = %d; want every hung snapshot counted", status.SnapshotTimeoutsTotal)
 	}
-	if status.LastSnapshotError == nil || status.ConsecutiveSnapshotFailures < 6 {
-		t.Errorf("heartbeat doesn't show the failing snapshots: err=%v failures=%d", status.LastSnapshotError, status.ConsecutiveSnapshotFailures)
+	if !errors.Is(status.LastSnapshotError, context.DeadlineExceeded) {
+		t.Errorf("heartbeat doesn't show the snapshot deadline: err=%v", status.LastSnapshotError)
 	}
 	if !status.LastSnapshotSuccess.IsZero() {
 		t.Errorf("LastSnapshotSuccess = %s; no snapshot succeeded", status.LastSnapshotSuccess)
@@ -364,6 +367,7 @@ func TestExporterEmitterStatus(t *testing.T) {
 
 	exporter := NewExporterWithConfig(newEmptyDataSource(), newEmptySnapshotProvider(), ExporterConfig{
 		EmitTimeout: 30 * time.Millisecond,
+		StopGrace:   10 * time.Millisecond,
 	}, flaky, hung)
 	if !exporter.Start(20 * time.Millisecond) {
 		t.Fatal("failed to start exporter")
@@ -488,5 +492,94 @@ func TestSnapshotDeadlineReachesNodeStats(t *testing.T) {
 	if !ds.stats.gotDeadline.Load() || ds.stats.plainCalls.Load() != 0 {
 		t.Errorf("node stats weren't collected under the snapshot deadline (deadline=%v, context-free calls=%d)",
 			ds.stats.gotDeadline.Load(), ds.stats.plainCalls.Load())
+	}
+}
+
+// slowProvider takes d per snapshot, ignoring any deadline, and succeeds.
+type slowProvider struct {
+	d     time.Duration
+	calls atomic.Int32
+}
+
+func (p *slowProvider) SnapshotOf(core.DataSource) (*ClusterSnapshot, error) {
+	p.calls.Add(1)
+	time.Sleep(p.d)
+	return &ClusterSnapshot{}, nil
+}
+
+// A source that is always slower than the snapshot deadline still gets through: the late
+// result is used when it completes, as it was before deadlines existed.
+func TestExporterUsesLateSnapshots(t *testing.T) {
+	provider := &slowProvider{d: 80 * time.Millisecond}
+	em := newCountingEmitter("late")
+	exporter := NewExporterWithConfig(newEmptyDataSource(), provider, ExporterConfig{
+		SnapshotTimeout: 30 * time.Millisecond,
+	}, em)
+	if !exporter.Start(20 * time.Millisecond) {
+		t.Fatal("failed to start exporter")
+	}
+	defer exporter.Stop()
+
+	if !waitFor(3*time.Second, func() bool { return em.count.Load() >= 3 }) {
+		t.Fatalf("a snapshot source slower than the deadline never got through (%d snapshots, %+v)", provider.calls.Load(), exporter.Status())
+	}
+	if st := exporter.Status(); st.SnapshotTimeoutsTotal == 0 {
+		t.Errorf("SnapshotTimeoutsTotal = 0; the slow snapshots overran their deadline")
+	}
+	// Never more than one slow snapshot at a time: a second starts only after 2 deadlines.
+	if calls, emits := provider.calls.Load(), int32(em.count.Load()); calls > emits+2 {
+		t.Errorf("%d snapshots for %d emits; late snapshots were thrown away", calls, emits)
+	}
+}
+
+// An Init that hangs well past its deadline is a local wedge: Stalled reports it.
+func TestExporterStalledOnStuckCall(t *testing.T) {
+	hung := &blockingEmitter{release: make(chan struct{})}
+	t.Cleanup(func() { close(hung.release) })
+
+	exporter := NewExporterWithConfig(newEmptyDataSource(), newEmptySnapshotProvider(), ExporterConfig{
+		EmitTimeout:     20 * time.Millisecond,
+		StuckCallCycles: 2,
+		StopGrace:       10 * time.Millisecond,
+	}, hung)
+	if !exporter.Start(10 * time.Millisecond) {
+		t.Fatal("failed to start exporter")
+	}
+	defer exporter.Stop()
+
+	// Init succeeds; the first Emit hangs. Stuck after 20ms + 2 × 10ms.
+	if !waitFor(time.Second, func() bool { return hung.calls.Load() == 1 }) {
+		t.Fatal("Emit never called")
+	}
+	if exporter.Stalled(time.Now()) {
+		t.Error("Stalled() true as soon as the call started")
+	}
+	if !waitFor(2*time.Second, func() bool { return exporter.Stalled(time.Now()) }) {
+		t.Errorf("Stalled() stayed false with an Emit stuck far past its deadline: %+v", exporter.Status())
+	}
+}
+
+// failingStats fails node-stats collection outright, failing the snapshot.
+type failingStats struct{}
+
+func (failingStats) GetNodeData() ([]*stats.Summary, error) {
+	return nil, errors.New("node stats unavailable")
+}
+
+type failingStatsDataSource struct{ *mocks.MockDataSource }
+
+func (failingStatsDataSource) StatsSummary() nodes.StatSummaryClient { return failingStats{} }
+
+// I1: a failed snapshot that drained short-lived pods counts and reports them.
+func TestFailedSnapshotCountsDrainedShortLivedPods(t *testing.T) {
+	ds := failingStatsDataSource{mocks.NewMockDataSource()}
+	ds.ClusterCache.Pods = []*corev1.Pod{{}, {}, {}}
+	provider := NewConcurrentSnapshotProvider(DefaultSnapshotConfig()).(*ConcurrentSnapshotProvider)
+
+	if _, err := provider.SnapshotOf(ds); err == nil {
+		t.Fatal("snapshot unexpectedly succeeded with failing node stats")
+	}
+	if got := provider.DiscardedShortLivedPods(); got != 3 {
+		t.Errorf("DiscardedShortLivedPods() = %d; want the 3 drained pods", got)
 	}
 }

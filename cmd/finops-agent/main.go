@@ -95,6 +95,9 @@ func main() {
 
 	// Initialize/Bootstrap the Agent Data Source
 	emissionInterval := env.GetExporterEmissionInterval()
+	if emissionInterval <= 0 {
+		log.Fatalf("%s must be a positive duration, got %s", env.ExporterEmissionIntervalEnvVar, emissionInterval)
+	}
 
 	// Initialize Kubernetes Client
 	kubeConfig, err := kubeconfig.LoadKubeconfig("")
