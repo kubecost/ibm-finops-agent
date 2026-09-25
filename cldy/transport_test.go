@@ -580,3 +580,29 @@ func TestUnknownRegionRaisesRegionFallback(t *testing.T) {
 		})
 	}
 }
+
+// CLOUDABILITY_UPLOAD_MIN_THROUGHPUT_KBPS sets the slowest upload allowed to finish; it defaults
+// to 256 KiB/s and must be at least 1.
+func TestMinThroughputFromEnv(t *testing.T) {
+	scratch := newProdScratch(t, t.TempDir(), "cid-throughput")
+	if got := scratch.UploaderConfig(t).MinThroughput; got != 256<<10 {
+		t.Errorf("default MinThroughput = %d, want %d", got, 256<<10)
+	}
+	t.Setenv("CLOUDABILITY_UPLOAD_MIN_THROUGHPUT_KBPS", "512")
+	if got := scratch.UploaderConfig(t).MinThroughput; got != 512<<10 {
+		t.Errorf("MinThroughput = %d, want %d", got, 512<<10)
+	}
+	t.Setenv("CLOUDABILITY_UPLOAD_MIN_THROUGHPUT_KBPS", "0")
+	if _, err := cldy.NewEmitterConfigFromEnv(); err == nil {
+		t.Error("CLOUDABILITY_UPLOAD_MIN_THROUGHPUT_KBPS=0 must be rejected")
+	}
+}
+
+// F-17: a region one path doesn't serve is a configuration error on that path, naming both; it
+// is never sent to the commercial US endpoint. The error comes before any request.
+func TestRegionUnservedByPathIsConfigError(t *testing.T) {
+	_, err := cldy.NewMetricsCollectorService(cldy.ApptioConfig{APIKeySecretManager: cldy.NewValueSecretManager("key"), Region: "gov2"})
+	if err == nil || !strings.Contains(err.Error(), `"gov2"`) || !strings.Contains(err.Error(), "metrics-collector") {
+		t.Errorf("metrics-collector with region gov2 gave %v; want a configuration error naming the region and the path", err)
+	}
+}

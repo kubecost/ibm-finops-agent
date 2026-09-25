@@ -1,6 +1,7 @@
 package cldy
 
 import (
+	"context"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"                  //nolint:staticcheck // AWS SDK v1 deprecation - will be addressed separately
@@ -157,7 +158,7 @@ func NewUploaderForTest(config UploaderConfig, services []StorageService, now fu
 
 // UploadCycleForTest runs one tick of uploadLoop.
 func (cu *CldyUploader) UploadCycleForTest() {
-	cu.uploadCycle()
+	cu.uploadCycle(context.Background())
 }
 
 // QueuedUploadsForTest returns the payload paths queued for upload, in upload order.
@@ -226,7 +227,11 @@ func NewCustomS3ClientForTest(bucket, endpoint string) StorageService {
 }
 
 // ConnectivityTestForTest runs the service's startup connectivity test.
-func (s *ApptioServiceImpl) ConnectivityTestForTest() error { return s.testUpload() }
+func (s *ApptioServiceImpl) ConnectivityTestForTest() error {
+	return s.testUpload(context.Background())
+}
 
 // ConnectivityTestForTest runs the service's startup connectivity test.
-func (s *MetricsCollectorServiceImpl) ConnectivityTestForTest() error { return s.testUpload() }
+func (s *MetricsCollectorServiceImpl) ConnectivityTestForTest() error {
+	return s.testUpload(context.Background())
+}
