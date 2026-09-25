@@ -16,7 +16,6 @@ import (
 	"github.com/opencost/opencost/core/pkg/opencost"
 	"github.com/opencost/opencost/core/pkg/source"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // generation returns a snapshot in which every adapter's data names generation gen.
@@ -25,7 +24,7 @@ func generation(gen int, hour time.Time) *emitter.ClusterSnapshot {
 	return &emitter.ClusterSnapshot{
 		ClusterInfo: &clusters.ClusterInfo{ID: "cluster", Name: name},
 		Kubernetes: &emitter.KubernetesSnapshot{
-			Nodes: []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: name, UID: "node-uid"}}},
+			Nodes: []*v1.Node{{Name: name, UID: "node-uid"}},
 		},
 		Metrics: &emitter.MetricsSummary{
 			Hourly: []*emitter.MetricsSnapshot{{
@@ -109,5 +108,28 @@ func TestUpdateDoesNotBlockOnPin(t *testing.T) {
 
 	if got := cache.GetAllNodes()[0].Name; got != "gen-1" {
 		t.Errorf("after the last pin was released the adapters serve %s; want gen-1", got)
+	}
+}
+
+// A computation pinned for longer than maxDeferral (likely hung) doesn't hold fresh data back
+// for good: the next Update publishes anyway and is counted.
+func TestLongPinIsBounded(t *testing.T) {
+	hour := time.Now().UTC().Truncate(time.Hour)
+	ds, cache := newGenerationAdapter(hour)
+	ds.src.maxDeferral = 20 * time.Millisecond
+
+	release := ds.Pin()
+	defer release()
+	ds.Update(generation(1, hour))
+	if got := cache.GetAllNodes()[0].Name; got != "gen-0" {
+		t.Fatalf("pinned adapters serve %s; want gen-0 until the pin is released", got)
+	}
+	time.Sleep(30 * time.Millisecond)
+	ds.Update(generation(2, hour))
+	if got := cache.GetAllNodes()[0].Name; got != "gen-2" {
+		t.Errorf("adapters serve %s after the pin outlived maxDeferral; want gen-2", got)
+	}
+	if got := ds.ForcedSwapsTotal(); got != 1 {
+		t.Errorf("ForcedSwapsTotal = %d; want 1", got)
 	}
 }
