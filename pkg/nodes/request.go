@@ -16,7 +16,7 @@ import (
 func (c *Client) AttemptEndPoint(method string, URL string, bearerToken string) ([]byte, error) {
 	attempts := c.retries + 1
 
-	for i := uint(0); i < attempts; i++ {
+	for i := range attempts {
 		if i > 0 {
 			time.Sleep(time.Duration(int64(math.Pow(2, float64(i)))) * time.Second)
 		}

@@ -3,15 +3,24 @@ name: Trigger Build in integration-ci-cd
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   trigger:
     runs-on: ubuntu-latest
     steps:
+      - name:
+          Generate app token with permissions to dispatch to integration-ci-cd
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: integration-ci-cd
+
       - name: Trigger repository dispatch
         env:
-          GH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
           echo '{"event_type":"finops-agent-release","client_payload":{"tag":"${{ github.ref_name }}"}}' \
             | gh api repos/kubecost/integration-ci-cd/dispatches --input -

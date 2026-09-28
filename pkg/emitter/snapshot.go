@@ -446,6 +446,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	daemonSetInfoFuture := source.WithGroup(grp, mq.QueryDaemonSetInfo(start, end))
 	daemonSetUptimeFuture := source.WithGroup(grp, mq.QueryDaemonSetUptime(start, end))
 	daemonSetAnnotationsFuture := source.WithGroup(grp, mq.QueryDaemonSetAnnotations(start, end))
+	daemonSetArgumentsFuture := source.WithGroup(grp, mq.QueryDaemonSetArguments(start, end))
 	jobInfoFuture := source.WithGroup(grp, mq.QueryJobInfo(start, end))
 	jobUptimeFuture := source.WithGroup(grp, mq.QueryJobUptime(start, end))
 	jobAnnotationsFuture := source.WithGroup(grp, mq.QueryJobAnnotations(start, end))
@@ -601,6 +602,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 	daemonSetInfo, _ := daemonSetInfoFuture.Await()
 	daemonSetUptime, _ := daemonSetUptimeFuture.Await()
 	daemonSetAnnotations, _ := daemonSetAnnotationsFuture.Await()
+	daemonSetArguments, _ := daemonSetArgumentsFuture.Await()
 	jobInfo, _ := jobInfoFuture.Await()
 	jobUptime, _ := jobUptimeFuture.Await()
 	jobAnnotations, _ := jobAnnotationsFuture.Await()
@@ -743,6 +745,7 @@ func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSn
 		DaemonSetInfo:                        daemonSetInfo,
 		DaemonSetUptime:                      daemonSetUptime,
 		DaemonSetAnnotations:                 daemonSetAnnotations,
+		DaemonSetArguments:                   daemonSetArguments,
 		JobInfo:                              jobInfo,
 		JobUptime:                            jobUptime,
 		JobAnnotations:                       jobAnnotations,

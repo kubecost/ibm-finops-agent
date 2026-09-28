@@ -175,8 +175,8 @@ func GetSanitizeData() bool {
 
 // getValueWithPotentialPrefixOrDefault attempts to read the environment variable raw and then with the specified prefix,
 // converting it to the relevant type if found. Necessary that it doesn't default immediately.
-func getValueWithPotentialPrefixOrDefault[T any](envVariable string, prefix string, defaultValue T, convert func(interface{}) T) T {
-	var envValue interface{}
+func getValueWithPotentialPrefixOrDefault[T any](envVariable string, prefix string, defaultValue T, convert func(any) T) T {
+	var envValue any
 
 	// Attempt without prefix first
 	envValue = viper.Get(envVariable)

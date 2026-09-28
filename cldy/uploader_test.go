@@ -412,10 +412,8 @@ func defaultConfig(tempDir string) cldy.UploaderConfig {
 	return cldy.UploaderConfig{
 		UploadFrequency: time.Hour,
 		ScratchDir:      tempDir,
-		ApptioConfig: cldy.ApptioConfig{
-			SecretManager: cldy.NewKeyValueSecretManager("", ""),
-			EnvID:         "1",
-		},
+		SecretManager:   cldy.NewKeyValueSecretManager("", ""),
+		EnvID:           "1",
 	}
 }
 

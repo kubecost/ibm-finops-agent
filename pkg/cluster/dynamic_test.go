@@ -239,14 +239,12 @@ var (
 	}
 	_testProgressDeadlineSeconds = int32(5)
 	_testDeployment_             = &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      _testDeploymentName_,
-			Namespace: _testNamespace_,
-			ManagedFields: []metav1.ManagedFieldsEntry{
-				{FieldsType: "test_field"},
-			},
-			Annotations: _testAnnotations_,
+		Name:      _testDeploymentName_,
+		Namespace: _testNamespace_,
+		ManagedFields: []metav1.ManagedFieldsEntry{
+			{FieldsType: "test_field"},
 		},
+		Annotations: _testAnnotations_,
 		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: _testSelectorLabels_,
@@ -288,14 +286,12 @@ var (
 	_testReplicaSetContainerName4_     = "test-rs-container4"
 	_testReplicaSetContainerImageName_ = "test-rs-container-image"
 	_testReplicaSet_                   = &appsv1.ReplicaSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      _testReplicaSetName_,
-			Namespace: _testNamespace_,
-			ManagedFields: []metav1.ManagedFieldsEntry{
-				{FieldsType: "test_field"},
-			},
-			Annotations: _testAnnotations_,
+		Name:      _testReplicaSetName_,
+		Namespace: _testNamespace_,
+		ManagedFields: []metav1.ManagedFieldsEntry{
+			{FieldsType: "test_field"},
 		},
+		Annotations: _testAnnotations_,
 		Spec: appsv1.ReplicaSetSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: _testSelectorLabels_,
@@ -359,11 +355,9 @@ var (
 	_testPodContainerName2_     = "test-pod-container2"
 	_testPodContainerImageName_ = "test-pod-container-image"
 	_testPod_                   = &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        _testPodName_,
-			Annotations: _testAnnotations_,
-			Namespace:   _testNamespace_,
-		},
+		Name:        _testPodName_,
+		Annotations: _testAnnotations_,
+		Namespace:   _testNamespace_,
 		Spec: corev1.PodSpec{
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsUser: ptr.Int64(1000),
@@ -391,11 +385,9 @@ var (
 		},
 	}
 	shortLivedPod = &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        testPodName2,
-			Annotations: _testAnnotations_,
-			Namespace:   _testNamespace_,
-		},
+		Name:        testPodName2,
+		Annotations: _testAnnotations_,
+		Namespace:   _testNamespace_,
 		Spec: corev1.PodSpec{
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsUser: ptr.Int64(1000),

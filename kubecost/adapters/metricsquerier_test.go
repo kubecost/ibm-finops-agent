@@ -157,7 +157,7 @@ func TestMinuteMetricsTick(t *testing.T) {
 	metricsQuerier := NewMetricsQuerierAdapter(snapshot.Metrics)
 
 	// tick an hour
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		// this will advance the "now" in the snapshotter context
 		*current = current.Add(time.Minute)
 

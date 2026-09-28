@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -325,7 +323,7 @@ func (s *ApptioServiceImpl) testUpload() error {
 	request.Header.Set(contentMD5, testUpload.UploadHash)
 
 	// Allow multiple attempts for test upload
-	for i := 1; i < 4; i++ {
+	for i := 1; i <= maxAttempts; i++ {
 		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
 		// Should return 403 with improper url
 		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
@@ -338,7 +336,9 @@ func (s *ApptioServiceImpl) testUpload() error {
 		if resp != nil {
 			log.Warnf("Cloudability test upload %d failed with status code: %s", i, resp.Status)
 		}
-		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
+		if i < maxAttempts {
+			time.Sleep(retryBackoff(i))
+		}
 	}
 
 	return fmt.Errorf("bucket upload exceeded max amount of failures")
@@ -356,7 +356,7 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 		agentVersion = "0.0.0"
 	}
 
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"clusterUID":   payload.ClusterUID,
 		"fileName":     payload.FileName,
 		"agentVersion": agentVersion,
@@ -410,7 +410,18 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) er
 }
 
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
-	for i := 1; i < 4; i++ {
+	for i := 1; i <= maxAttempts; i++ {
+		// http.Client.Do always closes the request body, so every retry needs a fresh one.
+		if i > 1 && req.Body != nil && req.Body != http.NoBody {
+			if req.GetBody == nil {
+				return nil, fmt.Errorf("cannot retry request with non-rewindable body: %s", requestDescription)
+			}
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, fmt.Errorf("failed to reset request body for retry: %w", err)
+			}
+			req.Body = body
+		}
 		log.Debugf("Attempt %d: %s", i, requestDescription)
 		resp, err := ac.client.Do(req)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
@@ -421,8 +432,12 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 		}
 		if resp != nil {
 			log.Warnf("Request failed with status code: %s", resp.Status)
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
 		}
-		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
+		if i < maxAttempts {
+			time.Sleep(retryBackoff(i))
+		}
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries")
 }
@@ -513,8 +528,8 @@ type CustomS3Uploader struct {
 
 func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 	sess, err := session.NewSession(&aws.Config{
-		Region:     aws.String(s3Region),
-		MaxRetries: aws.Int(3)},
+		Region:     new(s3Region),
+		MaxRetries: new(3)},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("could not establish AWS Session, "+
@@ -540,8 +555,8 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 	}
 
 	sampleToUpload := &s3manager.UploadInput{
-		Bucket: aws.String(cs3c.S3Bucket),
-		Key:    aws.String(key),
+		Bucket: new(cs3c.S3Bucket),
+		Key:    new(key),
 		Body:   fileReader,
 	}
 
@@ -662,10 +677,8 @@ func newBlobServicePrincipalClient(customBlobUrl string, azureTentantID string, 
 	}
 
 	retryConfig := azblob.ClientOptions{
-		ClientOptions: azcore.ClientOptions{
-			Retry: policy.RetryOptions{
-				MaxRetries: 3,
-			},
+		Retry: policy.RetryOptions{
+			MaxRetries: 3,
 		},
 	}
 	azureClient, err := azblob.NewClient(customBlobUrl, cred, &retryConfig)

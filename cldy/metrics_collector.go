@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"os"
 	"path"
@@ -177,7 +176,7 @@ func (s *MetricsCollectorServiceImpl) testUpload() error {
 	request.Header.Set(contentTypeHeader, "multipart/form-data")
 	request.Header.Set(contentMD5, testUpload.UploadHash)
 
-	for i := 1; i < 4; i++ {
+	for i := 1; i <= maxAttempts; i++ {
 		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
 		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
 			return nil
@@ -188,7 +187,9 @@ func (s *MetricsCollectorServiceImpl) testUpload() error {
 		if resp != nil {
 			log.Warnf("Cloudability metrics-collector test upload %d failed with status code: %s", i, resp.Status)
 		}
-		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
+		if i < maxAttempts {
+			time.Sleep(retryBackoff(i))
+		}
 	}
 
 	return fmt.Errorf("metrics-collector test upload exceeded max amount of failures")
@@ -235,12 +236,18 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 
 	fi, err := fileToUpload.Stat()
 	if err != nil {
+		_ = fileToUpload.Close()
 		return err
 	}
 
 	request, err := http.NewRequest(http.MethodPut, uploadURL, fileToUpload)
 	if err != nil {
+		_ = fileToUpload.Close()
 		return err
+	}
+	// The transport closes the body after each attempt; reopen the file for retries.
+	request.GetBody = func() (io.ReadCloser, error) {
+		return os.Open(payload.FilePath)
 	}
 
 	request.Header.Set(contentTypeHeader, "multipart/form-data")
