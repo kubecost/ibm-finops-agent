@@ -244,11 +244,6 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 		_ = fileToUpload.Close()
 		return err
 	}
-	// The transport closes the body after each attempt; reopen the file for retries.
-	request.GetBody = func() (io.ReadCloser, error) {
-		return os.Open(payload.FilePath)
-	}
-
 	// doWithRetry re-issues this request and the transport closes the *os.File after each attempt,
 	// so GetBody reopens the file by path. ContentLength is measured once: a tar is never rewritten
 	// in place, and a mismatch fails closed (S3 rejects it, and Content-MD5 would not match).
