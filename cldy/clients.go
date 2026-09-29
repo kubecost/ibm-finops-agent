@@ -191,10 +191,20 @@ func NewApptioClient(config ApptioConfig) ApptioClient {
 	httpClient := http.Client{
 		Timeout:   config.Timeout,
 		Transport: netTransport,
-		// Never follow redirects: requests carry the API key and the whole sample tar with GetBody
-		// set, so net/http would replay them to whatever host a 307/308 named. Returning the 3xx
-		// fails closed and the upload is retried against the original host.
-		CheckRedirect: func(*http.Request, []*http.Request) error {
+		// Never follow a redirect. This client carries the API key to Frontdoor and PUTs the
+		// whole sample tar to a presigned S3 URL, and since those requests set GetBody so the
+		// retry loop can replay them, net/http would otherwise happily replay the body to
+		// whatever host a 307 or 308 names - including over plain http, since the stdlib does
+		// not block a scheme downgrade on redirect. A redirected upload that answered 200 would
+		// also be recorded as a successful upload, and the local tar deleted. Handing the 3xx
+		// back to the caller instead fails closed: it is not a 200, so the upload is retried
+		// against the original host.
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			if req.Body != nil {
+				if err := req.Body.Close(); err != nil {
+					log.Debugf("error closing the body of a refused redirect: %s", err)
+				}
+			}
 			return http.ErrUseLastResponse
 		},
 	}
