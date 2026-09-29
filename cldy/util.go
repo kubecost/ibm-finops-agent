@@ -61,35 +61,16 @@ func (s *set) length() int {
 	return len(s.data)
 }
 
-// operateAndRemove applies f to the entries in the set and removes each entry that f
-// succeeded on, so partial progress is always retained: an entry f has already acted on is
-// never left behind because a later entry failed. Errors from every attempted entry are
-// joined and returned together.
+// operateAndRemove applies f to a snapshot of the set and removes every entry f succeeded on, so
+// partial progress is kept even when a later entry fails. Errors are joined and returned.
 //
-// A failing entry does not stop the pass. The only caller, uploadLoop, does nothing with the
-// returned error but log it, so stopping on the first failure buys nothing; it would instead
-// strand the remaining entries behind a single failing one whose position in the map
-// iteration order is random, leaving the set unable to drain.
+//   - budget, when positive, is the wall clock after which no further entry is started; it does
+//     not interrupt a running entry.
+//   - abandon, when non-nil, marks an error every remaining entry would hit identically, so the
+//     rest of the pass is skipped. Other errors do not stop the pass.
 //
-// The pass is bounded, though, because f is a blocking network upload and the caller runs on
-// a fixed tick. Attempting every entry on every pass makes a pass cost O(len(s.data)), so a
-// deep queue against a failing destination overruns the tick, and the ticks that are missed
-// while it overruns stop the rest of the loop from running on schedule. Two bounds apply:
-//
-//   - budget, when positive, is the wall clock after which no further entry is started. It
-//     does not interrupt an entry already running, so a pass costs up to budget plus one entry. Entries that were never attempted are simply left in the set for
-//     the next pass, exactly like entries that failed.
-//   - abandon, when non-nil, classifies an error as one that every remaining entry would hit
-//     identically, so the rest of the pass is skipped: attempting it can only spend the same
-//     failure again. Errors abandon does not claim - a corrupt or vanished entry, say - do
-//     not stop the pass, so one bad entry can never starve the entries behind it.
-//
-// f runs against a snapshot taken under the read lock rather than while the read lock is
-// held. Calling f under the read lock would deadlock the moment f touched this set at all,
-// since add and remove take the write lock, and it would hold a read lock across blocking
-// network I/O - a whole upload per entry - for the length of an entire drain. The removals
-// below take the write lock, which is why they happen after the snapshot has been released
-// rather than inside the loop.
+// f runs outside the lock: holding it would deadlock if f touched the set, and would pin a read
+// lock across a whole network upload per entry.
 func (s *set) operateAndRemove(f func(string) error, budget time.Duration, abandon func(error) bool) error {
 	s.mutex.RLock()
 	keys := make([]string, 0, len(s.data))
