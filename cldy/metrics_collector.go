@@ -241,7 +241,12 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 
 	request, err := http.NewRequest(http.MethodPut, uploadURL, fileToUpload)
 	if err != nil {
+		_ = fileToUpload.Close()
 		return err
+	}
+	// The transport closes the body after each attempt; reopen the file for retries.
+	request.GetBody = func() (io.ReadCloser, error) {
+		return os.Open(payload.FilePath)
 	}
 
 	// doWithRetry re-issues this request and the transport closes the *os.File after each attempt,
