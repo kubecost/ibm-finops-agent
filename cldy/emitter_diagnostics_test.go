@@ -74,6 +74,45 @@ func TestHealthy(t *testing.T) {
 	}
 }
 
+type fakeLoopProgressUploader struct {
+	lastProgress time.Time
+}
+
+func (f *fakeLoopProgressUploader) AddSample(string)            {}
+func (f *fakeLoopProgressUploader) RemoveSample(string)         {}
+func (f *fakeLoopProgressUploader) SetClusterID(string)         {}
+func (f *fakeLoopProgressUploader) LastLoopProgress() time.Time { return f.lastProgress }
+
+func TestHealthyUploadLoop(t *testing.T) {
+	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
+	now := time.Now().UTC()
+
+	tests := map[string]struct {
+		lastProgress time.Time
+		lastSuccess  time.Time
+		want         bool
+	}{
+		"loop not started yet is healthy":    {lastProgress: time.Time{}, lastSuccess: now, want: true},
+		"recent loop progress is healthy":    {lastProgress: now, lastSuccess: now, want: true},
+		"loop within threshold is healthy":   {lastProgress: now.Add(-(restartThreshold - time.Minute)), lastSuccess: now, want: true},
+		"stuck loop is unhealthy":            {lastProgress: now.Add(-(restartThreshold + time.Minute)), lastSuccess: now, want: false},
+		"stuck loop during startup grace":    {lastProgress: now.Add(-(restartThreshold + time.Minute)), lastSuccess: time.Time{}, want: false},
+		"stale node stats with healthy loop": {lastProgress: now, lastSuccess: now.Add(-(restartThreshold + time.Minute)), want: false},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			ce := &Emitter{
+				Uploader:                     &fakeLoopProgressUploader{lastProgress: tt.lastProgress},
+				lastSuccessfulNodeCollection: tt.lastSuccess,
+			}
+			if got := ce.Healthy(); got != tt.want {
+				t.Fatalf("Healthy() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRecordNodeStats(t *testing.T) {
 	sampleStats := []*statsv1.Summary{{}}
 	collErr := errors.New("collection boom")

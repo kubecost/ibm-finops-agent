@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/version"
@@ -41,6 +42,10 @@ type CldyUploader struct {
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
 	lastUploadSize   uint64
+
+	// lastLoopProgress is the UnixNano time the upload loop last handled a tick. Read from the
+	// /healthz handler goroutine, so it is atomic.
+	lastLoopProgress atomic.Int64
 }
 
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
@@ -292,13 +297,26 @@ func getNeededFiles() map[string]struct{} {
 	return filesNeeded
 }
 
+// LastLoopProgress returns when the upload loop last handled a tick, or the zero time if the
+// loop has not started. A tick is only received once the previous one has been handled, so a
+// cycle that never finishes shows up here as a timestamp that stops advancing.
+func (cu *CldyUploader) LastLoopProgress() time.Time {
+	nanos := cu.lastLoopProgress.Load()
+	if nanos == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nanos).UTC()
+}
+
 func (cu *CldyUploader) uploadLoop() {
 	ticker := time.Tick(cu.config.UploadFrequency)
+	cu.lastLoopProgress.Store(time.Now().UnixNano())
 	for {
 		select {
 		case <-cu.stop:
 			return
 		case <-ticker:
+			cu.lastLoopProgress.Store(time.Now().UnixNano())
 			if cu.sampleSet.length() == 0 {
 				continue
 			}

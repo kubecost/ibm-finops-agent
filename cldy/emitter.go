@@ -91,6 +91,9 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
 	viper.SetDefault("EMISSION_INTERVAL", "3m")
+	// Pending samples and uploads older than this are discarded on startup, and uploads older
+	// than half of it are cleared when disk space runs low.
+	viper.SetDefault("RECOVERY_PERIOD", "48h")
 	viper.SetDefault("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY", false)
 
 	var outboundProxyUrl *url.URL
@@ -148,6 +151,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
 		UploadFrequency:                 time.Minute * time.Duration(UPLOAD_FREQUENCY),
 		ScratchDir:                      viper.GetString("SCRATCH_DIR"),
+		RecoveryPeriod:                  viper.GetDuration("RECOVERY_PERIOD"),
 		EmitAsJson:                      viper.GetBool("EMIT_AS_JSON"),
 		ParseMetricData:                 viper.GetBool("PARSE_METRIC_DATA"),
 		EmissionInterval:                viper.GetDuration("EMISSION_INTERVAL"),
@@ -206,17 +210,39 @@ func (ce *Emitter) ID() emitter.EmitterID {
 	return emitter.CldyEmitterID
 }
 
+// loopProgressReporter is implemented by uploaders that can report when their upload loop
+// last made progress.
+type loopProgressReporter interface {
+	LastLoopProgress() time.Time
+}
+
 // Healthy reports whether the cldy emitter considers itself healthy.
-// Returns false when node-stats collection has been stale for longer than
-// MaxStaleUploadCycles * UploadFrequencyDuration, signaling that a container
-// restart is warranted.
+// Returns false, signaling that a container restart is warranted, when either has been stale
+// for longer than MaxStaleUploadCycles * UploadFrequencyDuration:
+//   - node-stats collection
+//   - the upload loop
 //
-// Staleness is tracked from the snapshots the emitter receives, so this works on the
+// Node-stats staleness is tracked from the snapshots the emitter receives, so this works on the
 // foreground collection path (node stats fetched at snapshot time). When node-stats
 // collection fails for every node, the snapshot itself fails upstream and Emit() is not
 // called, so lastSuccessfulNodeCollection stops advancing and the emitter eventually
 // reports unhealthy.
+//
+// Upload loop staleness catches a cycle that never finishes, which otherwise stops uploads
+// without logging anything. Failed uploads still count as progress: restarting would not fix
+// an unreachable upload destination, and would discard in-memory state.
 func (ce *Emitter) Healthy() bool {
+	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
+
+	if reporter, ok := ce.Uploader.(loopProgressReporter); ok {
+		lastProgress := reporter.LastLoopProgress()
+		if !lastProgress.IsZero() && time.Since(lastProgress) > restartThreshold {
+			log.Warnf("Cloudability upload loop has not progressed since %s, reporting unhealthy",
+				lastProgress.Format(time.RFC3339))
+			return false
+		}
+	}
+
 	ce.nodeStatsMu.RLock()
 	lastSuccess := ce.lastSuccessfulNodeCollection
 	ce.nodeStatsMu.RUnlock()
@@ -225,7 +251,6 @@ func (ce *Emitter) Healthy() bool {
 	if lastSuccess.IsZero() {
 		return true
 	}
-	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
 	return time.Since(lastSuccess) <= restartThreshold
 }
 

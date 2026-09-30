@@ -246,6 +246,7 @@ var _ = Describe("Emitter", func() {
 			Expect(config.ParseMetricData).To(BeFalse())
 			Expect(config.UploaderConfig.ScratchDir).To(Equal("/opt/finops-agent"))
 			Expect(config.UploaderConfig.ApptioConfig.Region).To(Equal("us"))
+			Expect(config.UploaderConfig.RecoveryPeriod).To(Equal(48 * time.Hour))
 		})
 		It("should load and parse custom outbound config", func() {
 			tempDir, err := os.MkdirTemp("", "")

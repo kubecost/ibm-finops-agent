@@ -35,6 +35,19 @@ var _ = Describe("Uploader", func() {
 		err := os.RemoveAll(tempDir)
 		Expect(err).ToNot(HaveOccurred())
 	})
+	Context("LastLoopProgress", func() {
+		It("advances each time the upload loop handles a tick", func() {
+			config := defaultConfig(tempDir)
+			config.UploadFrequency = 20 * time.Millisecond
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh).(*cldy.CldyUploader)
+
+			Eventually(uploader.LastLoopProgress).ShouldNot(BeZero())
+			first := uploader.LastLoopProgress()
+			Eventually(uploader.LastLoopProgress).Should(BeTemporally(">", first))
+		})
+	})
 	Context("TestBuildTar", func() {
 		It("should build Tar", func() {
 			config := defaultConfig(tempDir)
@@ -134,6 +147,25 @@ var _ = Describe("Uploader", func() {
 
 			// copy over another sample and ensure recovery does not break happy path
 			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
+		})
+		It("should keep a recent upload with the default recovery period", func() {
+			envConfig, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+			config := defaultConfig(tempDir)
+			config.RecoveryPeriod = envConfig.RecoveryPeriod
+
+			// an upload left behind by a restart an hour ago
+			uploadDir := tempDir + "/upload"
+			Expect(os.MkdirAll(uploadDir, os.ModePerm)).To(Succeed())
+			pending := filepath.Join(uploadDir, "123456-1234-1234-123456789012_"+
+				time.Now().UTC().Add(-time.Hour).Format("2006-01-02-15-04-05")+".tgz")
+			Expect(os.WriteFile(pending, []byte("sample"), 0o600)).To(Succeed())
+
+			stopCh := make(chan struct{})
+			defer close(stopCh)
+			uploader := cldy.NewCldyUploader(config, stopCh).(*cldy.CldyUploader)
+			Expect(uploader.RecoveredUploads).To(Equal(1))
+			Expect(pending).To(BeAnExistingFile())
 		})
 		It("should recover sample but not upload when outside recovery range", func() {
 			config := defaultConfig(tempDir)
