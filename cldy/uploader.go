@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/version"
@@ -22,6 +23,10 @@ var requiredFiles = []string{"baseline-summary", "stats-summary", "statefulsets"
 
 var ErrDiskSpaceExceeded = errors.New("upload directory cleaned and disk issue persists. omitting current upload")
 
+var ErrNoStorageServices = errors.New("no cloudability upload services are available, retaining sample")
+
+const defaultRecoveryPeriod = 24 * time.Hour
+
 type Uploader interface {
 	AddSample(sample string)
 	RemoveSample(sample string)
@@ -29,27 +34,72 @@ type Uploader interface {
 }
 
 type CldyUploader struct {
-	config           UploaderConfig
-	sampleSet        *set
-	uploadSet        *set
-	stop             chan struct{}
-	clusterID        string
-	agentVersion     string
-	UploadPathDir    string
-	StorageServices  []StorageService
+	config          UploaderConfig
+	sampleSet       *set
+	uploadSet       *set
+	stop            chan struct{}
+	clusterID       string
+	agentVersion    string
+	UploadPathDir   string
+	StorageServices []StorageService
+	// servicesMutex guards StorageServices and lastServiceBuild, which are written from the
+	// upload goroutine whenever construction is re-attempted
+	servicesMutex    sync.RWMutex
+	lastServiceBuild time.Time
 	RecoveredSamples int
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
-	lastUploadSize   uint64
+	lastPayloadSize  uint64
 }
 
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
+	if config.RecoveryPeriod <= 0 {
+		config.RecoveryPeriod = defaultRecoveryPeriod
+	}
 	uploadPathDir := config.ScratchDir + "/" + uploadPath
 	err := createIfNotExists(uploadPathDir)
 	if err != nil {
 		panic("failed to create upload directory: " + err.Error())
 	}
 
+	uploader := CldyUploader{
+		config:        config,
+		sampleSet:     newSet(),
+		uploadSet:     newSet(),
+		stop:          stop,
+		UploadPathDir: uploadPathDir,
+		// TODO: dynamically pick client based upon upload config
+		recoveryPeriod: config.RecoveryPeriod,
+		agentVersion:   version.Version,
+	}
+	// build the configured storage services. failures here are not fatal, the upload path
+	// re-attempts construction so a transient failure does not disable uploads for good
+	uploader.ensureStorageServices()
+
+	err = uploader.recoverDataOnStartup()
+	if err != nil {
+		log.Warnf("failed to recover historic samples on startup: %v", err)
+	}
+	if uploader.RecoveredUploads != 0 || uploader.RecoveredSamples != 0 {
+		log.Infof("Cloudability successfully recovered %d samples and prepared %d uploads on startup",
+			uploader.RecoveredSamples, uploader.RecoveredUploads)
+	}
+
+	go uploader.uploadLoop()
+	return &uploader
+}
+
+type UploaderConfig struct {
+	ApptioConfig
+	UploadFrequency time.Duration
+	ScratchDir      string
+	RecoveryPeriod  time.Duration
+}
+
+// buildStorageServices creates the storage services described by config. It is used both on
+// startup and by the upload path, so a transient failure (network blip, temporarily
+// unavailable secret) can be recovered from rather than disabling uploads permanently.
+func buildStorageServices(config UploaderConfig) []StorageService {
 	var storageServices []StorageService
 
 	// Legacy metrics-collector upload path (API key / API Gateway)
@@ -86,7 +136,7 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 		// Azure emitter
 	} else if config.CustomAzureBlobContainerName != "" && config.CustomAzureBlobUrl != "" {
 		blobClient, err := NewCustomBlobClient(config.CustomAzureBlobContainerName, config.CustomAzureBlobUrl, config.CustomAzureTenantID,
-		config.CustomAzureClientID, config.CustomAzureClientSecret)
+			config.CustomAzureClientID, config.CustomAzureClientSecret)
 		if err != nil {
 			log.Errorf("Failed to create custom azure blob uploader: %v", err)
 		}
@@ -100,35 +150,42 @@ func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
 			"environment variables for your upload type.")
 	}
 
-	uploader := CldyUploader{
-		config:        config,
-		sampleSet:     newSet(),
-		uploadSet:     newSet(),
-		stop:          stop,
-		UploadPathDir: uploadPathDir,
-		// TODO: dynamically pick client based upon upload config
-		StorageServices: storageServices,
-		recoveryPeriod:  config.RecoveryPeriod,
-		agentVersion:    version.Version,
-	}
-	err = uploader.recoverDataOnStartup()
-	if err != nil {
-		log.Warnf("failed to recover historic samples on startup: %v", err)
-	}
-	if uploader.RecoveredUploads != 0 || uploader.RecoveredSamples != 0 {
-		log.Infof("Cloudability successfully recovered %d samples and prepared %d uploads on startup",
-			uploader.RecoveredSamples, uploader.RecoveredUploads)
-	}
-
-	go uploader.uploadLoop()
-	return &uploader
+	return storageServices
 }
 
-type UploaderConfig struct {
-	ApptioConfig
-	UploadFrequency time.Duration
-	ScratchDir      string
-	RecoveryPeriod  time.Duration
+// ensureStorageServices returns the storage services, rebuilding them when there are none. A
+// rebuild is allowed once UploadFrequency has passed since the previous build finished, so a
+// broken configuration cannot hammer the upload endpoints.
+func (cu *CldyUploader) ensureStorageServices() []StorageService {
+	cu.servicesMutex.RLock()
+	if len(cu.StorageServices) > 0 {
+		services := cu.StorageServices
+		cu.servicesMutex.RUnlock()
+		return services
+	}
+	cu.servicesMutex.RUnlock()
+
+	cu.servicesMutex.Lock()
+	defer cu.servicesMutex.Unlock()
+	// re-check now that the write lock is held, another caller may have built them
+	if len(cu.StorageServices) > 0 {
+		return cu.StorageServices
+	}
+	retry := !cu.lastServiceBuild.IsZero()
+	if retry && time.Since(cu.lastServiceBuild) < cu.config.UploadFrequency {
+		return nil
+	}
+	if retry {
+		log.Infof("Re-attempting creation of cloudability upload services")
+	}
+	cu.StorageServices = buildStorageServices(cu.config)
+	// stamp when the build finished: a build can outlast UploadFrequency, and a start-stamped
+	// cooldown would already have expired by the time it returns
+	cu.lastServiceBuild = time.Now()
+	if retry && len(cu.StorageServices) > 0 {
+		log.Infof("Successfully created %d cloudability upload service(s) on retry", len(cu.StorageServices))
+	}
+	return cu.StorageServices
 }
 
 func (cu *CldyUploader) AddSample(sample string) {
@@ -292,6 +349,40 @@ func getNeededFiles() map[string]struct{} {
 	return filesNeeded
 }
 
+// PendingUploads returns the paths of the tars currently queued for upload.
+func (cu *CldyUploader) PendingUploads() []string {
+	return cu.uploadSet.contents()
+}
+
+// drainBudgetDivisor is the fraction of an upload cycle a single drain may spend, leaving room
+// in the tick for ConstructPayload and a possible storage service rebuild. The budget is checked
+// between entries, not during one, so a pass costs up to budget + one in-flight upload.
+const drainBudgetDivisor = 2
+
+// drainBudget is the wall clock a single DrainUploads pass may spend. A non-positive
+// UploadFrequency (no tick to overrun) means no bound.
+func (cu *CldyUploader) drainBudget() time.Duration {
+	if cu.config.UploadFrequency <= 0 {
+		return 0
+	}
+	return cu.config.UploadFrequency / drainBudgetDivisor
+}
+
+// destinationUnavailable reports whether err means the destination as a whole is unusable, so
+// the rest of the batch would fail identically. Per-tar failures must never qualify, or one bad
+// entry starves everything behind it.
+func destinationUnavailable(err error) bool {
+	return errors.Is(err, ErrNoStorageServices)
+}
+
+// DrainUploads ships the queued tars, dropping each one that is shipped or no longer exists from
+// the queue; failed and unreached tars stay queued. The pass starts no new entry once drainBudget
+// is spent and stops once the destination is known to be unavailable: unbounded, a pass costs one
+// full upload attempt per queued tar, and overrunning the tick drops ticks and stalls the loop.
+func (cu *CldyUploader) DrainUploads() error {
+	return cu.uploadSet.operateAndRemove(cu.UploadData, cu.drainBudget(), destinationUnavailable)
+}
+
 func (cu *CldyUploader) uploadLoop() {
 	ticker := time.Tick(cu.config.UploadFrequency)
 	for {
@@ -308,7 +399,7 @@ func (cu *CldyUploader) uploadLoop() {
 				continue
 			}
 			cu.uploadSet.add(path)
-			err = cu.uploadSet.operateAndRemove(cu.uploadData)
+			err = cu.DrainUploads()
 			if err != nil {
 				log.Warnf("error uploading: %s", err.Error())
 			}
@@ -357,6 +448,12 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 		return "", err
 	}
 
+	if info, statErr := tw.Stat(); statErr != nil {
+		log.Warnf("unable to size payload %s for the disk space check: %s", path, statErr)
+	} else {
+		cu.lastPayloadSize = uint64(info.Size())
+	}
+
 	err = cu.removeSamples(files)
 	if err != nil {
 		return "", err
@@ -378,9 +475,26 @@ func (cu *CldyUploader) removeSamples(files []*os.File) error {
 	return nil
 }
 
-func (cu *CldyUploader) uploadData(path string) error {
+// UploadData ships the tar at path to every configured storage service and removes it once
+// every upload has succeeded. The tar is retained if there is nothing to upload it with, or
+// if any upload fails, so that a later cycle can ship it.
+func (cu *CldyUploader) UploadData(path string) error {
+	services := cu.ensureStorageServices()
+	if len(services) == 0 {
+		log.Errorf("No cloudability upload services are available, retaining sample %s for a later upload attempt", path)
+		return fmt.Errorf("%w: %s", ErrNoStorageServices, path)
+	}
+
 	fileName, hash, err := getFileNameAndHash(path)
 	if err != nil {
+		// The tar is gone: reclaimed by ClearOldUploadSamples under disk pressure, or removed
+		// from outside the agent. There is nothing left to upload and nothing a
+		// later cycle could do differently, so report success and let the caller drop the
+		// entry instead of failing on it forever.
+		if errors.Is(err, fs.ErrNotExist) {
+			log.Warnf("Cloudability upload %s no longer exists, dropping it from the upload queue", path)
+			return nil
+		}
 		return err
 	}
 	payload := UploadPayload{
@@ -391,21 +505,14 @@ func (cu *CldyUploader) uploadData(path string) error {
 		FilePath:     path,
 	}
 
-	for _, service := range cu.StorageServices {
+	for _, service := range services {
 		err = service.Upload(payload)
 		if err != nil {
 			return err
 		}
 	}
 
-	// retain size of file before removal for disk calculation purposes
-	f, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	cu.lastUploadSize = uint64(f.Size())
-
-	// uploads data, then removes tar from path if successful
+	// every service accepted the tar, so it has been shipped and can go
 	return os.Remove(path)
 }
 
@@ -413,15 +520,15 @@ func (cu *CldyUploader) uploadData(path string) error {
 // found to the tar writer; the purpose for accepting multiple writers is to allow
 // for multiple outputs
 func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr error) {
-	// create a buffer of double the last upload size
-	if !IsAvailableDiskSpace(cu.lastUploadSize*2, cu.UploadPathDir) {
+	// budget double the size of the last payload built
+	if !IsAvailableDiskSpace(cu.lastPayloadSize*2, cu.UploadPathDir) {
 		err := cu.ClearOldUploadSamples()
 		if err != nil {
 			return err
 		}
 
 		// Omit current sample if cleaning upload directory does not work
-		if !IsAvailableDiskSpace(cu.lastUploadSize*2, cu.UploadPathDir) {
+		if !IsAvailableDiskSpace(cu.lastPayloadSize*2, cu.UploadPathDir) {
 			return ErrDiskSpaceExceeded
 		}
 	}
@@ -507,7 +614,11 @@ func (cu *CldyUploader) ClearOldUploadSamples() error {
 			err := os.RemoveAll(filePath)
 			if err != nil {
 				log.Warnf("problem deleting file: %s", err)
+				continue
 			}
+			// the tar is gone, so the queue entry pointing at it has to go too. Leaving it
+			// behind manufactures an entry whose file can never be opened again.
+			cu.uploadSet.remove(filePath)
 		}
 	}
 

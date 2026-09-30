@@ -59,6 +59,10 @@ func (m *metricsCollectorMockClient) Do(r *http.Request, _ string) (*http.Respon
 		m.countByPath = map[string]int{}
 	}
 	m.countByPath[r.URL.Path]++
+	// a ClientService owns the request body, which for the upload is the sample file itself
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 
 	if strings.Contains(r.URL.Path, "metricsample") {
 		Expect(r.Header.Get("x-api-key")).To(Equal("goodkey123"))
