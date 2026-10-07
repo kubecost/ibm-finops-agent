@@ -12,10 +12,10 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/onsi/ginkgo/v2 v2.32.2
 	github.com/onsi/gomega v1.43.0
-	github.com/opencost/opencost v1.121.4-0.20261002202618-2b3962dc5104
-	github.com/opencost/opencost/core v1.121.4-0.20261002202618-2b3962dc5104
-	github.com/opencost/opencost/modules/collector-source v1.121.4-0.20261002202618-2b3962dc5104
-	github.com/opencost/opencost/modules/prometheus-source v1.121.4-0.20261002202618-2b3962dc5104
+	github.com/opencost/opencost v1.121.4-0.20261007204902-0951030fee1a
+	github.com/opencost/opencost/core v1.121.4-0.20261007204902-0951030fee1a
+	github.com/opencost/opencost/modules/collector-source v1.121.4-0.20261007204902-0951030fee1a
+	github.com/opencost/opencost/modules/prometheus-source v1.121.4-0.20261007204902-0951030fee1a
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rs/cors v1.11.1
 	github.com/spf13/cast v1.10.0
