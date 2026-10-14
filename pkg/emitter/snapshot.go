@@ -1,8 +1,11 @@
 package emitter
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -21,11 +24,23 @@ type SnapshotProvider interface {
 	// SnapshotOf generates a `ClusterSnapshot` from the provided `core.DataSource` and returns it.
 	// If the snapshot generation fails, an error is returned.
 	SnapshotOf(core.DataSource) (*ClusterSnapshot, error)
+
+	// PersistState persists the current snapshot state to disk for recovery after restart.
+	// This should be called after successful export to ensure state consistency.
+	PersistState() error
 }
 
 // FIXME: (bolt) use a metrics summary cache duration of 5 minutes while we're using a prometheus data source.
 // FIXME: (bolt) this should be fine to run on a much faster frequency with a non-promethues metrics querier.
 var metricsSummaryCacheDuration time.Duration = 5 * time.Minute
+
+const snapshotStateFilename = "snapshot-state.json"
+
+// SnapshotState represents the persisted state of the snapshot provider to maintain
+// continuity across restarts.
+type SnapshotState struct {
+	LastSnapshot time.Time `json:"lastSnapshot"`
+}
 
 // ConcurrentSnapshotProvider is a struct that implements the `SnapshotProvider` interface and executes the
 // snapshot generation process concurrently.
@@ -48,10 +63,76 @@ func NewConcurrentSnapshotProvider(config *SnapshotConfig) SnapshotProvider {
 		now = defaultNow
 	}
 
-	return &ConcurrentSnapshotProvider{
+	csp := &ConcurrentSnapshotProvider{
 		now:    now,
 		config: config,
 	}
+
+	// Attempt to recover persisted state from previous runs
+	csp.recoverState()
+
+	return csp
+}
+
+// persistState writes the current lastSnapshot timestamp to disk for recovery after restart.
+func (csp *ConcurrentSnapshotProvider) persistState() error {
+	if csp.config.ScratchDir == "" {
+		return fmt.Errorf("scratch directory not configured")
+	}
+
+	stateFile := filepath.Join(csp.config.ScratchDir, snapshotStateFilename)
+	state := SnapshotState{
+		LastSnapshot: csp.lastSnapshot,
+	}
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal snapshot state: %w", err)
+	}
+
+	if err := os.MkdirAll(csp.config.ScratchDir, 0755); err != nil {
+		return fmt.Errorf("failed to create scratch directory: %w", err)
+	}
+
+	if err := os.WriteFile(stateFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write snapshot state: %w", err)
+	}
+
+	return nil
+}
+
+// recoverState attempts to read the persisted snapshot state from disk.
+// If the state file is missing or corrupt, it treats this as a cold start and logs a warning.
+func (csp *ConcurrentSnapshotProvider) recoverState() {
+	if csp.config.ScratchDir == "" {
+		log.Warnf("Scratch directory not configured, starting with empty snapshot state")
+		return
+	}
+
+	stateFile := filepath.Join(csp.config.ScratchDir, snapshotStateFilename)
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Infof("No previous snapshot state found, starting fresh")
+		} else {
+			log.Warnf("Failed to read snapshot state file: %v, starting fresh", err)
+		}
+		return
+	}
+
+	var state SnapshotState
+	if err := json.Unmarshal(data, &state); err != nil {
+		log.Warnf("Failed to unmarshal snapshot state: %v, starting fresh", err)
+		return
+	}
+
+	csp.lastSnapshot = state.LastSnapshot
+	log.Infof("Recovered snapshot state: lastSnapshot=%s", state.LastSnapshot.Format(time.RFC3339))
+}
+
+// PersistState implements the SnapshotProvider interface method to persist state.
+func (csp *ConcurrentSnapshotProvider) PersistState() error {
+	return csp.persistState()
 }
 
 // SnapshotOf generates a `ClusterSnapshot` from the provided `core.DataSource` and returns it.
