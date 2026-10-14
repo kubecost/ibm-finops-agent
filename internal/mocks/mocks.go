@@ -1,6 +1,7 @@
 package mocks
 
 import (
+	"sync"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
@@ -131,6 +132,7 @@ func (mocds *MockOpenCostDataSource) Resolution() time.Duration {
 // MockClusterCache implements the ClusterCache interface for testing
 type MockClusterCache struct {
 	// Track method calls
+	mu    sync.Mutex
 	Calls map[string]int
 
 	// Mock data to return
@@ -163,7 +165,15 @@ func NewMockClusterCache() *MockClusterCache {
 
 // Helper to record method calls
 func (m *MockClusterCache) recordCall(method string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Calls[method]++
+}
+
+func (m *MockClusterCache) GetCalls(method string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.Calls[method]
 }
 
 // Start implements ClusterCache interface
@@ -198,6 +208,11 @@ func (m *MockClusterCache) GetAllPods() []*v1.Pod {
 func (m *MockClusterCache) GetAllShortLivedPods() []*v1.Pod {
 	m.recordCall("GetAllShortLivedPods")
 	return m.Pods
+}
+
+// AcknowledgeShortLivedPods implements ClusterCache interface
+func (m *MockClusterCache) AcknowledgeShortLivedPods() {
+	m.recordCall("AcknowledgeShortLivedPods")
 }
 
 // GetAllServices implements ClusterCache interface

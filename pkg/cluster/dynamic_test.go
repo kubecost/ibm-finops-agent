@@ -196,7 +196,12 @@ var _ = Describe("Cache in dynamic informer factory", func() {
 		Expect(shortLivedPods[0].Name).Should(Equal(testPodName2))
 
 		shortLivedPods = dcc.GetAllShortLivedPods()
-		// ensure slp was removed during previous call
+		// ensure repeated reads do not clear the buffer before acknowledgment
+		Expect(len(shortLivedPods)).Should(Equal(1))
+
+		dcc.AcknowledgeShortLivedPods()
+
+		shortLivedPods = dcc.GetAllShortLivedPods()
 		Expect(len(shortLivedPods)).Should(Equal(0))
 		dccCancel()
 		dcc.Shutdown()
