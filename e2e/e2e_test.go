@@ -15,6 +15,8 @@ var _ = Describe("E2E", func() {
 	t := GinkgoT()
 	kv := os.Getenv("KUBERNETES_VERSION")
 	knownFiles["stats-summary-e2e-"+kv+"-control-plane.json"] = false
+	// Every sample after the first also carries the baseline its usage deltas are taken from.
+	optionalFiles := map[string]bool{"baseline-summary-e2e-" + kv + "-control-plane.json": true}
 
 	var wd string
 
@@ -36,6 +38,9 @@ var _ = Describe("E2E", func() {
 			scanner := bufio.NewScanner(f)
 			for scanner.Scan() {
 				fileName := scanner.Text()
+				if optionalFiles[fileName] {
+					continue
+				}
 				if _, ok := knownFiles[fileName]; ok {
 					knownFiles[fileName] = true
 				} else {

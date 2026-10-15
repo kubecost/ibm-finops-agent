@@ -133,26 +133,28 @@ get_sample_data(){
     i=$[$i+1]
   done
 
-  # Retrieve sample name
-  FLDR=$(kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/)
-  SMPL=$(kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/${FLDR})
+  # Retrieve the cluster directory. scratch/ can also hold _quarantine.
+  FLDR=$(kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/ | grep -v '^_' | head -n 1)
 
+  # Samples are written under a hidden .inprogress- name and renamed once finalised, so wait
+  # for the first finalised sample rather than taking the name of one still being written.
   i=0
   until [ $i -ge 5 ]
   do
-    if [[ $(kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/$FLDR | wc -l) -gt 1 ]]; then
+    SMPL=$(kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/${FLDR} | head -n 1)
+    if [[ -n $SMPL ]]; then
       echo "Sample is populated!"
       break
     fi
-    
+
     echo "Waiting for sample to populate..."
     sleep 30
     i=$[$i+1]
   done
 
   echo "Copying agent sample to ${WORKINGDIR}"
-  # Copy all file names into file_list.txt
-  kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/${FLDR}/${SMPL} >> ${WORKINGDIR}/file_list.txt
+  # Copy all file names into file_list.txt. MANIFEST.json is left out of uploaded payloads.
+  kubectl exec -n ibm-finops-agent $POD -- ls /opt/finops-agent/scratch/${FLDR}/${SMPL} | grep -vx 'MANIFEST.json' >> ${WORKINGDIR}/file_list.txt
   # Copy notable files to working dir
   kubectl exec -n ibm-finops-agent $POD -- cat /opt/finops-agent/scratch/${FLDR}/${SMPL}/nodes.jsonl > ${WORKINGDIR}/nodes.jsonl
   kubectl exec -n ibm-finops-agent $POD -- cat /opt/finops-agent/scratch/${FLDR}/${SMPL}/namespaces.jsonl > ${WORKINGDIR}/namespaces.jsonl

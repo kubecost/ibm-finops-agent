@@ -88,7 +88,7 @@ var _ = Describe("Uploader startup recovery (production layout)", func() {
 
 		scratch.AddCompleteSample(GinkgoT(), time.Unix(1743465782, 0), 0)
 		// still valid test data, just with only 1 node file
-		scratch.AddIncompleteSample(GinkgoT(), time.Unix(1743499000, 0), 1,
+		scratch.AddFinalisedSampleWithout(GinkgoT(), time.Unix(1743499000, 0), 1,
 			"stats-summary-nodename2.json", "stats-summary-nodename3.json", "stats-summary-nodename4.json")
 		// invalid data set
 		scratch.AddIncompleteSample(GinkgoT(), time.Unix(1743499600, 0), 2, "deployments.jsonl")

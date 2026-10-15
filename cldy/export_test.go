@@ -11,7 +11,66 @@ const (
 	CrashMidTar       = crashMidTar
 	CrashBeforeRename = crashBeforeRename
 	CrashAfterUpload  = crashAfterUpload
+
+	CrashSampleFileWritten  = crashSampleFileWritten
+	CrashSampleBeforeRename = crashSampleBeforeRename
+	CrashSampleAfterRename  = crashSampleAfterRename
 )
+
+// The finalised-sample contract (sample.go).
+const (
+	StagingPrefix    = stagingPrefix
+	ManifestFileName = manifestFileName
+)
+
+// Drop reasons and conditions.
+const (
+	DropReasonDiskPressure          = dropReasonDiskPressure
+	DropReasonDiskPressureSkipped   = dropReasonDiskPressureSkipped
+	DropReasonShortLivedPodOverflow = dropReasonShortLivedPodOverflow
+	ConditionDiskPressure           = conditionDiskPressure
+	ConditionDiskSpaceUnknown       = conditionDiskSpaceUnknown
+	ConditionUninitialised          = conditionUninitialised
+)
+
+// MaxPendingShortLivedPods is the emitter's short-lived pod bound.
+const MaxPendingShortLivedPods = maxPendingShortLivedPods
+
+// FinalisedSamplesForTest lists the finalised samples under clusterDir, oldest first, and the
+// directories without the staging prefix that failed validation.
+func FinalisedSamplesForTest(clusterDir string) (paths, invalid []string, err error) {
+	samples, invalid, err := listFinalisedSamples(clusterDir)
+	for _, s := range samples {
+		paths = append(paths, s.Path)
+	}
+	return paths, invalid, err
+}
+
+// ValidateSampleForTest validates dir's manifest, including every file's SHA-256.
+func ValidateSampleForTest(dir string) error {
+	_, err := validateSample(dir, true)
+	return err
+}
+
+// WriteManifestForTest writes a manifest for the files already in dir, as the emitter does
+// before finalising a sample.
+func WriteManifestForTest(dir, clusterID string, ts time.Time, nodeCount int) error {
+	_, err := writeManifest(dir, clusterID, ts, nodeCount)
+	return err
+}
+
+// SetDiskAvailableForTest replaces the free-space probe and returns a func restoring it. Tests
+// that set it must not run in parallel.
+func SetDiskAvailableForTest(f func(dir string) (uint64, error)) (restore func()) {
+	prev := diskAvailable
+	diskAvailable = f
+	return func() { diskAvailable = prev }
+}
+
+// EventsForTest returns the emitter's event counts. It fails if a different sink was installed.
+func (ce *Emitter) EventsForTest() EventCountsSnapshot {
+	return ce.events.(*EventCounts).Snapshot()
+}
 
 // NewUploaderForTest runs startup recovery exactly as NewCldyUploader does, but uses the given
 // storage services and clock (nil means time.Now) and does not start uploadLoop. Drive upload

@@ -15,10 +15,7 @@ import (
 
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/log"
-	"github.com/opencost/opencost/core/pkg/util/json"
 )
-
-var requiredFiles = []string{"baseline-summary", "stats-summary", "statefulsets", "services", "replicationcontrollers", "replicasets", "pods", "persistentvolumes", "persistentvolumeclaims", "nodes", "namespaces", "jobs", "deployments", "daemonsets", "agent-measurement"}
 
 var ErrDiskSpaceExceeded = errors.New("upload directory cleaned and disk issue persists. omitting current upload")
 
@@ -175,74 +172,37 @@ func (cu *CldyUploader) recoverDataOnStartup() error {
 	return nil
 }
 
+// recoverCompleteSamples packages every finalised sample (see sample.go) under
+// scratch/<clusterID>/. Staging directories and directories without a valid manifest are left
+// where they are: the emitter sweeps stale staging directories, and crash-consistent recovery of
+// the rest is chunk 01's.
 func (cu *CldyUploader) recoverCompleteSamples() error {
-	var currentDir string
-	var sampleTime time.Time
-	first := true
-	hasShipped := false
-	filesNeeded := getNeededFiles()
-	err := filepath.WalkDir(cu.config.ScratchDir+"/"+scratchPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		// skip first Walk (top level directory /scratch)
-		if first {
-			first = false
-			return nil
-		}
-
-		if !d.IsDir() {
-			// file found, gather timestamp from agent measure and remove from filesNeeded
-			if strings.Contains(path, "agent-measurement") {
-				sampleTime, err = collectSampleTime(path)
-				if err != nil {
-					return err
-				}
-			}
-			for requiredFile := range filesNeeded {
-				if strings.Contains(path, requiredFile) {
-					delete(filesNeeded, requiredFile)
-					break
-				}
-			}
-		}
-		// this directory has a complete sample and should be added
-		if len(filesNeeded) == 0 && !hasShipped {
-			hasShipped = true
-			err = cu.recoverSample(currentDir, sampleTime)
-			if err != nil {
-				return err
-			}
-			return nil
-		}
-
-		if d.IsDir() {
-			dir := path
-			// on first pass, set currentDir to first found
-			if currentDir == "" {
-				currentDir = dir
-			}
-			// if dir changes, new sample set found, reset required files and delete previous from scratch
-			if currentDir != dir {
-				err = os.RemoveAll(currentDir)
-				if err != nil {
-					return err
-				}
-				filesNeeded = getNeededFiles()
-				currentDir = dir
-				hasShipped = false
-			}
-		}
+	root := cu.config.ScratchDir + "/" + scratchPath
+	clusters, err := os.ReadDir(root)
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
-	})
-	// last sample was incomplete, need to remove
-	if !hasShipped {
-		err = os.RemoveAll(currentDir)
+	}
+	if err != nil {
+		return err
+	}
+	var errs error
+	for _, c := range clusters {
+		if !c.IsDir() {
+			continue
+		}
+		samples, invalid, err := listFinalisedSamples(SafePath(root, c.Name()))
 		if err != nil {
-			return err
+			errs = errors.Join(errs, err)
+			continue
+		}
+		if len(invalid) > 0 {
+			log.Warnf("Cloudability recovery left %d sample directories without a valid manifest in place: %v", len(invalid), invalid)
+		}
+		for _, sample := range samples {
+			errs = errors.Join(errs, cu.recoverSample(sample.Path, sample.Manifest.Timestamp))
 		}
 	}
-	return err
+	return errs
 }
 
 // recover sample adds a completed sample to the set and constructs the upload file, construct handles
@@ -255,31 +215,6 @@ func (cu *CldyUploader) recoverSample(dir string, sampleTime time.Time) error {
 		return fmt.Errorf("failed to construct sample payload: %v", err)
 	}
 	return nil
-}
-
-func collectSampleTime(path string) (t time.Time, rerr error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return time.Time{}, err
-	}
-	defer safeClose(file.Close, &rerr)
-	bytes, err := io.ReadAll(file)
-	if err != nil {
-		return time.Time{}, err
-	}
-	var agentMeasure agentMeasurement
-	err = json.Unmarshal(bytes, &agentMeasure)
-	if err != nil {
-		return time.Time{}, err
-	}
-	if agentMeasure.Timestamp == 0 {
-		return time.Time{}, fmt.Errorf("agent-measurement timestamp is missing")
-	}
-	return time.Unix(agentMeasure.Timestamp, 0), nil
-}
-
-type agentMeasurement struct {
-	Timestamp int64 `json:"ts"`
 }
 
 func (cu *CldyUploader) recoverUploadFiles() error {
@@ -305,14 +240,6 @@ func (cu *CldyUploader) recoverUploadFiles() error {
 		return nil
 	})
 	return err
-}
-
-func getNeededFiles() map[string]struct{} {
-	filesNeeded := map[string]struct{}{}
-	for _, name := range requiredFiles {
-		filesNeeded[name] = struct{}{}
-	}
-	return filesNeeded
 }
 
 func (cu *CldyUploader) uploadLoop() {
@@ -490,6 +417,10 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 
 			// return on directories since there will be no content to tar
 			if fileInfo.Mode().IsDir() {
+				return nil
+			}
+			// the manifest is for the agent, not the backend: leave the tar layout unchanged
+			if fileInfo.Name() == manifestFileName {
 				return nil
 			}
 
