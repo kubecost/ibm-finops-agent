@@ -2,6 +2,8 @@ package opencost
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/opencost/opencost/core/pkg/external"
@@ -30,17 +32,22 @@ import (
 	"github.com/opencost/opencost/pkg/cloud/provider"
 )
 
+// NewOpenCostDataSource builds the OpenCost data source and cloud provider and starts their
+// background work. Cancelling ctx stops the data source retries. The config watchers and the
+// CostModelMetricsEmitter it starts have no stop API and run for the life of the process (U-6).
 func NewOpenCostDataSource(
+	ctx context.Context,
 	kubeClientset kubernetes.Interface,
 	k8sCache cluster.ClusterCache,
 	nodeClient nodes.StatSummaryClient,
 	router *httprouter.Router,
 	diag diagnostics.DiagnosticService,
 	conf *OpenCostConfig,
-) (source.OpenCostDataSource, models.Provider, *WAL) {
+) (source.OpenCostDataSource, models.Provider, *WAL, error) {
+
 	clusterUID, err := kubeconfig.GetClusterUID(kubeClientset)
 	if err != nil {
-		log.Fatalf("Failed to determine cluster UID: %s", err)
+		return nil, nil, nil, fmt.Errorf("failed to determine cluster UID: %w", err)
 	}
 
 	// Create ConfigFileManager for synchronization of shared configuration
@@ -49,7 +56,7 @@ func NewOpenCostDataSource(
 
 	cloudProvider, err := provider.NewProvider(clusterCache, conf.CloudProviderAPIKey, confManager)
 	if err != nil {
-		panic(err.Error())
+		return nil, nil, nil, fmt.Errorf("failed to create the cloud provider: %w", err)
 	}
 
 	err = cloudProvider.DownloadPricingData()
@@ -90,7 +97,8 @@ func NewOpenCostDataSource(
 
 	var fatalErr error
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	fn := func() (source.OpenCostDataSource, error) {
 		ds, e := prom.NewDefaultPrometheusDataSource(clusterInfoProvider)
 		if e != nil {
@@ -123,16 +131,20 @@ func NewOpenCostDataSource(
 		}
 	}
 
-	dataSource, _ := retry.Retry(
+	dataSource, err := retry.Retry(
 		ctx,
 		fn,
 		maxRetries,
 		retryInterval,
 	)
-
 	if fatalErr != nil {
-		log.Fatalf("Failed to create opencost data source: %s", fatalErr)
-		panic(fatalErr)
+		return nil, nil, nil, fmt.Errorf("failed to create the OpenCost data source: %w", fatalErr)
+	}
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create the OpenCost data source after %d attempts: %w", maxRetries, err)
+	}
+	if dataSource == nil {
+		return nil, nil, nil, errors.New("failed to create the OpenCost data source: no data source and no error")
 	}
 
 	dataSource.RegisterEndPoints(router)
@@ -144,5 +156,5 @@ func NewOpenCostDataSource(
 	metricsEmitter := costmodel.NewCostModelMetricsEmitter(clusterCache, cloudProvider, clusterInfoProvider, costModel)
 	metricsEmitter.Start()
 
-	return dataSource, cloudProvider, wal
+	return dataSource, cloudProvider, wal, nil
 }

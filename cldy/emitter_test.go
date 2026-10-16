@@ -21,6 +21,13 @@ import (
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
+// specContext returns a context cancelled when the running spec ends.
+func specContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	DeferCleanup(cancel)
+	return ctx
+}
+
 var _ = Describe("Emitter", func() {
 	Context("TestLoadData", func() {
 		It("should load data", func() {
@@ -32,7 +39,9 @@ var _ = Describe("Emitter", func() {
 				SecretManager: cldy.NewKeyValueSecretManager("", ""),
 				EnvID:         "1",
 			}
-			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
+			// The uploader loop belongs to the spec and stops with it.
+			cldyEmitter, err := cldy.NewEmitter(specContext(), config)
+			Expect(err).NotTo(HaveOccurred())
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
 
 			mockUpload := mockUploader{data: []string{}}
@@ -93,7 +102,9 @@ var _ = Describe("Emitter", func() {
 				EnvID:         "1",
 				EmitAsJson:    true,
 			}
-			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
+			// The uploader loop belongs to the spec and stops with it.
+			cldyEmitter, err := cldy.NewEmitter(specContext(), config)
+			Expect(err).NotTo(HaveOccurred())
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
 
 			mockUpload := mockUploader{data: []string{}}

@@ -24,6 +24,10 @@ const (
 	// Go Debug
 	PProfEnabledEnvVar = "PPROF_ENABLED"
 
+	// ShutdownTimeoutEnvVar bounds graceful shutdown after SIGTERM. Keep the pod's
+	// terminationGracePeriodSeconds at least 10s above it.
+	ShutdownTimeoutEnvVar = "SHUTDOWN_TIMEOUT"
+
 	// Agent DataSource Configuration
 	OpenCostDataSourceEnabledEnvVar = "OPENCOST_SOURCE_ENABLED"
 
@@ -104,6 +108,20 @@ func IsOpenCostDataSourceEnabled() bool {
 
 func IsPProfEnabled() bool {
 	return env.GetBool(PProfEnabledEnvVar, false)
+}
+
+// DefaultShutdownTimeout is the default graceful shutdown budget: the default 30s
+// terminationGracePeriodSeconds less 10s.
+const DefaultShutdownTimeout = 20 * time.Second
+
+// GetShutdownTimeout returns the graceful shutdown budget. A value that isn't a positive
+// duration means the default.
+func GetShutdownTimeout() time.Duration {
+	timeout := env.GetDuration(ShutdownTimeoutEnvVar, DefaultShutdownTimeout)
+	if timeout <= 0 {
+		return DefaultShutdownTimeout
+	}
+	return timeout
 }
 
 // Go Automatic Memory Limit Management for GC Throttling. Enabling this will sample heap usage,

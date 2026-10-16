@@ -366,15 +366,14 @@ func ConvertUnstructuredArrayToTypedArray[T any](uObjs []*unstructured.Unstructu
 	return array
 }
 
+// Start starts the informers and waits until they sync or stopCh is closed. Informers that
+// haven't synced keep retrying; StartWithTimeout bounds the wait and reports them (D9).
 func (dcc *DynamicClusterCache) Start(stopCh <-chan struct{}) {
-
 	dcc.DynamicSharedInformerFactory.Start(stopCh)
 
-	synced := dcc.WaitForCacheSync(stopCh)
-	for v, ok := range synced {
-		if !ok {
-			log.Fatalf("caches failed to sync: %v", v)
-		}
+	dcc.WaitForCacheSync(stopCh)
+	if unsynced := dcc.UnsyncedResources(); len(unsynced) > 0 {
+		log.Errorf("Kubernetes %s", InformersUnsyncedMessage(unsynced))
 	}
 }
 

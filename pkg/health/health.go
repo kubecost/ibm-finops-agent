@@ -65,6 +65,8 @@ const (
 	PhaseDataSource = "data_source" // informer sync and the collector WAL restore
 	PhaseEmitters   = "emitters"
 	PhaseRunning    = "running"
+	// PhaseStopping is set when shutdown starts: the agent stays live and is no longer ready.
+	PhaseStopping = "stopping"
 )
 
 // DefaultCheckTimeout bounds one probe's checks. Keep the probes' timeoutSeconds above it.

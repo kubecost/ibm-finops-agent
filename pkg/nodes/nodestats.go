@@ -87,9 +87,10 @@ func (nssp *NodeStatsSummaryProvider) Start(interval time.Duration) bool {
 }
 
 // Stop stops the node stats client from refreshing the internal stats data, but the pre-recorded data stays present. This
-// service can also be restarted.
+// service can also be restarted. Stop waits for a collection in flight, which is bounded by the collection timeout.
 func (nssp *NodeStatsSummaryProvider) Stop() {
 	nssp.runState.Stop()
+	nssp.runState.WaitForReset()
 }
 
 // GetNodeData will return the last node stats summary data recorded. If a newer request is in-progress, it will _not_ wait
