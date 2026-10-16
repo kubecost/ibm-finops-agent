@@ -41,6 +41,12 @@ type DataSource interface {
 	ClusterMetadata() cluster.Metadata
 }
 
+// WALReporter is implemented by data sources that run OpenCost's collector, whose write-ahead log
+// protects Kubecost's in-progress export windows across restarts.
+type WALReporter interface {
+	WAL() *opencost.WAL
+}
+
 func NewAgentDataSource(
 	kubeConfig *rest.Config,
 	kubeClientset kubernetes.Interface,
@@ -88,9 +94,10 @@ func NewAgentDataSource(
 
 	var opencostCloudCostProvider models.Provider
 	var opencostSource source.OpenCostDataSource
+	var wal *opencost.WAL
 	if env.IsOpenCostDataSourceEnabled() {
 		opencostConf := opencost.NewOpenCostConfigFromEnv()
-		opencostSource, opencostCloudCostProvider = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, nodeStatsSummaryClient, router, diag, opencostConf)
+		opencostSource, opencostCloudCostProvider, wal = opencost.NewOpenCostDataSource(kubeClientset, k8sCache, nodeStatsSummaryClient, router, diag, opencostConf)
 	} else {
 		// fulfill the contract with a no-op opencost datasource
 		opencostSource = opencost.NewNoOpOpenCostDataSource()
@@ -106,6 +113,7 @@ func NewAgentDataSource(
 		clusterCache:              k8sCache,
 		nodeStatsSummaryClient:    nodeStatsProvider,
 		clusterMetadata:           clusterMetadata,
+		wal:                       wal,
 	}
 }
 
@@ -127,6 +135,9 @@ type agentDataSource struct {
 
 	// Cluster Metadata
 	clusterMetadata cluster.Metadata
+
+	// collector write-ahead log; nil when the OpenCost data source is disabled
+	wal *opencost.WAL
 
 	// TODO: HTTP Server/Proxy for Turbo?
 }
@@ -153,4 +164,10 @@ func (ads *agentDataSource) StatsSummary() nodes.StatSummaryClient {
 
 func (ads *agentDataSource) ClusterMetadata() cluster.Metadata {
 	return ads.clusterMetadata
+}
+
+// WAL returns the collector's write-ahead log state, or nil when the OpenCost data source is
+// disabled.
+func (ads *agentDataSource) WAL() *opencost.WAL {
+	return ads.wal
 }

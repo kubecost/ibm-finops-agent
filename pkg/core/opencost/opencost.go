@@ -2,7 +2,6 @@ package opencost
 
 import (
 	"context"
-	"os"
 	"time"
 
 	"github.com/opencost/opencost/core/pkg/external"
@@ -11,6 +10,7 @@ import (
 	"github.com/opencost/opencost/pkg/util/watcher"
 
 	"github.com/ibm/finops-agent/pkg/cluster"
+	"github.com/ibm/finops-agent/pkg/condition"
 	"github.com/ibm/finops-agent/pkg/nodes"
 	"github.com/julienschmidt/httprouter"
 	"k8s.io/client-go/kubernetes"
@@ -37,7 +37,7 @@ func NewOpenCostDataSource(
 	router *httprouter.Router,
 	diag diagnostics.DiagnosticService,
 	conf *OpenCostConfig,
-) (source.OpenCostDataSource, models.Provider) {
+) (source.OpenCostDataSource, models.Provider, *WAL) {
 	clusterUID, err := kubeconfig.GetClusterUID(kubeClientset)
 	if err != nil {
 		log.Fatalf("Failed to determine cluster UID: %s", err)
@@ -104,29 +104,21 @@ func NewOpenCostDataSource(
 		return ds, e
 	}
 
+	// Prometheus mode has no WAL: Prometheus is the durable store.
+	wal := &WAL{conditions: condition.NewSet("collector-wal")}
 	if conf.CollectorDataSourceEnabled {
 		fn = func() (source.OpenCostDataSource, error) {
-			var store storage.Storage
-			if conf.BucketConfigFile != "" {
-				bucketConfig, err := os.ReadFile(conf.BucketConfigFile)
-				if err != nil {
-					log.Errorf("Failed to initialize bucket output storage, please check your configuration and bucket security settings: %s", err)
-				} else {
-					store, err = storage.NewBucketStorage(bucketConfig)
-					if err != nil {
-						log.Errorf("Failed to create bucket storage, please check your configuration and bucket security settings: %s", err)
-					}
-				}
-			}
-
-			ds := collector.NewDefaultCollectorDataSource(
-				clusterUID,
-				store,
-				clusterInfoProvider,
-				clusterCache,
-				nodeClient,
-				labelProvider,
-			)
+			var ds source.OpenCostDataSource
+			wal = openWAL(conf.BucketConfigFile, defaultWALOptions(), func(store storage.Storage) {
+				ds = collector.NewDefaultCollectorDataSource(
+					clusterUID,
+					store,
+					clusterInfoProvider,
+					clusterCache,
+					nodeClient,
+					labelProvider,
+				)
+			})
 			return ds, nil
 		}
 	}
@@ -152,5 +144,5 @@ func NewOpenCostDataSource(
 	metricsEmitter := costmodel.NewCostModelMetricsEmitter(clusterCache, cloudProvider, clusterInfoProvider, costModel)
 	metricsEmitter.Start()
 
-	return dataSource, cloudProvider
+	return dataSource, cloudProvider, wal
 }

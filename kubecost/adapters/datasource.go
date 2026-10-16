@@ -10,7 +10,11 @@ import (
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
+// OpenCostDataSourceAdapter serves exporter snapshots to OpenCost's cost model. Its four
+// adapters share one stateHolder, so Update replaces all of them as a unit, and a computation
+// that holds Pin reads a single snapshot from all four for its whole duration (F-19).
 type OpenCostDataSourceAdapter struct {
+	src            *stateHolder
 	infoAdapter    *ClusterInfoProviderAdapter
 	mapAdapter     *ClusterMapAdapter
 	clusterAdapter *ClusterCacheAdapter
@@ -25,7 +29,16 @@ func NewOpenCostDataSourceAdapter(
 	metricsAdapter *MetricsQuerierAdapter,
 	resolution time.Duration,
 ) *OpenCostDataSourceAdapter {
+	// Rebind the adapters to one holder seeded with their current data.
+	src := newStateHolder(&adapterState{
+		info:       infoAdapter.src.load().info,
+		kubernetes: clusterAdapter.src.load().kubernetes,
+		metrics:    metricsAdapter.src.load().metrics,
+	})
+	infoAdapter.src, mapAdapter.src, clusterAdapter.src, metricsAdapter.src = src, src, src, src
+
 	return &OpenCostDataSourceAdapter{
+		src:            src,
 		infoAdapter:    infoAdapter,
 		mapAdapter:     mapAdapter,
 		clusterAdapter: clusterAdapter,
@@ -34,12 +47,29 @@ func NewOpenCostDataSourceAdapter(
 	}
 }
 
-// Update emits the internal opencost source structures with the latest snapshot data
+// Update publishes the latest snapshot to all four adapters as one unit. It never blocks: while
+// a computation is pinned, the snapshot is held back until the last pin is released.
 func (ocdsa *OpenCostDataSourceAdapter) Update(snapshot *emitter.ClusterSnapshot) {
-	ocdsa.infoAdapter.Update(snapshot.ClusterInfo)
-	ocdsa.mapAdapter.Update(snapshot.ClusterInfo)
-	ocdsa.clusterAdapter.Update(snapshot.Kubernetes)
-	ocdsa.metricsAdapter.Update(snapshot.Metrics)
+	ocdsa.src.update(func(s *adapterState) *adapterState {
+		return &adapterState{
+			info:       snapshot.ClusterInfo,
+			kubernetes: snapshot.Kubernetes,
+			metrics:    s.metrics.with(snapshot.Metrics),
+		}
+	})
+}
+
+// Pin holds the adapters on their current snapshot until release is called, so a computation
+// that reads several adapters, or runs several query groups, sees one consistent snapshot.
+// Pins nest and are cheap; release is idempotent.
+func (ocdsa *OpenCostDataSourceAdapter) Pin() (release func()) {
+	return ocdsa.src.pin()
+}
+
+// ForcedSwapsTotal counts snapshots published while a computation was still pinned because it
+// had been pinned for longer than maxSwapDeferral.
+func (ocdsa *OpenCostDataSourceAdapter) ForcedSwapsTotal() uint64 {
+	return ocdsa.src.forcedSwaps.Load()
 }
 
 // RegisterEndPoints registers any custom endpoints that can be used for diagnostics or debug purposes.

@@ -169,16 +169,16 @@ func TestMinuteMetricsTick(t *testing.T) {
 		metricsQuerier.Update(snapshot.Metrics)
 
 		/*
-			for k := range metricsQuerier.tenMinuteResolution.snapshots {
+			for k := range metricsQuerier.src.load().metrics.tenMinute.snapshots {
 				t.Logf("%s", time.Unix(k, 0).Format(time.RFC3339))
 			}
 			t.Logf("-------------")
 		*/
 	}
 
-	totalMinuteSnapshots := len(metricsQuerier.tenMinuteResolution.snapshots)
-	totalHourlySnapshots := len(metricsQuerier.hourlyResolution.snapshots)
-	totalDailySnapshots := len(metricsQuerier.dailyResolution.snapshots)
+	totalMinuteSnapshots := len(metricsQuerier.src.load().metrics.tenMinute.snapshots)
+	totalHourlySnapshots := len(metricsQuerier.src.load().metrics.hourly.snapshots)
+	totalDailySnapshots := len(metricsQuerier.src.load().metrics.daily.snapshots)
 
 	if totalMinuteSnapshots != MaxBackfillSnapshots {
 		t.Fatalf("Total 10m snapshots is: %d, expected: %d", totalMinuteSnapshots, MaxBackfillSnapshots)

@@ -1,47 +1,43 @@
 package adapters
 
 import (
-	"sync"
-
 	"github.com/opencost/opencost/core/pkg/clusters"
 )
 
 type ClusterInfoProviderAdapter struct {
-	lock sync.RWMutex
-	info *clusters.ClusterInfo
+	src *stateHolder
 }
 
 func NewClusterInfoProviderAdapter(info *clusters.ClusterInfo) *ClusterInfoProviderAdapter {
 	return &ClusterInfoProviderAdapter{
-		info: info,
+		src: newStateHolder(&adapterState{info: info, metrics: newMetricsState(nil)}),
 	}
 }
 
 func (cipa *ClusterInfoProviderAdapter) Update(info *clusters.ClusterInfo) {
-	cipa.lock.Lock()
-	defer cipa.lock.Unlock()
-
-	cipa.info = info
+	cipa.src.update(func(s *adapterState) *adapterState {
+		next := *s
+		next.info = info
+		return &next
+	})
 }
 
 // GetClusterInfo returns a string map containing the local/remote connected cluster info
 func (cipa *ClusterInfoProviderAdapter) GetClusterInfo() map[string]string {
-	cipa.lock.RLock()
-	defer cipa.lock.RUnlock()
-
-	if cipa.info == nil {
+	info := cipa.src.load().info
+	if info == nil {
 		return nil
 	}
 
 	return map[string]string{
-		clusters.ClusterInfoIdKey:          cipa.info.ID,
-		clusters.ClusterInfoNameKey:        cipa.info.Name,
-		clusters.ClusterInfoProfileKey:     cipa.info.Profile,
-		clusters.ClusterInfoProviderKey:    cipa.info.Provider,
-		clusters.ClusterInfoAccountKey:     cipa.info.Account,
-		clusters.ClusterInfoProjectKey:     cipa.info.Project,
-		clusters.ClusterInfoRegionKey:      cipa.info.Region,
-		clusters.ClusterInfoProvisionerKey: cipa.info.Provisioner,
-		clusters.ClusterInfoVersionKey:     cipa.info.Version,
+		clusters.ClusterInfoIdKey:          info.ID,
+		clusters.ClusterInfoNameKey:        info.Name,
+		clusters.ClusterInfoProfileKey:     info.Profile,
+		clusters.ClusterInfoProviderKey:    info.Provider,
+		clusters.ClusterInfoAccountKey:     info.Account,
+		clusters.ClusterInfoProjectKey:     info.Project,
+		clusters.ClusterInfoRegionKey:      info.Region,
+		clusters.ClusterInfoProvisionerKey: info.Provisioner,
+		clusters.ClusterInfoVersionKey:     info.Version,
 	}
 }
