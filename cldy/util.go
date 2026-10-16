@@ -8,11 +8,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
-
-	"github.com/opencost/opencost/core/pkg/log"
 )
 
 // maxAttempts is the number of times an HTTP request is attempted before giving up.
@@ -27,64 +24,6 @@ var retryBackoff = func(attempt int) time.Duration {
 func safeClose(closer func() error, err *error) {
 	if closeErr := closer(); closeErr != nil && *err == nil {
 		*err = closeErr
-	}
-}
-
-type set struct {
-	data  map[string]struct{}
-	mutex *sync.RWMutex
-}
-
-func (s *set) add(data string) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	s.data[data] = struct{}{}
-}
-
-func (s *set) remove(data string) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	delete(s.data, data)
-}
-
-func (s *set) contents() []string {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-	var data []string
-	for key := range s.data {
-		data = append(data, key)
-	}
-	return data
-}
-
-func (s *set) length() int {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-	return len(s.data)
-}
-
-func (s *set) operateAndRemove(f func(string) error) error {
-	toRemove := make([]string, 0)
-	s.mutex.RLock()
-	for k := range s.data {
-		err := f(k)
-		if err != nil {
-			s.mutex.RUnlock()
-			return err
-		}
-		toRemove = append(toRemove, k)
-	}
-	s.mutex.RUnlock()
-	for _, k := range toRemove {
-		s.remove(k)
-	}
-	return nil
-}
-
-func newSet() *set {
-	return &set{
-		data:  make(map[string]struct{}),
-		mutex: &sync.RWMutex{},
 	}
 }
 
@@ -122,15 +61,4 @@ var diskAvailable = func(dir string) (uint64, error) {
 		return 0, err
 	}
 	return stat.Bavail * uint64(stat.Bsize), nil
-}
-
-func IsAvailableDiskSpace(dataSize uint64, dir string) bool {
-	avail, err := diskAvailable(dir)
-	if err != nil {
-		log.Errorf("error retrieving available disk space.")
-		return false
-	}
-
-	// Check if adding the new data will not exceed available space
-	return avail >= dataSize
 }

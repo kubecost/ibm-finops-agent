@@ -118,35 +118,33 @@ func TestF36ExpiredDataIsCountedDrop(t *testing.T) {
 	}
 }
 
-// F-36: disk-pressure cleanup deletes only payloads older than half the recovery period, counts
-// each one, and dequeues it.
+// F-36: under disk pressure only the oldest payloads are evicted, until there is room, each
+// counted; a recent payload survives.
 func TestF36DiskPressureKeepsRecentUploads(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	scratch := newProdScratch(t, t.TempDir(), "cid-f36-disk")
 	recent := scratch.AddUpload(t, now.Add(-time.Hour))
 	old := scratch.AddUpload(t, now.Add(-40*time.Hour))
-	for path, age := range map[string]time.Duration{recent: time.Hour, old: 40 * time.Hour} {
-		if err := os.Chtimes(path, now.Add(-age), now.Add(-age)); err != nil {
-			t.Fatalf("chtimes: %v", err)
-		}
-	}
-	cu := cldy.NewUploaderForTest(scratch.UploaderConfig(t), nil, newFakeClock(now).Now)
+	svc := &fakeStorage{failOn: func(int, cldy.UploadPayload) error { return errors.New("backend down") }}
+	cu := cldy.NewUploaderForTest(scratch.UploaderConfig(t), []cldy.StorageService{svc}, newFakeClock(now).Now)
+	cu.SetClusterID(scratch.ClusterID)
 	if cu.RecoveredUploads != 2 {
 		t.Fatalf("F-36: %d of 2 payloads inside the recovery period queued at startup", cu.RecoveredUploads)
 	}
 
-	if err := cu.ClearOldUploadSamples(); err != nil {
-		t.Fatalf("ClearOldUploadSamples: %v", err)
-	}
+	restore := cldy.SetDiskAvailableForTest(diskFullWhileUploadsOver(scratch, 1))
+	defer restore()
+	scratch.AddCompleteSample(t, now, 0)
+	cu.UploadCycleForTest()
 
 	if _, err := os.Stat(recent); err != nil {
 		t.Errorf("F-36: disk-pressure cleanup deleted a 1-hour-old payload: %v", err)
 	}
 	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("a payload older than half the recovery period survived disk-pressure cleanup: %v", err)
+		t.Errorf("the oldest payload survived disk-pressure cleanup: %v", err)
 	}
-	if got := cu.QueuedUploadsForTest(); len(got) != 1 || got[0] != recent {
-		t.Errorf("queue after cleanup %v, want only %s", got, recent)
+	if got := cu.QueuedUploadsForTest(); len(got) != 2 || got[0] != recent {
+		t.Errorf("queue after cleanup %v, want %s and the new payload", got, recent)
 	}
 	if got := cu.EventsForTest().Dropped[cldy.DropReasonDiskPressure]; got != 1 {
 		t.Errorf("disk-pressure deletions counted %d, want 1", got)
@@ -346,7 +344,7 @@ func TestF05NoPayloadWithoutClusterID(t *testing.T) {
 	if err := cldy.ValidateSampleForTest(sample); err != nil {
 		t.Errorf("sample damaged: %v", err)
 	}
-	if !slices.Contains(cu.QueuedSamplesForTest(), sample) {
+	if queued, _, _ := cldy.FinalisedSamplesForTest(scratch.ClusterScratchDir()); !slices.Contains(queued, sample) {
 		t.Errorf("sample dequeued without being packaged")
 	}
 }
@@ -761,6 +759,7 @@ func TestCrashPointMatrixNoSilentLoss(t *testing.T) {
 	sequence := run(t, 0)
 	for _, point := range []string{
 		cldy.CrashAfterCreate, cldy.CrashMidTar, cldy.CrashBeforeRename, cldy.CrashAfterRename, cldy.CrashAfterUpload,
+		cldy.CrashPackagedSampleRenamed,
 		cldy.CrashSampleFileWritten, cldy.CrashSampleBeforeRename, cldy.CrashSampleAfterRename,
 	} {
 		if !slices.Contains(sequence, point) {

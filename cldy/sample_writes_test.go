@@ -662,9 +662,6 @@ func TestF18DiskPressureEvictsOldestFinalisedSamples(t *testing.T) {
 	if got := ev.Dropped[cldy.DropReasonDiskPressure]; got != 2 {
 		t.Errorf("F-18: 2 samples evicted under disk pressure, %d counted as %s", got, cldy.DropReasonDiskPressure)
 	}
-	if len(up.removed) != 2 {
-		t.Errorf("evicted samples not removed from the upload queue: %v", up.removed)
-	}
 	if !ev.Conditions[cldy.ConditionDiskPressure] {
 		t.Errorf("F-18: condition %s not set", cldy.ConditionDiskPressure)
 	}

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/ibm/finops-agent/cldy"
-	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
@@ -83,17 +82,6 @@ func TestSafePath(t *testing.T) {
 		})
 	}
 }
-
-var _ = Describe("Util", func() {
-	Context("IsAvailableDiskSpace", func() {
-		It("should return false on disk exceedance", func() {
-			Expect(cldy.IsAvailableDiskSpace(0xFFFFFFFFFFFFFFFF, "/")).To(BeFalse())
-		})
-		It("should return true when there is space", func() {
-			Expect(cldy.IsAvailableDiskSpace(1, "/")).To(BeTrue())
-		})
-	})
-})
 
 func safeClose(closer func() error) {
 	Expect(closer()).To(Not(HaveOccurred()))

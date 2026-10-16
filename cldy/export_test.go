@@ -13,6 +13,8 @@ const (
 	CrashAfterRename  = crashAfterRename
 	CrashAfterUpload  = crashAfterUpload
 
+	CrashPackagedSampleRenamed = crashPackagedSampleRenamed
+
 	CrashSampleFileWritten  = crashSampleFileWritten
 	CrashSampleBeforeRename = crashSampleBeforeRename
 	CrashSampleAfterRename  = crashSampleAfterRename
@@ -35,10 +37,52 @@ const (
 	DropReasonInvalidSample         = dropReasonInvalidSample
 	DropReasonInvalidPayload        = dropReasonInvalidPayload
 	DropReasonQuarantineEvicted     = dropReasonQuarantineEvicted
+	DropReasonRejectedByBackend     = dropReasonRejectedByBackend
+	DropReasonUndeliverable         = dropReasonUndeliverable
+	DropReasonNoUploader            = dropReasonNoUploader
+	DropReasonBacklogBytes          = dropReasonBacklogBytes
+	DropReasonBacklogAge            = dropReasonBacklogAge
 	ConditionDiskPressure           = conditionDiskPressure
 	ConditionDiskSpaceUnknown       = conditionDiskSpaceUnknown
 	ConditionUninitialised          = conditionUninitialised
+
+	ConditionUploaderUnconfigured     = conditionUploaderUnconfigured
+	ConditionUploaderMisconfigured    = conditionUploaderMisconfigured
+	ConditionUploadConnectivityFailed = conditionUploadConnectivityFailed
+	ConditionUploadAuthFailed         = conditionUploadAuthFailed
+	ConditionUploadsRejected          = conditionUploadsRejected
+
+	UploadResultOK        = uploadResultOK
+	UploadResultRetryable = uploadResultRetryable
+	UploadResultTimeout   = uploadResultTimeout
+	UploadResultAuth      = uploadResultAuth
+	UploadResultRejected  = uploadResultRejected
 )
+
+// ClassifyUploadForTest returns the upload_attempts_total result for a StorageService.Upload
+// error, and whether the uploader deletes (delivered), keeps (retry, auth) or quarantines
+// (rejected) the payload.
+func ClassifyUploadForTest(err error) (result string, action string) {
+	switch classifyUpload(err) {
+	case uploadDelivered:
+		action = "delete"
+	case uploadRejected:
+		action = "quarantine"
+	case uploadAuthFailed:
+		action = "stop-auth"
+	default:
+		action = "stop"
+	}
+	return uploadResult(err), action
+}
+
+// SetRetryBackoffForTest replaces the HTTP retry backoff and returns a func restoring it. Tests
+// that set it must not run in parallel.
+func SetRetryBackoffForTest(f func(attempt int) time.Duration) (restore func()) {
+	prev := retryBackoff
+	retryBackoff = f
+	return func() { retryBackoff = prev }
+}
 
 // MaxPendingShortLivedPods is the emitter's short-lived pod bound.
 const MaxPendingShortLivedPods = maxPendingShortLivedPods
@@ -108,14 +152,25 @@ func (cu *CldyUploader) UploadCycleForTest() {
 	cu.uploadCycle()
 }
 
-// QueuedUploadsForTest returns the payload paths currently queued for upload.
+// QueuedUploadsForTest returns the payload paths queued for upload, in upload order.
 func (cu *CldyUploader) QueuedUploadsForTest() []string {
-	return cu.uploadSet.contents()
+	payloads, _, _ := cu.queue.payloads()
+	var paths []string
+	for _, p := range payloads {
+		paths = append(paths, p.path)
+	}
+	return paths
 }
 
-// QueuedSamplesForTest returns the sample directories currently queued for packaging.
+// QueuedSamplesForTest returns the live cluster's finalised samples waiting to be packaged,
+// oldest first.
 func (cu *CldyUploader) QueuedSamplesForTest() []string {
-	return cu.sampleSet.contents()
+	samples, _, _ := listFinalisedSamples(cu.queue.clusterDir(cu.liveClusterID()))
+	var paths []string
+	for _, s := range samples {
+		paths = append(paths, s.Path)
+	}
+	return paths
 }
 
 // NewEmitterForTest builds an Emitter around the given uploader with the given clock (nil means

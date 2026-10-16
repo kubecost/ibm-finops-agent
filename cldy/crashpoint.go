@@ -17,6 +17,9 @@ const (
 	// crashAfterUpload is reached after every storage service accepted a payload, before the
 	// payload file is deleted.
 	crashAfterUpload = "after-upload"
+	// crashPackagedSampleRenamed is reached after a packaged sample is renamed back to a
+	// staging name, before it is removed.
+	crashPackagedSampleRenamed = "packaged-sample-renamed"
 
 	// crashSampleFileWritten is reached after each file of a sample is written into its staging
 	// directory, the manifest included.

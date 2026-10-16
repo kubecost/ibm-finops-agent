@@ -242,7 +242,6 @@ var _ = Describe("Emitter", func() {
 
 type mockUploader struct {
 	data      []string
-	removed   []string
 	clusterID string
 }
 
@@ -252,10 +251,6 @@ func (m *mockUploader) SetClusterID(id string) {
 
 func (m *mockUploader) AddSample(sample string) {
 	m.data = append(m.data, sample)
-}
-
-func (m *mockUploader) RemoveSample(sample string) {
-	m.removed = append(m.removed, sample)
 }
 
 // ensure replicaSets with zero replicas are not emitted
