@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/env"
+	"github.com/ibm/finops-agent/pkg/telemetry/dropevent"
 	cache2 "k8s.io/client-go/tools/cache"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -230,8 +232,9 @@ func (dcc *DynamicClusterCache) addShortLivedPod(pod *corev1.Pod) {
 		dcc.slpDropped.Add(1)
 		if !dcc.slpOverflowing {
 			dcc.slpOverflowing = true
-			log.Errorf("short-lived pod buffer full (%d pods, snapshots aren't draining it): dropping the oldest pods, starting with %s/%s",
-				dcc.slpCap, dropped.Namespace, dropped.Name)
+			dropevent.Log(dropevent.Drop{Emitter: "exporter", Reason: "short_lived_pod_overflow", Count: 1,
+				Detail: fmt.Sprintf("short-lived pod buffer full (%d pods, snapshots aren't draining it): dropping the oldest pods, starting with %s/%s; "+
+					"further drops until it drains are counted, not logged", dcc.slpCap, dropped.Namespace, dropped.Name)})
 		}
 		return
 	}

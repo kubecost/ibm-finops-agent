@@ -56,13 +56,24 @@ type NodeStatsSummaryClient struct {
 	durationObserver DurationObserver
 }
 
+// defaultDurationObserver is the observer every client starts with (SetDefaultDurationObserver).
+var defaultDurationObserver DurationObserver
+
+// SetDefaultDurationObserver sets the observer that every NodeStatsSummaryClient created
+// afterwards starts with: the agent's node_stats_duration_seconds histogram. Call it at startup,
+// before any client is created.
+func SetDefaultDurationObserver(observer DurationObserver) {
+	defaultDurationObserver = observer
+}
+
 func NewNodeStatsSummaryClient(cache cluster.ClusterCache, config NodeClientConfig, inClusterConfig *rest.Config) *NodeStatsSummaryClient {
 	return &NodeStatsSummaryClient{
-		config:          config,
-		cache:           cache,
-		endpoint:        "stats/summary",
-		clusterHostUrl:  inClusterConfig.Host,
-		bearerTokenFile: inClusterConfig.BearerTokenFile,
+		config:           config,
+		cache:            cache,
+		endpoint:         "stats/summary",
+		clusterHostUrl:   inClusterConfig.Host,
+		bearerTokenFile:  inClusterConfig.BearerTokenFile,
+		durationObserver: defaultDurationObserver,
 	}
 }
 

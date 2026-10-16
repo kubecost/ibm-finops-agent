@@ -11,6 +11,7 @@ import (
 	"github.com/ibm/finops-agent/kubecost/errors"
 	"github.com/ibm/finops-agent/pkg/emitter"
 	coreenv "github.com/opencost/opencost/core/pkg/env"
+	heartbeatexporter "github.com/opencost/opencost/core/pkg/heartbeat/exporter"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/opencost/exporter"
 	"github.com/opencost/opencost/core/pkg/storage"
@@ -81,6 +82,10 @@ type EmitterConfig struct {
 	BucketCanaryInterval time.Duration
 	// WAL, when set, gates the export controllers on the collector's write-ahead log.
 	WAL WALGuard
+	// HeartbeatMetadata, if set, adds to the metadata of every heartbeat: the agent's health
+	// summary (telemetry.Metrics.HeartbeatMetadata) in production, so IBM sees degraded states
+	// (I6). It is not read from the environment.
+	HeartbeatMetadata heartbeatexporter.HeartbeatMetadataProvider
 }
 
 // NewEmitterConfigFromEnv creates a new EmitterConfig from environment variables.

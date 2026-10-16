@@ -40,6 +40,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ibm/finops-agent/pkg/telemetry"
+	"github.com/ibm/finops-agent/pkg/telemetry/dropevent"
 	"github.com/opencost/opencost/core/pkg/log"
 )
 
@@ -236,10 +238,11 @@ func (q *diskQueue) stats(clusterID string) (files int, bytes int64) {
 }
 
 // evictLocked removes a queued item and counts it as a drop for reason, or for no_uploader
-// while no storage service is configured. The caller holds q.mu.
+// while no storage service is configured. The caller holds q.mu, and flushes batch, which logs
+// the cycle's evictions once per reason at Error; each item is logged at Info.
 // The drop is counted before the removal, so a kill in between over-counts rather than losing
 // data silently. A quarantined item is counted as quarantine_evicted.
-func (q *diskQueue) evictLocked(it backlogItem, reason, detail string) bool {
+func (q *diskQueue) evictLocked(it backlogItem, reason, detail string, batch *dropevent.Batch) bool {
 	kind := "payload"
 	switch {
 	case it.quarantined:
@@ -251,8 +254,11 @@ func (q *diskQueue) evictLocked(it backlogItem, reason, detail string) bool {
 		reason = dropReasonNoUploader
 		detail += "; no storage service is configured"
 	}
-	dropData(q.events, reason, 1, fmt.Sprintf("evicting %s %s (%d bytes, from %s): %s",
-		kind, filepath.Base(filepath.Clean(it.path)), it.size, it.ts.UTC().Format(time.RFC3339), detail))
+	detail = fmt.Sprintf("evicting %s %s (%d bytes, from %s): %s",
+		kind, filepath.Base(filepath.Clean(it.path)), it.size, it.ts.UTC().Format(time.RFC3339), detail)
+	log.Infof("Cloudability upload queue: %s", detail)
+	q.events.DataDropped(reason, 1)
+	batch.Add(reason, 1, it.size, it.ts, detail)
 	if err := os.RemoveAll(it.path); err != nil {
 		log.Errorf("failed to evict queued Cloudability data %s, counted as dropped but still on disk: %v", it.path, err)
 		return false
@@ -284,8 +290,10 @@ func (q *diskQueue) makeRoomLocked(clusterID string, need uint64) (pressure, ok 
 		log.Errorf("failed to list the Cloudability upload queue to make room: %v", err)
 		return true, false, nil
 	}
+	batch := dropevent.NewBatch(telemetry.EmitterCloudability)
+	defer batch.Flush()
 	for _, it := range append(q.quarantineItems(), items...) {
-		if !q.evictLocked(it, dropReasonDiskPressure, fmt.Sprintf("the scratch volume has %d bytes free and %d are needed", avail, need)) {
+		if !q.evictLocked(it, dropReasonDiskPressure, fmt.Sprintf("the scratch volume has %d bytes free and %d are needed", avail, need), batch) {
 			continue
 		}
 		if avail, err = diskAvailable(q.scratchDir); err != nil || avail >= need {
@@ -306,11 +314,13 @@ func (q *diskQueue) enforceBounds(clusterID string, maxAge time.Duration, maxByt
 		return
 	}
 	now := q.clock()
+	batch := dropevent.NewBatch(telemetry.EmitterCloudability)
+	defer batch.Flush()
 	var kept []backlogItem
 	var total int64
 	for _, it := range items {
 		if age := now.Sub(it.ts); age > maxAge &&
-			q.evictLocked(it, dropReasonBacklogAge, fmt.Sprintf("%s old, past the recovery period of %s", age.Round(time.Second), maxAge)) {
+			q.evictLocked(it, dropReasonBacklogAge, fmt.Sprintf("%s old, past the recovery period of %s", age.Round(time.Second), maxAge), batch) {
 			continue
 		}
 		kept = append(kept, it)
@@ -320,7 +330,7 @@ func (q *diskQueue) enforceBounds(clusterID string, maxAge time.Duration, maxByt
 		if total <= maxBytes {
 			break
 		}
-		if q.evictLocked(it, dropReasonBacklogBytes, fmt.Sprintf("the backlog of %d bytes is over its limit of %d", total, maxBytes)) {
+		if q.evictLocked(it, dropReasonBacklogBytes, fmt.Sprintf("the backlog of %d bytes is over its limit of %d", total, maxBytes), batch) {
 			total -= it.size
 		}
 	}
