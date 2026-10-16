@@ -184,6 +184,12 @@ func GetInformerReSyncInterval() time.Duration {
 	return getValueWithPotentialPrefixOrDefault(InformerResyncIntervalEnvVar, CloudabilityPrefix, 24*time.Hour, cast.ToDuration)
 }
 
+// GetScratchDir returns the agent's scratch volume, CLOUDABILITY_SCRATCH_DIR (default
+// /opt/finops-agent, as for the Cloudability emitter).
+func GetScratchDir() string {
+	return env.Get(CloudabilityPrefix+"SCRATCH_DIR", "/opt/finops-agent")
+}
+
 // GetSanitizeData returns bool that further sanitizes k8s resources if true
 func GetSanitizeData() bool {
 	return getValueWithPotentialPrefixOrDefault(ParseMetricDataEnvVar, CloudabilityPrefix, false, cast.ToBool)

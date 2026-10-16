@@ -1,5 +1,3 @@
-//go:build reliability_repro
-
 package cluster
 
 // Reliability reproductions for the cluster-cache findings in docs/reliability/FINDINGS.md.
@@ -22,6 +20,7 @@ func unstructuredPod(name string, containers any) *unstructured.Unstructured {
 
 // F-40: one object that fails typed conversion empties its whole resource type.
 func TestReproF40OneBadObjectEmptiesResourceType(t *testing.T) {
+	before := ConversionFailures()["pods"]
 	good := []any{map[string]any{"name": "c", "image": "busybox"}}
 	pods := ConvertUnstructuredArrayToTypedArray[corev1.Pod]([]*unstructured.Unstructured{
 		unstructuredPod("good-1", good),
@@ -35,5 +34,8 @@ func TestReproF40OneBadObjectEmptiesResourceType(t *testing.T) {
 	}
 	if len(pods) != 2 {
 		t.Fatalf("F-40: one pod that fails conversion dropped the whole pod list: got %d pods %v, want the 2 convertible pods [good-1 good-2]", len(pods), names)
+	}
+	if got := ConversionFailures()["pods"] - before; got != 1 {
+		t.Errorf("ConversionFailures()[pods] rose by %d; want 1", got)
 	}
 }

@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/opencost/opencost/core/pkg/log"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // Exporter is an interface that defines a data emission management system and facilitates the
@@ -70,6 +73,10 @@ type EmitterStatus struct {
 	LastEmitError       error
 	LastEmitErrorTime   time.Time
 	ConsecutiveFailures int
+	// SkippedTotal counts cycles in which the emitter was not called, by reason
+	// (emit_skipped_total{emitter,reason}): "missing_<component>" when a component it requires
+	// failed, "busy" when its previous call was still running.
+	SkippedTotal map[string]uint64
 }
 
 // ExporterStatus is a snapshot of the exporter's heartbeats and counters. The *Total counters
@@ -84,13 +91,16 @@ type ExporterStatus struct {
 	LastSnapshotSuccess         time.Time
 	LastSnapshotError           error
 	ConsecutiveSnapshotFailures int
+	// SnapshotComponentErrors holds the components that failed in the last snapshot. A snapshot
+	// with some failed components still succeeds; emitters that need them are skipped.
+	SnapshotComponentErrors map[SnapshotComponent]error
 
 	CyclesTotal           uint64
 	CycleOverrunsTotal    uint64
 	SnapshotTimeoutsTotal uint64
 	EmitTimeoutsTotal     uint64
-	// AbandonedShortLivedPodsTotal counts short-lived pods drained into snapshots that completed
-	// after their deadline and were discarded.
+	// AbandonedShortLivedPodsTotal counts short-lived pods drained (from a cluster cache that
+	// can't be peeked) into snapshots that were discarded. With a peekable cache nothing is lost.
 	AbandonedShortLivedPodsTotal uint64
 
 	Emitters []EmitterStatus
@@ -192,6 +202,12 @@ type defaultExporter struct {
 	pending     []*snapshotCall
 	snapshotSeq uint64
 	lastUsedSeq uint64
+	// failingComponents is the set of components that failed in the last snapshot, for
+	// edge-triggered logging.
+	failingComponents map[SnapshotComponent]bool
+
+	// slpWriters are the emitters that write short-lived pods (see ShortLivedPodWriter).
+	slpWriters []ShortLivedPodWriter
 
 	// mu guards the heartbeat fields below and every slot's status.
 	mu                          sync.Mutex
@@ -205,6 +221,7 @@ type defaultExporter struct {
 	lastSnapshotSuccess         time.Time
 	lastSnapshotError           error
 	consecutiveSnapshotFailures int
+	snapshotComponentErrors     map[SnapshotComponent]error
 
 	cycles, overruns, snapshotTimeouts, emitTimeouts, abandonedShortLivedPods atomic.Uint64
 }
@@ -219,6 +236,9 @@ type emitterSlot struct {
 	// the skip for a call past its deadline has been logged. Both guarded by mu.
 	callStarted time.Time
 	skipLogged  bool
+	// missingLogged is set while the emitter is skipped for a failed component, so each episode
+	// logs one Error. Guarded by mu.
+	missingLogged bool
 }
 
 // NewExporter creates an exporter with default deadlines.
@@ -229,17 +249,23 @@ func NewExporter(ds core.DataSource, snapshotProvider SnapshotProvider, emitters
 // NewExporterWithConfig creates an exporter with the given deadlines and retry settings.
 func NewExporterWithConfig(ds core.DataSource, snapshotProvider SnapshotProvider, config ExporterConfig, emitters ...Emitter) Exporter {
 	slots := make([]*emitterSlot, 0, len(emitters))
+	var writers []ShortLivedPodWriter
 	for _, e := range emitters {
 		slots = append(slots, &emitterSlot{
 			emitter: e,
-			status:  EmitterStatus{ID: e.ID(), State: EmitterUninitialised},
+			status:  EmitterStatus{ID: e.ID(), State: EmitterUninitialised, SkippedTotal: map[string]uint64{}},
 		})
+		if w, ok := e.(ShortLivedPodWriter); ok {
+			writers = append(writers, w)
+		}
 	}
 	return &defaultExporter{
-		ds:               ds,
-		snapshotProvider: snapshotProvider,
-		config:           config,
-		slots:            slots,
+		ds:                ds,
+		snapshotProvider:  snapshotProvider,
+		config:            config,
+		slots:             slots,
+		slpWriters:        writers,
+		failingComponents: map[SnapshotComponent]bool{},
 	}
 }
 
@@ -352,9 +378,10 @@ func (de *defaultExporter) run(ctx context.Context, interval time.Duration, cfg 
 	}
 }
 
-// cycle takes one snapshot and makes one call on each emitter: Init if it isn't ready yet,
-// otherwise Emit. It reports whether the snapshot succeeded.
-func (de *defaultExporter) cycle(ctx context.Context, cfg ExporterConfig) bool {
+// cycle takes one snapshot and makes one call on each emitter whose required components
+// succeeded: Init if it isn't ready yet, otherwise Emit. It reports whether the snapshot
+// succeeded (at least one component did).
+func (de *defaultExporter) cycle(ctx context.Context, cfg ExporterConfig) (ok bool) {
 	de.cycles.Add(1)
 	de.mu.Lock()
 	de.lastCycleStart = cfg.Now()
@@ -368,6 +395,15 @@ func (de *defaultExporter) cycle(ctx context.Context, cfg ExporterConfig) bool {
 	}()
 
 	snapshot, err := de.takeSnapshot(ctx, cfg)
+	// Commit the short-lived pods written since the last cycle, including by calls that
+	// overran their deadline, whatever this cycle's outcome.
+	defer func() {
+		if ok {
+			de.commitShortLivedPods(snapshot)
+		} else {
+			de.commitShortLivedPods(nil)
+		}
+	}()
 	if ctx.Err() != nil {
 		if err == nil {
 			discardSnapshot(de, snapshot, "the exporter stopped before it was emitted")
@@ -390,22 +426,102 @@ func (de *defaultExporter) cycle(ctx context.Context, cfg ExporterConfig) bool {
 	de.lastSnapshotSuccess = cfg.Now()
 	de.lastSnapshotError = nil
 	de.consecutiveSnapshotFailures = 0
+	de.snapshotComponentErrors = snapshot.ComponentErrors
 	de.mu.Unlock()
+	de.logComponentErrors(snapshot)
 
+	delivered := de.windowDelivery(snapshot)
 	var calls sync.WaitGroup
 	for _, slot := range de.slots {
+		if c, cerr := snapshot.MissingComponent(requiredComponents(slot.emitter)); cerr != nil {
+			de.recordMissingComponent(slot, cfg, c, cerr)
+			continue
+		}
 		if !slot.busy.CompareAndSwap(false, true) {
 			de.recordSkip(slot, cfg)
 			continue
 		}
 		de.mu.Lock()
 		slot.callStarted = cfg.Now()
+		if slot.missingLogged {
+			slot.missingLogged = false
+			log.Infof("[%s] required snapshot components recovered; resuming", slot.emitter.ID())
+		}
 		de.mu.Unlock()
-		calls.Go(func() { de.callEmitter(ctx, cfg, slot, snapshot) })
+		var onSuccess func()
+		if requires(slot.emitter, ComponentMetrics) {
+			onSuccess = delivered
+		}
+		calls.Go(func() { de.callEmitter(ctx, cfg, slot, snapshot, onSuccess) })
 	}
 	calls.Wait()
 
 	return true
+}
+
+// windowDelivery returns the func each emitter that requires metrics calls when it has received
+// snapshot successfully. Once all of them have, the snapshot's metrics windows are committed to
+// the provider (WindowCommitter), which then stops re-querying its closed windows. It returns nil
+// when there is nothing to commit or no emitter consumes metrics.
+func (de *defaultExporter) windowDelivery(snapshot *ClusterSnapshot) func() {
+	committer, ok := de.snapshotProvider.(WindowCommitter)
+	if !ok || len(snapshot.windows) == 0 {
+		return nil
+	}
+	var consumers int32
+	for _, slot := range de.slots {
+		if requires(slot.emitter, ComponentMetrics) {
+			consumers++
+		}
+	}
+	if consumers == 0 {
+		return nil
+	}
+	var remaining atomic.Int32
+	remaining.Store(consumers)
+	return func() {
+		if remaining.Add(-1) == 0 {
+			committer.CommitWindows(snapshot)
+		}
+	}
+}
+
+// commitShortLivedPods removes written short-lived pods from the cluster cache's buffer: those
+// the ShortLivedPodWriter emitters report written or, when there are none, every pod in snapshot
+// (nil when the cycle used no snapshot), since nothing will write them.
+func (de *defaultExporter) commitShortLivedPods(snapshot *ClusterSnapshot) {
+	var uids []types.UID
+	if len(de.slpWriters) > 0 {
+		for _, w := range de.slpWriters {
+			uids = append(uids, w.WrittenShortLivedPods()...)
+		}
+	} else if snapshot != nil && snapshot.Kubernetes != nil {
+		for _, p := range snapshot.Kubernetes.ShortLivedPods {
+			uids = append(uids, p.UID)
+		}
+	}
+	if len(uids) == 0 || de.ds == nil {
+		return
+	}
+	if buffer, ok := de.ds.Cluster().(cluster.ShortLivedPodBuffer); ok {
+		buffer.CommitShortLivedPods(uids)
+	}
+}
+
+// logComponentErrors logs a component's failure when it starts and its recovery when it ends.
+// Only the loop goroutine calls it.
+func (de *defaultExporter) logComponentErrors(snapshot *ClusterSnapshot) {
+	for _, c := range AllComponents {
+		err := snapshot.ComponentErrors[c]
+		switch {
+		case err != nil && !de.failingComponents[c]:
+			de.failingComponents[c] = true
+			log.Errorf("snapshot component %s failed; emitters that require it are skipped until it recovers: %v", c, err)
+		case err == nil && de.failingComponents[c]:
+			delete(de.failingComponents, c)
+			log.Infof("snapshot component %s recovered", c)
+		}
+	}
 }
 
 // snapshotCall is one snapshot, run in its own goroutine. snapshot and err are written before
@@ -584,9 +700,11 @@ func (de *defaultExporter) releasePending(cfg ExporterConfig) {
 }
 
 // discardSnapshot counts and logs the short-lived pods in a successful snapshot that will
-// never be emitted. The pods were drained from the cluster cache, so they are lost (I1).
+// never be emitted, if they were drained from a cluster cache that can't be peeked: they are
+// lost (I1).
 func discardSnapshot(de *defaultExporter, snapshot *ClusterSnapshot, reason string) {
-	if snapshot == nil || snapshot.Kubernetes == nil {
+	if snapshot == nil || snapshot.Kubernetes == nil || !snapshot.Kubernetes.shortLivedPodsDrained {
+		// peeked pods are still buffered; nothing is lost
 		return
 	}
 	if dropped := len(snapshot.Kubernetes.ShortLivedPods); dropped > 0 {
@@ -610,7 +728,8 @@ func (de *defaultExporter) safeSnapshot(ctx context.Context) (snapshot *ClusterS
 
 // callEmitter makes one Init or Emit call on slot's emitter under the emit deadline. The
 // caller has set slot.busy; the call's goroutine clears it when the call returns, however late.
-func (de *defaultExporter) callEmitter(ctx context.Context, cfg ExporterConfig, slot *emitterSlot, snapshot *ClusterSnapshot) {
+// onSuccess, if not nil, is called when the call succeeds, however late.
+func (de *defaultExporter) callEmitter(ctx context.Context, cfg ExporterConfig, slot *emitterSlot, snapshot *ClusterSnapshot, onSuccess func()) {
 	de.mu.Lock()
 	ready := slot.status.State == EmitterReady
 	de.mu.Unlock()
@@ -622,10 +741,16 @@ func (de *defaultExporter) callEmitter(ctx context.Context, cfg ExporterConfig, 
 	go func() {
 		defer de.callReturned(slot, cfg)
 		defer close(done)
+		var err error
 		if ready {
-			de.recordEmitResult(slot, cfg, emit(ectx, slot.emitter, snapshot))
+			err = emit(ectx, slot.emitter, snapshot)
+			de.recordEmitResult(slot, cfg, err)
 		} else {
-			de.recordInitResult(slot, cfg, initialise(slot.emitter, snapshot))
+			err = initialise(slot.emitter, snapshot)
+			de.recordInitResult(slot, cfg, err)
+		}
+		if err == nil && onSuccess != nil {
+			onSuccess()
 		}
 	}()
 
@@ -686,10 +811,27 @@ func (de *defaultExporter) recordSkip(slot *emitterSlot, cfg ExporterConfig) {
 	slot.status.LastEmitError = errors.New("previous Init or Emit is still running past its deadline; skipped this cycle")
 	slot.status.LastEmitErrorTime = cfg.Now()
 	slot.status.ConsecutiveFailures++
+	slot.status.SkippedTotal["busy"]++
 	de.mu.Unlock()
 	if first {
 		log.Errorf("[%s] Init or Emit still running %s after it started; skipping this emitter until it returns",
 			slot.emitter.ID(), cfg.Now().Sub(started).Round(time.Second))
+	}
+}
+
+// recordMissingComponent records a cycle skipped because a component slot's emitter requires
+// failed. It logs once per episode.
+func (de *defaultExporter) recordMissingComponent(slot *emitterSlot, cfg ExporterConfig, c SnapshotComponent, err error) {
+	de.mu.Lock()
+	first := !slot.missingLogged
+	slot.missingLogged = true
+	slot.status.LastEmitError = fmt.Errorf("skipped: required snapshot component %s failed: %w", c, err)
+	slot.status.LastEmitErrorTime = cfg.Now()
+	slot.status.ConsecutiveFailures++
+	slot.status.SkippedTotal["missing_"+string(c)]++
+	de.mu.Unlock()
+	if first {
+		log.Errorf("[%s] skipping this emitter while the %s snapshot component it requires is failing: %v", slot.emitter.ID(), c, err)
 	}
 }
 
@@ -808,6 +950,7 @@ func (de *defaultExporter) Status() ExporterStatus {
 		LastSnapshotSuccess:          de.lastSnapshotSuccess,
 		LastSnapshotError:            de.lastSnapshotError,
 		ConsecutiveSnapshotFailures:  de.consecutiveSnapshotFailures,
+		SnapshotComponentErrors:      maps.Clone(de.snapshotComponentErrors),
 		CyclesTotal:                  de.cycles.Load(),
 		CycleOverrunsTotal:           de.overruns.Load(),
 		SnapshotTimeoutsTotal:        de.snapshotTimeouts.Load(),
@@ -818,6 +961,7 @@ func (de *defaultExporter) Status() ExporterStatus {
 	for _, slot := range de.slots {
 		es := slot.status
 		es.Busy = slot.busy.Load()
+		es.SkippedTotal = maps.Clone(slot.status.SkippedTotal)
 		status.Emitters = append(status.Emitters, es)
 	}
 	return status

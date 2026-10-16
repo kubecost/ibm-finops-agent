@@ -8,6 +8,7 @@ import (
 	stv1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // TODO: Cloudy/Turbo needs filtering functionality for specific k8s resources!
@@ -74,4 +75,16 @@ type ClusterCache interface {
 
 	// ListUnstructuredByGroupVersionResource returns array of unstructured objects by group version resource
 	ListUnstructuredByGroupVersionResource(gvr schema.GroupVersionResource) []*unstructured.Unstructured
+}
+
+// ShortLivedPodBuffer is implemented by a ClusterCache whose short-lived-pod buffer can be read
+// without draining it. The exporter peeks at the buffer for each snapshot and commits pods only
+// once the emitter that writes them has done so durably, so a failed snapshot or emit loses none.
+type ShortLivedPodBuffer interface {
+	// PeekShortLivedPods returns a copy of the buffered short-lived pods, leaving them buffered.
+	PeekShortLivedPods() []*v1.Pod
+
+	// CommitShortLivedPods removes the buffered pods with the given UIDs and returns how many
+	// it removed.
+	CommitShortLivedPods(uids []types.UID) int
 }

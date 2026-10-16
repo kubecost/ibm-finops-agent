@@ -11,8 +11,9 @@ import (
 	"github.com/opencost/opencost/core/pkg/source"
 )
 
-// MaxBackfillSnapshots is the total number of snapshots to retain historically for the metrics querier
-const MaxBackfillSnapshots = 2
+// MaxBackfillSnapshots is the total number of snapshots to retain historically for the metrics
+// querier: the closed windows the exporter backfills plus the current one.
+const MaxBackfillSnapshots = emitter.MaxBackfillWindows + 1
 
 // MetricsResolution is a type that holds the current time window's metric snapshot
 // and the last time window's metric snapshot.

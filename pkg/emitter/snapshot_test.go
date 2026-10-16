@@ -85,6 +85,7 @@ func snapshotAndCheckExpected(t *testing.T, snapshotter SnapshotProvider, ds *mo
 	if err != nil {
 		t.Fatalf("failed to create snapshot: %v", err)
 	}
+	commitDelivered(snapshotter, snapshot)
 
 	tenMinMetrics := snapshot.Metrics.Minutely
 	hourMetrics := snapshot.Metrics.Hourly

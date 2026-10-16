@@ -88,6 +88,8 @@ type Emitter struct {
 	// the emitter's view of each condition for edge-triggered logging.
 	events     EventSink
 	conditions map[string]bool
+	// writtenPods are the short-lived pods in samples queued for upload (see WrittenShortLivedPods).
+	writtenPods writtenPods
 }
 
 type EmitterConfig struct {
@@ -523,6 +525,7 @@ func (ce *Emitter) writeSample(cs *emitter.ClusterSnapshot) (rerr error) {
 	}
 
 	ce.Uploader.AddSample(final)
+	ce.writtenPods.add(cs.Kubernetes.ShortLivedPods)
 	ce.sampleCt++
 	ce.currentSamplePath = next
 	ce.lastSampleBytes = manifest.totalBytes()

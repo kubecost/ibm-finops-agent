@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
 	clustercache "github.com/ibm/finops-agent/pkg/cluster"
 	"github.com/ibm/finops-agent/pkg/core"
 	"github.com/ibm/finops-agent/pkg/nodes"
@@ -16,6 +15,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/opencost"
 	"github.com/opencost/opencost/core/pkg/source"
+	corev1 "k8s.io/api/core/v1"
 	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
@@ -34,25 +34,35 @@ var metricsSummaryCacheDuration time.Duration = 5 * time.Minute
 // ConcurrentSnapshotProvider is a struct that implements the `SnapshotProvider` interface and executes the
 // snapshot generation process concurrently.
 //
-// The exporter runs at most two snapshots at once (one that outlived its deadline plus the
-// current one), so the fields under mu are read at the start of a snapshot and only ever
-// advanced at the end.
+// Metrics windows are planned from per-resolution watermarks, which advance only when the
+// exporter reports a snapshot's metrics delivered (CommitWindows). The exporter runs at most two
+// snapshots at once (one that outlived its deadline plus the current one), so the fields under mu
+// are read at the start of a snapshot and only ever advanced.
 type ConcurrentSnapshotProvider struct {
 	config *SnapshotConfig
 	now    Now
 
-	mu                 sync.Mutex
-	metricsSummary     *MetricsSummary
-	lastSnapshot       time.Time
-	lastMetricsSummary time.Time
-
-	discardedShortLivedPods atomic.Uint64
+	mu            sync.Mutex
+	metricsCache  *cachedMetrics
+	watermarks    map[time.Duration]time.Time
+	windowGaps    map[time.Duration]uint64
+	persistMu     sync.Mutex
+	persistErr    error
+	discardedPods atomic.Uint64
 }
 
-// DiscardedShortLivedPods returns the number of short-lived pods drained from the cluster cache
-// by snapshots that then failed, so they were never emitted.
+// cachedMetrics is a metrics summary kept for metricsSummaryCacheDuration in Prometheus mode, with
+// the windows it covers and when it was taken.
+type cachedMetrics struct {
+	summary *MetricsSummary
+	windows []windowCommit
+	at      time.Time
+}
+
+// DiscardedShortLivedPods returns the number of short-lived pods drained from a cluster cache that
+// can't be peeked by snapshots that then failed, so they were never emitted.
 func (csp *ConcurrentSnapshotProvider) DiscardedShortLivedPods() uint64 {
-	return csp.discardedShortLivedPods.Load()
+	return csp.discardedPods.Load()
 }
 
 // NewConcurrentSnapshotProvider creates a new instance of `ConcurrentSnapshotProvider`.
@@ -71,10 +81,14 @@ func NewConcurrentSnapshotProvider(config *SnapshotConfig) SnapshotProvider {
 		config.KubernetesSnapshot = NewKubernetesSnapshotConfig().EnableAll()
 	}
 
-	return &ConcurrentSnapshotProvider{
-		now:    now,
-		config: config,
+	csp := &ConcurrentSnapshotProvider{
+		now:        now,
+		config:     config,
+		watermarks: map[time.Duration]time.Time{},
+		windowGaps: map[time.Duration]uint64{},
 	}
+	csp.loadWatermarks()
+	return csp
 }
 
 // SnapshotOf generates a `ClusterSnapshot` from the provided `core.DataSource` and returns it.
@@ -85,106 +99,124 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 // SnapshotOfContext generates a `ClusterSnapshot` like SnapshotOf. ctx bounds the node-stats
 // collection, which returns partial results at its deadline; the other components don't take
 // a context yet.
+//
+// The components are collected independently. A component that fails (or panics) is left nil
+// and recorded in ComponentErrors; the snapshot is still returned. Only when every component
+// fails does SnapshotOfContext return an error.
 func (csp *ConcurrentSnapshotProvider) SnapshotOfContext(ctx context.Context, ds core.DataSource) (*ClusterSnapshot, error) {
-	var group multierror.Group
 	now := csp.now()
 
-	csp.mu.Lock()
-	lastSnapshot := csp.lastSnapshot
-	csp.mu.Unlock()
+	var (
+		wg              sync.WaitGroup
+		errs            [4]error
+		clusterInfo     *clusters.ClusterInfo
+		k8sSnapshot     *KubernetesSnapshot
+		nodeStats       *NodeStatsSummary
+		metricsSnapshot *MetricsSummary
+		windows         []windowCommit
+	)
+	collect := func(i int, f func() error) {
+		wg.Go(func() {
+			defer func() {
+				if r := recover(); r != nil {
+					errs[i] = panicError(r)
+				}
+			}()
+			errs[i] = f()
+		})
+	}
 
-	// we _always_ want to set the last snapshot time upon completion, success or failure
-	defer func() {
-		csp.mu.Lock()
-		if now.After(csp.lastSnapshot) {
-			csp.lastSnapshot = now
-		}
-		csp.mu.Unlock()
-	}()
-
-	// Cluster Info Snapshot
-	var clusterInfo *clusters.ClusterInfo
-	group.Go(func() error {
-		var err error
+	// indexes follow AllComponents
+	collect(0, func() (err error) {
 		clusterInfo, err = snapshotClusterInfo(ds.OpenCostSource().ClusterInfo())
 		return err
 	})
-
-	// Kubernetes Snapshot
-	var k8sSnapshot *KubernetesSnapshot
-	group.Go(func() error {
-		var err error
+	collect(1, func() (err error) {
 		k8sSnapshot, err = snapshotKubernetes(ds.Cluster(), csp.config)
 		return err
 	})
-
-	// Node Stats Snapshot
-	var nodeStats *NodeStatsSummary
-	group.Go(func() error {
-		var err error
+	collect(2, func() (err error) {
 		nodeStats, err = snapshotNodeStats(ctx, ds.StatsSummary())
 		return err
 	})
-
-	// Metrics Snapshot
-	var metricsSnapshot *MetricsSummary
-	group.Go(func() error {
-		var err error
-		metricsSnapshot, err = csp.cachedMetricsSummary(ds.Metrics(), now, lastSnapshot, csp.config)
+	collect(3, func() (err error) {
+		metricsSnapshot, windows, err = csp.cachedMetricsSummary(ds.Metrics(), now, csp.config)
 		return err
 	})
+	wg.Wait()
 
-	err := group.Wait()
-	if err != nil {
-		// The short-lived-pod buffer was drained by this snapshot; failing loses those pods.
-		// Count and report them (I1) until the drain is committed only on success (chunk 06).
-		if k8sSnapshot != nil && len(k8sSnapshot.ShortLivedPods) > 0 {
+	var componentErrors map[SnapshotComponent]error
+	for i, err := range errs {
+		if err == nil {
+			continue
+		}
+		if componentErrors == nil {
+			componentErrors = map[SnapshotComponent]error{}
+		}
+		componentErrors[AllComponents[i]] = err
+	}
+
+	if len(componentErrors) == len(AllComponents) {
+		// A drained short-lived-pod buffer is lost with the snapshot; count and report it (I1).
+		if k8sSnapshot != nil && k8sSnapshot.shortLivedPodsDrained && len(k8sSnapshot.ShortLivedPods) > 0 {
 			dropped := len(k8sSnapshot.ShortLivedPods)
-			csp.discardedShortLivedPods.Add(uint64(dropped))
+			csp.discardedPods.Add(uint64(dropped))
 			log.Errorf("snapshot failed after draining %d short-lived pods; they are dropped", dropped)
 		}
-		return nil, fmt.Errorf("failed to generate cluster snapshot: %w", err)
+		return nil, fmt.Errorf("failed to generate cluster snapshot: %w", errors.Join(errs[:]...))
 	}
 
 	return &ClusterSnapshot{
-		ClusterInfo: clusterInfo,
-		Kubernetes:  k8sSnapshot,
-		NodeStats:   nodeStats,
-		Metrics:     metricsSnapshot,
+		ClusterInfo:     clusterInfo,
+		Kubernetes:      k8sSnapshot,
+		NodeStats:       nodeStats,
+		Metrics:         metricsSnapshot,
+		ComponentErrors: componentErrors,
+		windows:         windows,
 	}, nil
 }
 
-// temporary caching of metrics summary every 5 minutes to avoid overloading the prometheus data source until
-// prometheus can be replaced.
-func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.MetricsQuerier, now time.Time, lastSnapshot time.Time, config *SnapshotConfig) (*MetricsSummary, error) {
-	if !config.UseMetricsCache {
-		return snapshotMetricsSummary(querier, now, lastSnapshot, config)
+// cachedMetricsSummary returns the metrics summary for now, with the windows it covers. In
+// Prometheus mode (UseMetricsCache) the summary is cached for metricsSummaryCacheDuration to
+// avoid overloading Prometheus, but never across a window rollover: the first snapshot after any
+// resolution's window closes re-queries, so every closed window's final snapshot is taken at or
+// after its end.
+func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.MetricsQuerier, now time.Time, config *SnapshotConfig) (*MetricsSummary, []windowCommit, error) {
+	if config.UseMetricsCache {
+		csp.mu.Lock()
+		cached := csp.metricsCache
+		csp.mu.Unlock()
+		if cached != nil && now.Sub(cached.at) < metricsSummaryCacheDuration && !rolledOver(cached.windows, now) {
+			return cached.summary, cached.windows, nil
+		}
 	}
 
-	// FIXME: (bolt) use a metrics summary cache duration of 5 minutes while we're using a prometheus data source.
-	// FIXME: (bolt) this should be fine to run on a much faster frequency with a non-promethues metrics querier.
-	// now comes from the provider's injected clock (SnapshotConfig.Now), so tests can drive cache expiry.
-	csp.mu.Lock()
-	cached, cachedAt := csp.metricsSummary, csp.lastMetricsSummary
-	csp.mu.Unlock()
-	if !cachedAt.IsZero() && now.Sub(cachedAt) < metricsSummaryCacheDuration {
-		return cached, nil
-	}
-
-	metricsSummary, err := snapshotMetricsSummary(querier, now, lastSnapshot, config)
+	summary, windows, err := csp.snapshotMetricsSummary(querier, now, config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// A snapshot abandoned by the exporter may finish after a newer one; never move the cache back.
-	csp.mu.Lock()
-	if now.After(csp.lastMetricsSummary) {
-		csp.lastMetricsSummary = now
-		csp.metricsSummary = metricsSummary
+	if config.UseMetricsCache {
+		// A snapshot abandoned by the exporter may finish after a newer one; never move the cache back.
+		csp.mu.Lock()
+		if csp.metricsCache == nil || now.After(csp.metricsCache.at) {
+			csp.metricsCache = &cachedMetrics{summary: summary, windows: windows, at: now}
+		}
+		csp.mu.Unlock()
 	}
-	csp.mu.Unlock()
 
-	return metricsSummary, nil
+	return summary, windows, nil
+}
+
+// rolledOver reports whether any resolution's current window has changed since windows were
+// planned.
+func rolledOver(windows []windowCommit, now time.Time) bool {
+	for _, wc := range windows {
+		if !now.Truncate(wc.resolution).Equal(wc.current) {
+			return true
+		}
+	}
+	return false
 }
 
 func snapshotClusterInfo(infoProvider clusters.ClusterInfoProvider) (*clusters.ClusterInfo, error) {
@@ -205,10 +237,21 @@ func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfi
 		kconfig = NewKubernetesSnapshotConfig().EnableAll()
 	}
 
+	// Short-lived pods stay buffered until the emitter that writes them commits them (see
+	// ShortLivedPodWriter). A cache that can't be peeked is drained, as before.
+	var shortLivedPods []*corev1.Pod
+	drained := false
+	if buffer, ok := cluster.(clustercache.ShortLivedPodBuffer); ok {
+		shortLivedPods = buffer.PeekShortLivedPods()
+	} else {
+		shortLivedPods = cluster.GetAllShortLivedPods()
+		drained = true
+	}
+
 	return &KubernetesSnapshot{
 		Nodes:                  snapshotResource(kconfig.Nodes, cluster.GetAllNodes),
 		Pods:                   snapshotResource(kconfig.Pods, cluster.GetAllPods),
-		ShortLivedPods:         cluster.GetAllShortLivedPods(), // always snapshot short-lived pods to reset buffer
+		ShortLivedPods:         shortLivedPods,
 		Namespaces:             snapshotResource(kconfig.Namespaces, cluster.GetAllNamespaces),
 		Services:               snapshotResource(kconfig.Services, cluster.GetAllServices),
 		DaemonSets:             snapshotResource(kconfig.DaemonSets, cluster.GetAllDaemonSets),
@@ -222,6 +265,7 @@ func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfi
 		PodDisruptionBudgets:   snapshotResource(kconfig.PodDisruptionBudgets, cluster.GetAllPodDisruptionBudgets),
 		ReplicationControllers: snapshotResource(kconfig.ReplicationControllers, cluster.GetAllReplicationControllers),
 		ResourceQuotas:         snapshotResource(kconfig.ResourceQuotas, cluster.GetAllResourceQuotas),
+		shortLivedPodsDrained:  drained,
 	}, nil
 }
 
@@ -268,62 +312,56 @@ func snapshotNodeStats(ctx context.Context, client nodes.StatSummaryClient) (*No
 	}, nil
 }
 
-func snapshotMetricsSummary(querier source.MetricsQuerier, now time.Time, lastSnapshot time.Time, config *SnapshotConfig) (*MetricsSummary, error) {
-	var snapshotErrors []error
-
-	// 10m metrics snapshot
-	var minutelySnapshots []*MetricsSnapshot
+// metricsResolutions returns the resolutions snapshotted under config.
+func metricsResolutions(config *SnapshotConfig) []time.Duration {
 	if config.MinutelyMetricsEnabled {
-		snapshots, errs := snapshotWindowedMetrics(querier, 10*time.Minute, now, lastSnapshot)
-		if len(errs) > 0 {
-			snapshotErrors = append(snapshotErrors, errs...)
-		}
-
-		minutelySnapshots = snapshots
+		return []time.Duration{10 * time.Minute, time.Hour, 24 * time.Hour}
 	}
-
-	// 1h metrics snapshot
-	hourlySnapshots, errs := snapshotWindowedMetrics(querier, time.Hour, now, lastSnapshot)
-	if len(errs) > 0 {
-		snapshotErrors = append(snapshotErrors, errs...)
-	}
-
-	// 24h metrics snapshot
-	dailySnapshots, errs := snapshotWindowedMetrics(querier, 24*time.Hour, now, lastSnapshot)
-	if len(errs) > 0 {
-		snapshotErrors = append(snapshotErrors, errs...)
-	}
-
-	// collect errors and return all errors joined
-	var err error
-	if len(snapshotErrors) > 0 {
-		return nil, errors.Join(snapshotErrors...)
-	}
-
-	return &MetricsSummary{
-		Minutely: minutelySnapshots,
-		Hourly:   hourlySnapshots,
-		Daily:    dailySnapshots,
-	}, err
+	return []time.Duration{time.Hour, 24 * time.Hour}
 }
 
-// snapshots the metrics based on the current snapshot time, and possibly the previous snapshot window if we've rolled into a new time frame.
-// for example, if we are snapshotting 10m metrics (9:00-9:10, 9:10-9:20, etc...), and the last snapshot we take is at 9:09:14. The _current_
-// time would be 9:10:14 (meaning that the previous snapshot would be missing 56s of data). To account for the moments where the time crosses
-// into the next window, we return 2 snapshots: one for the previous _full_ window (9:00:00 - 9:10:00) and one for the current window
-// (9:10:00 - 9:10:14).
+// snapshotMetricsSummary queries every window planned from the watermarks at each resolution. It
+// fails if any window fails, so the watermarks only advance for a complete summary.
+func (csp *ConcurrentSnapshotProvider) snapshotMetricsSummary(querier source.MetricsQuerier, now time.Time, config *SnapshotConfig) (*MetricsSummary, []windowCommit, error) {
+	var snapshotErrors []error
+	var plans []windowCommit
+	summary := &MetricsSummary{}
+
+	for _, resolution := range metricsResolutions(config) {
+		csp.mu.Lock()
+		watermark := csp.watermarks[resolution]
+		csp.mu.Unlock()
+
+		windows, plan := planWindows(now, watermark, resolution)
+		snapshots, errs := snapshotWindowedMetrics(querier, resolution, windows)
+		snapshotErrors = append(snapshotErrors, errs...)
+		plans = append(plans, plan)
+
+		switch resolution {
+		case 10 * time.Minute:
+			summary.Minutely = snapshots
+		case time.Hour:
+			summary.Hourly = snapshots
+		default:
+			summary.Daily = snapshots
+		}
+	}
+
+	if len(snapshotErrors) > 0 {
+		return nil, nil, errors.Join(snapshotErrors...)
+	}
+	return summary, plans, nil
+}
+
+// snapshotWindowedMetrics queries each of windows at resolution.
 func snapshotWindowedMetrics(
 	querier source.MetricsQuerier,
 	resolution time.Duration,
-	now time.Time,
-	lastSnapshot time.Time,
+	windows []opencost.Window,
 ) ([]*MetricsSnapshot, []error) {
 	var snapshots []*MetricsSnapshot
 	var errors []error
 
-	// based on the previous snapshot time and the current time, calculate the snapshot windows we should
-	// query to ensure we do not omit any data over the elapsed time period
-	windows := snapshotWindowsFor(now, lastSnapshot, resolution)
 	for _, window := range windows {
 		snapshot, err := snapshotMetrics(querier, *window.Start(), *window.End())
 		if err != nil {
@@ -335,35 +373,6 @@ func snapshotWindowedMetrics(
 	}
 
 	return snapshots, errors
-}
-
-// exportWindows uses the last export time to determine the current time windows to
-// export. This will, at most, return 2 windows: the previous resolution window and
-// the current resolution window.
-func snapshotWindowsFor(now time.Time, lastSnapshot time.Time, resolution time.Duration) []opencost.Window {
-	start := now.Truncate(resolution)
-	end := start.Add(resolution)
-
-	if lastSnapshot.IsZero() {
-		return []opencost.Window{
-			opencost.NewClosedWindow(start, end),
-		}
-	}
-
-	lastStart := lastSnapshot.Truncate(resolution)
-	if lastStart.Equal(start) {
-		return []opencost.Window{
-			opencost.NewClosedWindow(start, end),
-		}
-	}
-	lastEnd := lastStart.Add(resolution)
-
-	// we've identified that the last snapshot window is not the same as the current,
-	// so we should export the previous resolution window as well as the current one
-	return []opencost.Window{
-		opencost.NewClosedWindow(lastStart, lastEnd),
-		opencost.NewClosedWindow(start, end),
-	}
 }
 
 func snapshotMetrics(mq source.MetricsQuerier, start, end time.Time) (*MetricsSnapshot, error) {
