@@ -15,6 +15,27 @@ const (
 	// dropReasonShortLivedPodOverflow: the oldest pending short-lived pods were discarded because
 	// more than maxPendingShortLivedPods were waiting for a sample.
 	dropReasonShortLivedPodOverflow = "short_lived_pod_overflow"
+
+	// Startup recovery and payload handling (chunk 01).
+
+	// dropReasonRecoveryExpired: a finalised sample or payload found at startup was older than
+	// the recovery period (CLOUDABILITY_RECOVERY_PERIOD).
+	dropReasonRecoveryExpired = "recovery_expired"
+	// dropReasonClusterIDMismatch: a payload recovered at startup belongs to a cluster ID other
+	// than the live one. It is quarantined.
+	dropReasonClusterIDMismatch = "cluster_id_mismatch"
+	// dropReasonCorruptPayload: a payload failed its end-to-end read just before upload. It is
+	// quarantined.
+	dropReasonCorruptPayload = "corrupt_payload"
+	// dropReasonInvalidSample: a directory in scratch/<clusterID>/ that is neither staging nor a
+	// valid finalised sample (written before the manifest existed, or torn). It is quarantined.
+	dropReasonInvalidSample = "invalid_sample"
+	// dropReasonInvalidPayload: a file in upload/ whose name is not <clusterID>_<timestamp>.tgz,
+	// or has an empty cluster ID. It is quarantined.
+	dropReasonInvalidPayload = "invalid_payload"
+	// dropReasonQuarantineEvicted: a quarantined item was removed to keep the quarantine within
+	// its size and age bounds.
+	dropReasonQuarantineEvicted = "quarantine_evicted"
 )
 
 // Emit results for finops_agent_emit_total{result}.

@@ -126,6 +126,15 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("PARSE_METRIC_DATA", false)
 	viper.SetDefault("EMISSION_INTERVAL", "3m")
 	viper.SetDefault("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY", false)
+	viper.SetDefault("RECOVERY_PERIOD", defaultRecoveryPeriod.String())
+
+	// Pending data older than this at startup is dropped rather than uploaded. A bare number
+	// parses as nanoseconds, so anything under one upload interval is rejected as a mistake.
+	recoveryPeriod := viper.GetDuration("RECOVERY_PERIOD")
+	if recoveryPeriod < UploadFrequencyDuration {
+		return EmitterConfig{}, fmt.Errorf("CLOUDABILITY_RECOVERY_PERIOD must be a duration of at least %s, such as 72h; got %q",
+			UploadFrequencyDuration, viper.GetString("RECOVERY_PERIOD"))
+	}
 
 	var outboundProxyUrl *url.URL
 	proxyURL := viper.GetString("OUTBOUND_PROXY")
@@ -182,6 +191,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
 		UploadFrequency:                 time.Minute * time.Duration(UPLOAD_FREQUENCY),
 		ScratchDir:                      viper.GetString("SCRATCH_DIR"),
+		RecoveryPeriod:                  recoveryPeriod,
 		EmitAsJson:                      viper.GetBool("EMIT_AS_JSON"),
 		ParseMetricData:                 viper.GetBool("PARSE_METRIC_DATA"),
 		EmissionInterval:                viper.GetDuration("EMISSION_INTERVAL"),
@@ -210,6 +220,11 @@ func NewEmitter(config EmitterConfig, stop chan struct{}) emitter.Emitter {
 // newEmitter builds an Emitter around the given uploader. now is the emitter's clock; nil
 // means time.Now. Tests use it to inject a fake clock and uploader.
 func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *Emitter {
+	// Share the uploader's sink so that startup recovery and the emitter report through one.
+	var events EventSink = NewEventCounts()
+	if cu, ok := uploader.(*CldyUploader); ok {
+		events = cu.events
+	}
 	ce := &Emitter{
 		config:           config,
 		Uploader:         uploader,
@@ -217,7 +232,7 @@ func newEmitter(config EmitterConfig, uploader Uploader, now func() time.Time) *
 		emissionInterval: config.EmissionInterval,
 		agentVersion:     version.Version,
 		now:              now,
-		events:           NewEventCounts(),
+		events:           events,
 		conditions:       map[string]bool{},
 	}
 	currentTime := ce.clock().UTC()

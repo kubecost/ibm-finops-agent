@@ -30,12 +30,6 @@ func safeClose(closer func() error, err *error) {
 	}
 }
 
-func safeCloseFiles(closer []*os.File, err *error) {
-	for _, file := range closer {
-		safeClose(file.Close, err)
-	}
-}
-
 type set struct {
 	data  map[string]struct{}
 	mutex *sync.RWMutex

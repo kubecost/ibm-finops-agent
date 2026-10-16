@@ -1,11 +1,7 @@
-//go:build reliability_repro
-
 package cldy_test
 
-// The startup-recovery specs, converted from the flat scratch/<sample> layout (which production
-// never writes) to the production scratch/<clusterID>/<sample> layout. On that layout they fail
-// because of F-01 (and F-05/F-36 behind it), so they stay behind the reliability_repro tag until
-// chunk 01 fixes recovery.
+// The startup-recovery specs on the production scratch/<clusterID>/<sample> layout (F-01, F-05,
+// F-36). They build the uploader without storage services, so they make no network calls.
 
 import (
 	"os"
@@ -35,11 +31,9 @@ var _ = Describe("Uploader startup recovery (production layout)", func() {
 		config.RecoveryPeriod = 100000 * time.Hour
 		// write data before creating uploader simulating recovery state
 		scratch.AddCompleteSample(GinkgoT(), time.Unix(1743465782, 0), 0)
-		stopCh := make(chan struct{})
-		defer close(stopCh)
-		uploader := cldy.NewCldyUploader(config, stopCh)
+		actualUploader := cldy.NewUploaderForTest(config, nil, nil)
+		var uploader cldy.Uploader = actualUploader
 		uploader.SetClusterID(clusterID)
-		actualUploader := uploader.(*cldy.CldyUploader)
 		Expect(actualUploader.RecoveredSamples).To(Equal(1), "F-01: complete sample not recovered on the production layout")
 		Expect(actualUploader.RecoveredUploads).To(Equal(1), "F-01: recovered sample not queued for upload")
 		checkScratchEmpty(scratch)
@@ -47,36 +41,37 @@ var _ = Describe("Uploader startup recovery (production layout)", func() {
 		// write another sample and ensure recovery does not break happy path
 		checkCollectionAndConstruction(scratch, uploader, actualUploader)
 	})
-	It("should recover sample but not upload when outside recovery range", func() {
+	It("should drop, not upload, a sample outside the recovery range", func() {
 		config := defaultConfig(tempDir)
 		// 1 hour (will not recover as agent-measurement timestamp is old)
 		config.RecoveryPeriod = 1 * time.Hour
 
 		scratch.AddCompleteSample(GinkgoT(), time.Unix(1743465782, 0), 0)
-		stopCh := make(chan struct{})
-		defer close(stopCh)
-		uploader := cldy.NewCldyUploader(config, stopCh)
+		actualUploader := cldy.NewUploaderForTest(config, nil, nil)
+		var uploader cldy.Uploader = actualUploader
 		uploader.SetClusterID(clusterID)
-		actualUploader := uploader.(*cldy.CldyUploader)
-		Expect(actualUploader.RecoveredSamples).To(Equal(1), "F-01: complete sample not recovered on the production layout")
+		Expect(actualUploader.RecoveredSamples).To(Equal(0))
 		Expect(actualUploader.RecoveredUploads).To(Equal(0))
+		Expect(actualUploader.EventsForTest().Dropped).To(Equal(map[string]int{cldy.DropReasonRecoveryExpired: 1}),
+			"F-36: an expired sample is a counted drop")
 		checkScratchEmpty(scratch)
 
 		checkCollectionAndConstruction(scratch, uploader, actualUploader)
 	})
-	It("should not recover incomplete sample", func() {
+	It("should quarantine, not recover, an incomplete sample", func() {
 		config := defaultConfig(tempDir)
 		// 100 years (should recover all samples if complete)
 		config.RecoveryPeriod = 1000000 * time.Hour
 
 		scratch.AddIncompleteSample(GinkgoT(), time.Unix(1743465782, 0), 0, "deployments.jsonl")
-		stopCh := make(chan struct{})
-		defer close(stopCh)
-		uploader := cldy.NewCldyUploader(config, stopCh)
+		actualUploader := cldy.NewUploaderForTest(config, nil, nil)
+		var uploader cldy.Uploader = actualUploader
 		uploader.SetClusterID(clusterID)
-		actualUploader := uploader.(*cldy.CldyUploader)
 		Expect(actualUploader.RecoveredSamples).To(Equal(0))
 		Expect(actualUploader.RecoveredUploads).To(Equal(0))
+		Expect(actualUploader.EventsForTest().Dropped).To(Equal(map[string]int{cldy.DropReasonInvalidSample: 1}),
+			"a sample without a valid manifest is quarantined and counted")
+		Expect(scratch.Quarantined(GinkgoT())).To(HaveLen(1))
 		checkScratchEmpty(scratch)
 
 		checkCollectionAndConstruction(scratch, uploader, actualUploader)
@@ -92,11 +87,9 @@ var _ = Describe("Uploader startup recovery (production layout)", func() {
 			"stats-summary-nodename2.json", "stats-summary-nodename3.json", "stats-summary-nodename4.json")
 		// invalid data set
 		scratch.AddIncompleteSample(GinkgoT(), time.Unix(1743499600, 0), 2, "deployments.jsonl")
-		stopCh := make(chan struct{})
-		defer close(stopCh)
-		uploader := cldy.NewCldyUploader(config, stopCh)
+		actualUploader := cldy.NewUploaderForTest(config, nil, nil)
+		var uploader cldy.Uploader = actualUploader
 		uploader.SetClusterID(clusterID)
-		actualUploader := uploader.(*cldy.CldyUploader)
 		Expect(actualUploader.RecoveredSamples).To(Equal(2), "F-01: complete samples not recovered on the production layout")
 		Expect(actualUploader.RecoveredUploads).To(Equal(2), "F-01: recovered samples not queued for upload")
 		checkScratchEmpty(scratch)
@@ -115,7 +108,8 @@ func checkCollectionAndConstruction(scratch *prodScratch, uploader cldy.Uploader
 	Expect(fileInfo.Size()).To(BeNumerically(">", 0))
 }
 
-// checkScratchEmpty asserts that recovery consumed (packaged or discarded) every sample file.
+// checkScratchEmpty asserts that recovery consumed (packaged, dropped or quarantined) every
+// sample file.
 func checkScratchEmpty(scratch *prodScratch) {
 	Expect(scratch.ScratchFileCount()).To(Equal(0))
 }
