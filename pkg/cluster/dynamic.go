@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/env"
@@ -129,12 +130,23 @@ var (
 	containerGVK = schema.GroupVersionKind{Version: "v1", Kind: "Container"}
 )
 
+// DefaultShortLivedPodBufferCap bounds the short-lived-pod buffer between snapshots. The buffer
+// only fills past a few hundred pods when snapshots stop draining it; at the cap the oldest pod
+// is dropped and counted (I7).
+const DefaultShortLivedPodBufferCap = 10000
+
 // DynamicClusterCache is the implementation of ClusterCache with dynamic informers
 type DynamicClusterCache struct {
 	dynamicinformer.DynamicSharedInformerFactory
 	shortLivedPods []*corev1.Pod
 	slpMux         sync.RWMutex
 	slpDuration    time.Duration
+	slpCap         int
+	// slpDropped counts short-lived pods dropped at the cap (reason short_lived_pod_overflow).
+	slpDropped atomic.Uint64
+	// slpOverflowing is set from the first drop until the next drain, so each overflow episode
+	// logs one Error.
+	slpOverflowing bool
 }
 
 func NewDynamicClusterCache(
@@ -151,6 +163,7 @@ func NewDynamicClusterCache(
 	cache := DynamicClusterCache{
 		DynamicSharedInformerFactory: dynamicinformer.NewDynamicSharedInformerFactory(client, defaultResync),
 		slpDuration:                  slpDuration,
+		slpCap:                       DefaultShortLivedPodBufferCap,
 	}
 
 	for _, gvr := range cacheResourceMap {
@@ -196,8 +209,28 @@ func (dcc *DynamicClusterCache) captureShortLivedPodFunc() func(pod any) {
 
 func (dcc *DynamicClusterCache) addShortLivedPod(pod *corev1.Pod) {
 	dcc.slpMux.Lock()
+	defer dcc.slpMux.Unlock()
+
+	if dcc.slpCap > 0 && len(dcc.shortLivedPods) >= dcc.slpCap {
+		// drop the oldest, reusing the backing array
+		dropped := dcc.shortLivedPods[0]
+		copy(dcc.shortLivedPods, dcc.shortLivedPods[1:])
+		dcc.shortLivedPods[len(dcc.shortLivedPods)-1] = pod
+		dcc.slpDropped.Add(1)
+		if !dcc.slpOverflowing {
+			dcc.slpOverflowing = true
+			log.Errorf("short-lived pod buffer full (%d pods, snapshots aren't draining it): dropping the oldest pods, starting with %s/%s",
+				dcc.slpCap, dropped.Namespace, dropped.Name)
+		}
+		return
+	}
 	dcc.shortLivedPods = append(dcc.shortLivedPods, pod)
-	dcc.slpMux.Unlock()
+}
+
+// ShortLivedPodsDropped returns the number of short-lived pods dropped because the buffer was
+// full (reason short_lived_pod_overflow) over the life of the cache.
+func (dcc *DynamicClusterCache) ShortLivedPodsDropped() uint64 {
+	return dcc.slpDropped.Load()
 }
 
 // GetTransformFunc returns the correct transform to apply based on parseMetricsData flag
@@ -344,6 +377,10 @@ func (dcc *DynamicClusterCache) GetAllShortLivedPods() []*corev1.Pod {
 	defer dcc.slpMux.Unlock()
 	shortLivedPods := dcc.shortLivedPods
 	dcc.shortLivedPods = []*corev1.Pod{}
+	if dcc.slpOverflowing {
+		dcc.slpOverflowing = false
+		log.Infof("short-lived pod buffer drained; %d pods dropped at the cap so far", dcc.slpDropped.Load())
+	}
 	return shortLivedPods
 }
 

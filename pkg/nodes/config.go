@@ -28,15 +28,21 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 	localProxy := env.GetNodeStatsLocalProxy()
 	backgroundNodeCollectionEnabled := env.IsNodeStatsBackgroundCollectionEnabled()
 	refreshInterval := env.GetExporterEmissionInterval()
+	// The context-free GetNodeData (OpenCost's collector, background collection) gets the same
+	// budget as an exporter snapshot: EXPORTER_SNAPSHOT_TIMEOUT, or 5 × the emission interval.
+	collectionTimeout := env.GetExporterSnapshotTimeout()
+	if collectionTimeout <= 0 {
+		collectionTimeout = 5 * refreshInterval
+	}
 
 	trimName := strings.TrimSpace(clusterName)
 	if trimName == "" {
 		return NodeClientConfig{}, fmt.Errorf("cluster name is required and cannot be exclusively whitespace")
 	} else if strings.HasPrefix(trimName, "{{") {
 		return NodeClientConfig{}, fmt.Errorf("cluster name cannot be a helm value placeholder")
-	} else if !utf8.ValidString(trimName){
+	} else if !utf8.ValidString(trimName) {
 		return NodeClientConfig{}, fmt.Errorf("cluster name is not a valid unicode string")
-	} 
+	}
 
 	if concurrentPollers <= 0 {
 		return NodeClientConfig{}, fmt.Errorf("number of concurrent pollers is either zero or misconfigured")
@@ -90,6 +96,8 @@ func NewNodeClientConfigFromEnv() (NodeClientConfig, error) {
 		},
 		BackgroundNodeCollection: backgroundNodeCollectionEnabled,
 		RefreshInterval:          refreshInterval,
+		CollectionTimeout:        collectionTimeout,
+		NodeTimeout:              DefaultNodeTimeout,
 	}, nil
 }
 
@@ -112,6 +120,10 @@ type NodeClientConfig struct {
 	ProxyConfig              NodeClientProxyConfig
 	BackgroundNodeCollection bool
 	RefreshInterval          time.Duration
+	// CollectionTimeout bounds a context-free GetNodeData call (DefaultCollectionTimeout if 0).
+	CollectionTimeout time.Duration
+	// NodeTimeout bounds the collection from one node (DefaultNodeTimeout if 0).
+	NodeTimeout time.Duration
 }
 
 // connectionOptions returns the connection methods that are allowed for this node based on config

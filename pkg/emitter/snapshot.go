@@ -1,8 +1,11 @@
 package emitter
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -13,6 +16,7 @@ import (
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/opencost"
 	"github.com/opencost/opencost/core/pkg/source"
+	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 // SnapshotProvider is an interface that defines a prototype for generating `ClusterSnapshot` instances
@@ -29,12 +33,26 @@ var metricsSummaryCacheDuration time.Duration = 5 * time.Minute
 
 // ConcurrentSnapshotProvider is a struct that implements the `SnapshotProvider` interface and executes the
 // snapshot generation process concurrently.
+//
+// The exporter runs at most two snapshots at once (one that outlived its deadline plus the
+// current one), so the fields under mu are read at the start of a snapshot and only ever
+// advanced at the end.
 type ConcurrentSnapshotProvider struct {
-	config             *SnapshotConfig
+	config *SnapshotConfig
+	now    Now
+
+	mu                 sync.Mutex
 	metricsSummary     *MetricsSummary
 	lastSnapshot       time.Time
 	lastMetricsSummary time.Time
-	now                Now
+
+	discardedShortLivedPods atomic.Uint64
+}
+
+// DiscardedShortLivedPods returns the number of short-lived pods drained from the cluster cache
+// by snapshots that then failed, so they were never emitted.
+func (csp *ConcurrentSnapshotProvider) DiscardedShortLivedPods() uint64 {
+	return csp.discardedShortLivedPods.Load()
 }
 
 // NewConcurrentSnapshotProvider creates a new instance of `ConcurrentSnapshotProvider`.
@@ -48,6 +66,11 @@ func NewConcurrentSnapshotProvider(config *SnapshotConfig) SnapshotProvider {
 		now = defaultNow
 	}
 
+	// set the default here rather than in snapshotKubernetes, which may run concurrently
+	if config.KubernetesSnapshot == nil {
+		config.KubernetesSnapshot = NewKubernetesSnapshotConfig().EnableAll()
+	}
+
 	return &ConcurrentSnapshotProvider{
 		now:    now,
 		config: config,
@@ -56,12 +79,27 @@ func NewConcurrentSnapshotProvider(config *SnapshotConfig) SnapshotProvider {
 
 // SnapshotOf generates a `ClusterSnapshot` from the provided `core.DataSource` and returns it.
 func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterSnapshot, error) {
+	return csp.SnapshotOfContext(context.Background(), ds)
+}
+
+// SnapshotOfContext generates a `ClusterSnapshot` like SnapshotOf. ctx bounds the node-stats
+// collection, which returns partial results at its deadline; the other components don't take
+// a context yet.
+func (csp *ConcurrentSnapshotProvider) SnapshotOfContext(ctx context.Context, ds core.DataSource) (*ClusterSnapshot, error) {
 	var group multierror.Group
 	now := csp.now()
 
+	csp.mu.Lock()
+	lastSnapshot := csp.lastSnapshot
+	csp.mu.Unlock()
+
 	// we _always_ want to set the last snapshot time upon completion, success or failure
 	defer func() {
-		csp.lastSnapshot = now
+		csp.mu.Lock()
+		if now.After(csp.lastSnapshot) {
+			csp.lastSnapshot = now
+		}
+		csp.mu.Unlock()
 	}()
 
 	// Cluster Info Snapshot
@@ -84,7 +122,7 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 	var nodeStats *NodeStatsSummary
 	group.Go(func() error {
 		var err error
-		nodeStats, err = snapshotNodeStats(ds.StatsSummary())
+		nodeStats, err = snapshotNodeStats(ctx, ds.StatsSummary())
 		return err
 	})
 
@@ -92,12 +130,19 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 	var metricsSnapshot *MetricsSummary
 	group.Go(func() error {
 		var err error
-		metricsSnapshot, err = csp.cachedMetricsSummary(ds.Metrics(), now, csp.config)
+		metricsSnapshot, err = csp.cachedMetricsSummary(ds.Metrics(), now, lastSnapshot, csp.config)
 		return err
 	})
 
 	err := group.Wait()
 	if err != nil {
+		// The short-lived-pod buffer was drained by this snapshot; failing loses those pods.
+		// Count and report them (I1) until the drain is committed only on success (chunk 06).
+		if k8sSnapshot != nil && len(k8sSnapshot.ShortLivedPods) > 0 {
+			dropped := len(k8sSnapshot.ShortLivedPods)
+			csp.discardedShortLivedPods.Add(uint64(dropped))
+			log.Errorf("snapshot failed after draining %d short-lived pods; they are dropped", dropped)
+		}
 		return nil, fmt.Errorf("failed to generate cluster snapshot: %w", err)
 	}
 
@@ -111,27 +156,33 @@ func (csp *ConcurrentSnapshotProvider) SnapshotOf(ds core.DataSource) (*ClusterS
 
 // temporary caching of metrics summary every 5 minutes to avoid overloading the prometheus data source until
 // prometheus can be replaced.
-func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.MetricsQuerier, now time.Time, config *SnapshotConfig) (*MetricsSummary, error) {
+func (csp *ConcurrentSnapshotProvider) cachedMetricsSummary(querier source.MetricsQuerier, now time.Time, lastSnapshot time.Time, config *SnapshotConfig) (*MetricsSummary, error) {
 	if !config.UseMetricsCache {
-		return snapshotMetricsSummary(querier, now, csp.lastSnapshot, config)
+		return snapshotMetricsSummary(querier, now, lastSnapshot, config)
 	}
 
 	// FIXME: (bolt) use a metrics summary cache duration of 5 minutes while we're using a prometheus data source.
 	// FIXME: (bolt) this should be fine to run on a much faster frequency with a non-promethues metrics querier.
 	// now comes from the provider's injected clock (SnapshotConfig.Now), so tests can drive cache expiry.
-	if !csp.lastMetricsSummary.IsZero() && now.Sub(csp.lastMetricsSummary) < metricsSummaryCacheDuration {
-		return csp.metricsSummary, nil
+	csp.mu.Lock()
+	cached, cachedAt := csp.metricsSummary, csp.lastMetricsSummary
+	csp.mu.Unlock()
+	if !cachedAt.IsZero() && now.Sub(cachedAt) < metricsSummaryCacheDuration {
+		return cached, nil
 	}
 
-	metricsSummary, err := snapshotMetricsSummary(querier, now, csp.lastSnapshot, config)
+	metricsSummary, err := snapshotMetricsSummary(querier, now, lastSnapshot, config)
 	if err != nil {
 		return nil, err
 	}
 
-	// Note: (bolt) assuming we're not calling the SnapshotOf() in multiple goroutines [which there shouldn't be],
-	// Note: (bolt) there's no need to lock on cache updates. Temporary solution until we can drop prom fully.
-	csp.lastMetricsSummary = now
-	csp.metricsSummary = metricsSummary
+	// A snapshot abandoned by the exporter may finish after a newer one; never move the cache back.
+	csp.mu.Lock()
+	if now.After(csp.lastMetricsSummary) {
+		csp.lastMetricsSummary = now
+		csp.metricsSummary = metricsSummary
+	}
+	csp.mu.Unlock()
 
 	return metricsSummary, nil
 }
@@ -149,11 +200,11 @@ func snapshotClusterInfo(infoProvider clusters.ClusterInfoProvider) (*clusters.C
 func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfig) (*KubernetesSnapshot, error) {
 	// if we get here, and a kubernetes snapshot config hasn't been provided, enable all resource snapshots by
 	// default
-	if config.KubernetesSnapshot == nil {
-		config.KubernetesSnapshot = NewKubernetesSnapshotConfig().EnableAll()
+	kconfig := config.KubernetesSnapshot
+	if kconfig == nil {
+		kconfig = NewKubernetesSnapshotConfig().EnableAll()
 	}
 
-	kconfig := config.KubernetesSnapshot
 	return &KubernetesSnapshot{
 		Nodes:                  snapshotResource(kconfig.Nodes, cluster.GetAllNodes),
 		Pods:                   snapshotResource(kconfig.Pods, cluster.GetAllPods),
@@ -191,8 +242,14 @@ func snapshotResource[T any](flag bool, resourceGetter func() []T) []T {
 	return resourceGetter()
 }
 
-func snapshotNodeStats(client nodes.StatSummaryClient) (*NodeStatsSummary, error) {
-	data, err := client.GetNodeData()
+func snapshotNodeStats(ctx context.Context, client nodes.StatSummaryClient) (*NodeStatsSummary, error) {
+	var data []*stats.Summary
+	var err error
+	if cc, ok := client.(nodes.ContextStatSummaryClient); ok {
+		data, err = cc.GetNodeDataContext(ctx)
+	} else {
+		data, err = client.GetNodeData()
+	}
 	if err != nil {
 		// log each node's error as a warning, as we still may have gotten a partial response
 		for _, e := range unwrapNodeError(err) {
@@ -206,7 +263,7 @@ func snapshotNodeStats(client nodes.StatSummaryClient) (*NodeStatsSummary, error
 	}
 
 	return &NodeStatsSummary{
-		Stats: data,
+		Stats:         data,
 		CollectionErr: err,
 	}, nil
 }

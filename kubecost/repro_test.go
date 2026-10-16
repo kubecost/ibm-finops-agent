@@ -1,9 +1,8 @@
-//go:build reliability_repro
-
 package kubecost
 
-// F-10 reproduction (docs/reliability/FINDINGS.md): a failed Init leaves the Kubecost emitter
-// permanently uninitialised, and every Emit panics.
+// F-10 reproduction (docs/reliability/FINDINGS.md): a failed Init used to leave the Kubecost
+// emitter permanently uninitialised, with every Emit panicking. Fixed in chunk 05: Emit before
+// Init returns an error, and the exporter retries Init until it succeeds.
 
 import (
 	"context"

@@ -71,11 +71,8 @@ var _ = Describe("Raw node data", func() {
 		It("can fetch all available nodes from cache", func() {
 			mockConfig := NewMockClusterCache()
 			mockNcs := NodeStatsSummaryClient{
-				NodeClientConfig{},
-				mockConfig,
-				"",
-				"",
-				"",
+				config: NodeClientConfig{},
+				cache:  mockConfig,
 			}
 
 			nodes := getReadyNodes(mockNcs.cache)
