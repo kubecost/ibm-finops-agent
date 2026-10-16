@@ -719,7 +719,7 @@ func TestHeadOfLineGlobalOutageDropsNothing(t *testing.T) {
 func uploadErrorFor(t *testing.T, status func(stage, fileName string) (int, error)) (error, *scriptedClient) {
 	t.Helper()
 	client := &scriptedClient{status: status}
-	return apptioService(client).Upload(testPayload(t)), client
+	return apptioService(client).Upload(context.Background(), testPayload(t)), client
 }
 
 func testPayload(t *testing.T) cldy.UploadPayload {
@@ -783,12 +783,12 @@ func TestClassifyUpload(t *testing.T) {
 		{"metrics-collector 403 presign", func(t *testing.T) error {
 			client := &scriptedClient{status: stageStatus(stagePresign, http.StatusForbidden)}
 			svc := &cldy.MetricsCollectorServiceImpl{APIKey: "key", BaseURL: "https://mc.test/metricsample", CldyUploadClient: client}
-			return svc.Upload(testPayload(t))
+			return svc.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultAuth, "stop-auth"},
 		{"metrics-collector 400 PUT", func(t *testing.T) error {
 			client := &scriptedClient{status: stageStatus(stagePut, http.StatusBadRequest)}
 			svc := &cldy.MetricsCollectorServiceImpl{APIKey: "key", BaseURL: "https://mc.test/metricsample", CldyUploadClient: client}
-			return svc.Upload(testPayload(t))
+			return svc.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultRejected, "quarantine"},
 		{"timeout", func(t *testing.T) error {
 			release := make(chan struct{})
@@ -802,7 +802,7 @@ func TestClassifyUpload(t *testing.T) {
 			defer close(release)
 			svc := apptioService(cldy.NewApptioClient(cldy.ApptioConfig{Timeout: 50 * time.Millisecond}))
 			svc.FrontdoorURL = server.URL
-			return svc.Upload(testPayload(t))
+			return svc.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultTimeout, "stop"},
 		{"connection refused", func(t *testing.T) error {
 			l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -813,24 +813,24 @@ func TestClassifyUpload(t *testing.T) {
 			_ = l.Close()
 			svc := apptioService(cldy.NewApptioClient(cldy.ApptioConfig{Timeout: time.Second}))
 			svc.FrontdoorURL = "http://" + addr
-			return svc.Upload(testPayload(t))
+			return svc.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultRetryable, "stop"},
 		{"DNS failure", func(t *testing.T) error {
 			dnsErr := &url.Error{Op: "Post", URL: "https://frontdoor.invalid/service/apikeylogin",
 				Err: &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "frontdoor.invalid", IsNotFound: true}}}
 			return (&cldy.ApptioServiceImpl{CldyUploadClient: failingClient{dnsErr}, SecretManager: cldy.NewKeyValueSecretManager("a", "s"),
-				FrontdoorURL: "https://frontdoor.invalid"}).Upload(testPayload(t))
+				FrontdoorURL: "https://frontdoor.invalid"}).Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultRetryable, "stop"},
 		{"S3 403", func(t *testing.T) error {
-			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("AccessDenied", "denied", nil), 403, "r")}}.Upload(testPayload(t))
+			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("AccessDenied", "denied", nil), 403, "r")}}.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultAuth, "stop-auth"},
 		{"S3 400 (a region or signing problem, not this payload)", func(t *testing.T) error {
-			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("AuthorizationHeaderMalformed", "region", nil), 400, "r")}}.Upload(testPayload(t))
+			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("AuthorizationHeaderMalformed", "region", nil), 400, "r")}}.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultRetryable, "stop"},
 		{"presigned PUT 400 ExpiredToken (the URL's credentials, not this payload)", func(t *testing.T) error {
 			client := &scriptedClient{status: stageStatus(stagePut, http.StatusBadRequest),
 				errBody: "<Error><Code>ExpiredToken</Code><Message>The provided token has expired.</Message></Error>"}
-			return apptioService(client).Upload(testPayload(t))
+			return apptioService(client).Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultRetryable, "stop"},
 		{"presigned PUT 400 ExpiredToken through the real client", func(t *testing.T) error {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -845,22 +845,22 @@ func TestClassifyUpload(t *testing.T) {
 			defer server.Close()
 			svc := &cldy.MetricsCollectorServiceImpl{APIKey: "key", BaseURL: server.URL + "/metricsample",
 				CldyUploadClient: cldy.NewApptioClient(cldy.ApptioConfig{Timeout: time.Second})}
-			return svc.Upload(testPayload(t))
+			return svc.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultRetryable, "stop"},
 		{"S3 400 ExpiredToken", func(t *testing.T) error {
-			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("ExpiredToken", "expired", nil), 400, "r")}}.Upload(testPayload(t))
+			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("ExpiredToken", "expired", nil), 400, "r")}}.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultRetryable, "stop"},
 		{"S3 413", func(t *testing.T) error {
-			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("EntityTooLarge", "big", nil), 413, "r")}}.Upload(testPayload(t))
+			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("EntityTooLarge", "big", nil), 413, "r")}}.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultRejected, "quarantine"},
 		{"S3 503", func(t *testing.T) error {
-			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("SlowDown", "slow", nil), 503, "r")}}.Upload(testPayload(t))
+			return cldy.CustomS3Client{S3Bucket: "b", UploadClient: s3Failing{awserr.NewRequestFailure(awserr.New("SlowDown", "slow", nil), 503, "r")}}.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultRetryable, "stop"},
 		{"Azure 403", func(t *testing.T) error {
-			return cldy.CustomBlobClient{BlobContainerName: "c", UploadClient: blobFailing{&azcore.ResponseError{StatusCode: 403, ErrorCode: "AuthorizationFailure"}}}.Upload(testPayload(t))
+			return cldy.CustomBlobClient{BlobContainerName: "c", UploadClient: blobFailing{&azcore.ResponseError{StatusCode: 403, ErrorCode: "AuthorizationFailure"}}}.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultAuth, "stop-auth"},
 		{"Azure 500", func(t *testing.T) error {
-			return cldy.CustomBlobClient{BlobContainerName: "c", UploadClient: blobFailing{&azcore.ResponseError{StatusCode: 500}}}.Upload(testPayload(t))
+			return cldy.CustomBlobClient{BlobContainerName: "c", UploadClient: blobFailing{&azcore.ResponseError{StatusCode: 500}}}.Upload(context.Background(), testPayload(t))
 		}, cldy.UploadResultRetryable, "stop"},
 	}
 	for _, r := range rows {
@@ -911,11 +911,11 @@ func (c failingClient) Do(r *http.Request, _ string) (*http.Response, error) {
 
 type s3Failing struct{ err error }
 
-func (s s3Failing) Do(*s3manager.UploadInput) error { return s.err }
+func (s s3Failing) Do(context.Context, *s3manager.UploadInput) error { return s.err }
 
 type blobFailing struct{ err error }
 
-func (b blobFailing) Do(*cldy.BlobUploadInput) error { return b.err }
+func (b blobFailing) Do(context.Context, *cldy.BlobUploadInput) error { return b.err }
 
 // A backend that rejects every payload (a 400 on something they all share) quarantines
 // nothing: after maxConsecutiveRejections in a row the cycle stops, a condition is raised and
@@ -1036,7 +1036,7 @@ func TestPresignedURLQueryNotInErrors(t *testing.T) {
 	defer server.Close()
 	svc := &cldy.MetricsCollectorServiceImpl{APIKey: "key", BaseURL: server.URL + "/metricsample",
 		CldyUploadClient: cldy.NewApptioClient(cldy.ApptioConfig{Timeout: 100 * time.Millisecond})}
-	err := svc.Upload(testPayload(t))
+	err := svc.Upload(context.Background(), testPayload(t))
 	if err == nil || !strings.Contains(err.Error(), "/put/p.tgz") {
 		t.Fatalf("want a transport error naming the PUT, got %v", err)
 	}

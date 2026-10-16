@@ -7,6 +7,7 @@ package cldy_test
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -263,7 +264,7 @@ type fakeUpload struct {
 	Err      error    // why the archive is invalid, if it is
 }
 
-func (s *fakeStorage) Upload(payload cldy.UploadPayload) error {
+func (s *fakeStorage) Upload(_ context.Context, payload cldy.UploadPayload) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++

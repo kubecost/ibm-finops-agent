@@ -2,6 +2,7 @@ package cldy_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
@@ -85,17 +86,17 @@ var _ = Describe("Uploader", func() {
 				FilePath:     sample + "daemonsets.jsonl",
 			}
 			// upload with bad froontdoor credentials
-			err := actualUploader.StorageServices[0].Upload(payload)
+			err := actualUploader.StorageServices[0].Upload(context.Background(), payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("frontdoor service login call failed"))
 			service.SecretManager = cldy.NewKeyValueSecretManager("good-key", "")
 			// upload with good key but bad clusterUID
-			err = actualUploader.StorageServices[0].Upload(payload)
+			err = actualUploader.StorageServices[0].Upload(context.Background(), payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("cloudability clusters/upload request call failed with status"))
 			// upload with successful login and successful url generation
 			payload.ClusterUID = "good-cluster"
-			err = actualUploader.StorageServices[0].Upload(payload)
+			err = actualUploader.StorageServices[0].Upload(context.Background(), payload)
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("should only login once", func() {
@@ -168,7 +169,7 @@ var _ = Describe("Uploader", func() {
 				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				FilePath:     sample + "daemonsets.jsonl",
 			}
-			err := actualUploader.StorageServices[0].Upload(payload)
+			err := actualUploader.StorageServices[0].Upload(context.Background(), payload)
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("should upload to custom s3 bucket", func() {
@@ -192,13 +193,13 @@ var _ = Describe("Uploader", func() {
 				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				FilePath:     sample + "daemonsets.jsonl",
 			}
-			err := actualUploader.StorageServices[0].Upload(payload)
+			err := actualUploader.StorageServices[0].Upload(context.Background(), payload)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(uploadClient.UploadedSampleName).To(Equal("production/data/metrics-agent/2025/05/05/good-cluster/good-cluster-20250505-18-05.tgz"))
 
 			// Error on an unparseable filename
 			payload.FileName = "badFileName"
-			err = actualUploader.StorageServices[0].Upload(payload)
+			err = actualUploader.StorageServices[0].Upload(context.Background(), payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("error parsing name from sample filename"))
 		})
@@ -229,13 +230,13 @@ var _ = Describe("Uploader", func() {
 				UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 				FilePath:     sample + "daemonsets.jsonl",
 			}
-			err := actualUploader.StorageServices[0].Upload(payload)
+			err := actualUploader.StorageServices[0].Upload(context.Background(), payload)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(uploadClient.UploadedSampleName).To(Equal("production/data/metrics-agent/2025/05/05/good-cluster/good-cluster-20250505-18-05.tgz"))
 
 			// Error on an unparseable filename
 			payload.FileName = "badFileName"
-			err = actualUploader.StorageServices[0].Upload(payload)
+			err = actualUploader.StorageServices[0].Upload(context.Background(), payload)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("error parsing name from sample filename"))
 		})
@@ -334,7 +335,7 @@ type mockS3UploadService struct {
 	UploadedSampleName string
 }
 
-func (mcs *mockS3UploadService) Do(sampleToUpload *s3manager.UploadInput) error {
+func (mcs *mockS3UploadService) Do(_ context.Context, sampleToUpload *s3manager.UploadInput) error {
 	if sampleToUpload.Body == nil {
 		return fmt.Errorf("No sample detected")
 	}
@@ -347,7 +348,7 @@ type MockBlobUploadService struct {
 	UploadedSampleName string
 }
 
-func (mcs *MockBlobUploadService) Do(sampleToUpload *cldy.BlobUploadInput) error {
+func (mcs *MockBlobUploadService) Do(_ context.Context, sampleToUpload *cldy.BlobUploadInput) error {
 	if sampleToUpload.Body == nil {
 		return fmt.Errorf("No sample detected")
 	}

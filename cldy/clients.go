@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,8 +38,19 @@ const defaultTimeout = time.Second * 10
 const defaultRetries = 3
 const proxyAuthHeader = "Proxy-Authorization"
 
+// defaultMinThroughput is the slowest upload, in bytes per second, allowed to finish when
+// ApptioConfig.MinThroughput is not set.
+const defaultMinThroughput = 256 << 10
+
+// maxUploadDeadline caps the deadline of any one request, and of any one upload.
+const maxUploadDeadline = time.Hour
+
+// maxRetryBackoff caps the wait between two attempts of a request.
+const maxRetryBackoff = 30 * time.Second
+
 const frontDoorLoginDescription = "performing login request to FrontDoor using KeyAccess and KeySecret"
 const presignedURLDescription = "acquiring presigned URL from Cloudability with acquired Open-token"
+const testUploadDescription = "testing the upload connection with a broken presigned URL"
 const s3UploadDescription = "uploading sample to Cloudability S3 using presigned URL"
 
 const clustersUploadEndpoint = "/v3/internal/containers/clusters/upload"
@@ -48,7 +60,7 @@ const apikeyloginEndpoint = "/service/apikeylogin"
 // returns an *UploadError naming the stage that failed, so the uploader can tell a refused
 // credential from a refused payload (classifyUpload).
 type StorageService interface {
-	Upload(payload UploadPayload) error
+	Upload(ctx context.Context, payload UploadPayload) error
 }
 
 // Upload stages, for UploadError.
@@ -178,19 +190,25 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 		return nil, fmt.Errorf("key access, key secret, and env id must all be set to upload to cloudability")
 	}
 
-	frontdoorURL, cloudabilityURL := getURLsFromRegion(config.Region)
+	// An unknown region falls back to the US; the uploader raises region_fallback for it (D3).
+	endpoints, _ := resolveRegion(config.Region)
+	if endpoints.frontdoor == "" || endpoints.cloudability == "" {
+		return nil, fmt.Errorf("CLOUDABILITY_UPLOAD_REGION %q is not served by the Cloudability (Frontdoor) upload path", config.Region)
+	}
 
 	apptioService := &ApptioServiceImpl{
 		SecretManager:    config.SecretManager,
 		EnvID:            config.EnvID,
 		OpenToken:        config.OpenToken,
 		CldyUploadClient: NewApptioClient(config),
-		FrontdoorURL:     frontdoorURL,
-		CloudabilityURL:  cloudabilityURL,
+		FrontdoorURL:     endpoints.frontdoor,
+		CloudabilityURL:  endpoints.cloudability,
 	}
 
 	log.Infof("Testing Cloudability upload connection.")
-	err = apptioService.testUpload()
+	ctx, cancel := context.WithTimeout(context.Background(), uploadDeadline(config, 0))
+	defer cancel()
+	err = apptioService.testUpload(ctx)
 	if err != nil {
 		// Advisory: the service is still returned, and every upload cycle retries it.
 		return apptioService, fmt.Errorf("cloudability %w: %v", errConnectivityTest, err)
@@ -201,53 +219,121 @@ func NewApptioService(config ApptioConfig) (StorageService, error) {
 
 // ApptioClient is the client used in the cloudability uploader
 type ApptioClient struct {
-	client     *http.Client
-	maxRetries int
+	client *http.Client
+	// attempts is how many times a request is sent before giving up (UPLOAD_RETRY_COUNT).
+	attempts int
+	// timeout and minThroughput size each attempt's deadline (requestTimeout).
+	timeout       time.Duration
+	minThroughput int64
 }
 
-// NewApptioClient creates a client with support for various customer configurations
-func NewApptioClient(config ApptioConfig) ApptioClient {
+// withDefaults fills in the timeout, attempts and minimum throughput when they are not set.
+func (config ApptioConfig) withDefaults() ApptioConfig {
 	if config.Timeout <= 0 {
 		config.Timeout = defaultTimeout
 	}
 	if config.Retries <= 0 {
 		config.Retries = defaultRetries
 	}
-	netTransport := &http.Transport{
-		TLSHandshakeTimeout: config.Timeout,
+	if config.MinThroughput <= 0 {
+		config.MinThroughput = defaultMinThroughput
 	}
+	return config
+}
 
-	if config.ProxyURL == nil && config.UseProxyForGettingUploadURLOnly {
-		log.Warnf("UseProxyForGettingUploadURLOnly is set, but ProxyUrl is not. Skipping proxy setup.")
-	}
-
-	// configure outbound proxy
-	if config.ProxyURL != nil {
-		ConnectHeader := http.Header{}
-
-		if config.ProxyAuth != "" {
-			basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(config.ProxyAuth))
-			ConnectHeader.Add(proxyAuthHeader, basicAuth)
-		}
-
-		netTransport = &http.Transport{
-			Proxy:               BuildProxyFunc(config),
-			ProxyConnectHeader:  ConnectHeader,
-			TLSHandshakeTimeout: config.Timeout,
-			TLSClientConfig: &tls.Config{
-				//nolint gas
-				InsecureSkipVerify: config.ProxyInsecure,
-			},
-		}
-	}
-
-	httpClient := http.Client{
-		Timeout:   config.Timeout,
-		Transport: netTransport,
-	}
+// NewApptioClient creates a client with support for various customer configurations. It has no
+// http.Client.Timeout: each attempt gets a deadline sized to what it sends (requestTimeout),
+// inside the deadline of the request's context.
+func NewApptioClient(config ApptioConfig) ApptioClient {
+	config = config.withDefaults()
 	return ApptioClient{
-		client:     &httpClient,
-		maxRetries: 3,
+		client:        &http.Client{Transport: newTransport(config)},
+		attempts:      config.Retries,
+		timeout:       config.Timeout,
+		minThroughput: config.MinThroughput,
+	}
+}
+
+// newTransport clones http.DefaultTransport, which keeps the proxy from HTTPS_PROXY and NO_PROXY,
+// the dial and idle timeouts and HTTP/2. CLOUDABILITY_OUTBOUND_PROXY, when set, takes precedence
+// over the environment. Certificates are always verified, except the HTTPS proxy's own with
+// CLOUDABILITY_OUTBOUND_PROXY_INSECURE.
+func newTransport(config ApptioConfig) *http.Transport {
+	transport := &http.Transport{Proxy: http.ProxyFromEnvironment}
+	if def, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = def.Clone()
+	}
+	transport.TLSHandshakeTimeout = config.Timeout
+
+	if config.ProxyURL == nil {
+		if config.UseProxyForGettingUploadURLOnly {
+			log.Warnf("UseProxyForGettingUploadURLOnly is set, but ProxyUrl is not. Skipping proxy setup.")
+		}
+		if config.ProxyInsecure {
+			log.Warnf("CLOUDABILITY_OUTBOUND_PROXY_INSECURE has no effect without CLOUDABILITY_OUTBOUND_PROXY; certificates are verified")
+		}
+		return transport
+	}
+
+	connectHeader := http.Header{}
+	if config.ProxyAuth != "" {
+		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(config.ProxyAuth))
+		connectHeader.Add(proxyAuthHeader, basicAuth)
+	}
+	transport.Proxy = BuildProxyFunc(config)
+	transport.ProxyConnectHeader = connectHeader
+
+	if config.ProxyInsecure {
+		if strings.EqualFold(config.ProxyURL.Scheme, "https") {
+			transport.DialTLSContext = dialTLSSkippingVerifyFor(proxyAddr(config.ProxyURL), transport, config.Timeout)
+		} else {
+			log.Warnf("CLOUDABILITY_OUTBOUND_PROXY_INSECURE has no effect: the proxy %s is not an https:// proxy, and the "+
+				"certificates of the destinations behind it are always verified", config.ProxyURL.Host)
+		}
+	}
+	return transport
+}
+
+// proxyAddr is the host:port the transport dials for the proxy u.
+func proxyAddr(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		port = "443"
+		if strings.EqualFold(u.Scheme, "http") {
+			port = "80"
+		}
+	}
+	return net.JoinHostPort(u.Hostname(), port)
+}
+
+// dialTLSSkippingVerifyFor is a DialTLSContext that skips verifying the certificate of the
+// proxy at proxyAddr and verifies every other. The transport uses DialTLSContext to reach an
+// https:// proxy and any destination it connects to directly; the TLS to a destination through
+// the proxy's tunnel is its own, with TLSClientConfig, so that is verified too.
+func dialTLSSkippingVerifyFor(proxyAddr string, transport *http.Transport, handshakeTimeout time.Duration) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		config := &tls.Config{}
+		if transport.TLSClientConfig != nil {
+			config = transport.TLSClientConfig.Clone()
+		}
+		if config.ServerName == "" {
+			config.ServerName = host
+		}
+		if strings.EqualFold(addr, proxyAddr) {
+			config.InsecureSkipVerify = true //nolint:gosec // only the configured proxy (CLOUDABILITY_OUTBOUND_PROXY_INSECURE)
+			config.NextProtos = nil          // HTTP/1.1 to the proxy, for CONNECT
+		}
+		if handshakeTimeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, handshakeTimeout)
+			defer cancel()
+		}
+		return (&tls.Dialer{NetDialer: dialer, Config: config}).DialContext(ctx, network, addr)
 	}
 }
 
@@ -272,6 +358,9 @@ type ApptioConfig struct {
 	CustomAzureClientID             string
 	CustomAzureClientSecret         SecretManager
 	UseProxyForGettingUploadURLOnly bool
+	// MinThroughput is the slowest upload, in bytes per second, that is allowed to finish
+	// (CLOUDABILITY_UPLOAD_MIN_THROUGHPUT_KBPS). Zero means defaultMinThroughput.
+	MinThroughput int64
 }
 
 func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
@@ -295,25 +384,25 @@ func BuildProxyFunc(config ApptioConfig) func(*http.Request) (*url.URL, error) {
 	}
 }
 
-func (s *ApptioServiceImpl) Upload(payload UploadPayload) error {
+func (s *ApptioServiceImpl) Upload(ctx context.Context, payload UploadPayload) error {
 	var err error
 	// gather opentoken from Frontdoor on first run or if token expired
 	if s.OpenToken == "" || time.Now().UTC().After(s.validTil) {
-		s.OpenToken, err = s.login()
+		s.OpenToken, err = s.login(ctx)
 		if err != nil {
 			return &UploadError{Stage: UploadStageLogin, Err: err}
 		}
 	}
 	return putWithPresign(payload, func() (string, error) {
 		// using token from Frontdoor get upload URL from Cloudability
-		presignedURL, err := s.getUploadURL(payload)
+		presignedURL, err := s.getUploadURL(ctx, payload)
 		if code, ok := uploadStatusCode(err); ok && (code == http.StatusUnauthorized || code == http.StatusForbidden) {
 			// The token was refused: log in again on the next attempt.
 			s.OpenToken = ""
 		}
 		return presignedURL, err
 	}, func(presignedURL string) error {
-		return s.sendData(payload, presignedURL)
+		return s.sendData(ctx, payload, presignedURL)
 	})
 }
 
@@ -338,7 +427,7 @@ func putWithPresign(payload UploadPayload, presign func() (string, error), put f
 
 // login gathers the opentoken required to make requests to Cloudability by hitting Frontdoor's apikeylogin endpoint
 // using the KeyAccess and KeySecret credentials provided by the customer config
-func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
+func (s *ApptioServiceImpl) login(ctx context.Context) (openToken string, rErr error) {
 	url := fmt.Sprintf("%s%s", s.FrontdoorURL, apikeyloginEndpoint)
 	body, err := s.SecretManager.GetSecret()
 	// remove secret from memory
@@ -352,7 +441,7 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 			fmt.Errorf("error in creating http request token string parameter for frontdoor service: %w", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("error in creating http request for frontdoor service: %w", err)
 	}
@@ -369,7 +458,7 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 		return "", fmt.Errorf("error connecting to frontdoor service: %w. Please ensure agent "+
 			"is able to connect to %s", err, url)
 	}
-	defer safeClose(resp.Body.Close, &rErr)
+	defer safeClose(func() error { return drainAndClose(resp.Body) }, &rErr)
 
 	if resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(resp.Body)
@@ -395,9 +484,9 @@ func (s *ApptioServiceImpl) login() (openToken string, rErr error) {
 }
 
 // testUpload tries to fetch the uploadURL for the cloudabilty upload path
-func (s *ApptioServiceImpl) testUpload() error {
+func (s *ApptioServiceImpl) testUpload(ctx context.Context) error {
 	var err error
-	s.OpenToken, err = s.login()
+	s.OpenToken, err = s.login(ctx)
 	if err != nil {
 		return err
 	}
@@ -410,46 +499,37 @@ func (s *ApptioServiceImpl) testUpload() error {
 		UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 	}
 
-	presignedURL, err := s.getUploadURL(testUpload)
+	presignedURL, err := s.getUploadURL(ctx, testUpload)
 	if err != nil {
 		return err
 	}
+	return probePresignedURL(ctx, s.CldyUploadClient, http.MethodPost, presignedURL, testUpload.UploadHash)
+}
 
-	// Break presigned URL
-	presignedURL += "testUpload"
-
-	request, err := http.NewRequest(http.MethodPost, presignedURL, new(bytes.Buffer))
+// probePresignedURL checks that the storage behind a presigned URL answers, without writing
+// anything: an empty request to a deliberately broken copy of the URL must be refused with 403.
+func probePresignedURL(ctx context.Context, client ClientService, method, presignedURL, hash string) error {
+	request, err := http.NewRequestWithContext(ctx, method, presignedURL+"testUpload", http.NoBody)
 	if err != nil {
-		return err
+		return fmt.Errorf("error creating the test upload request for %s", removeQueryParameters(presignedURL))
 	}
 	request.Header.Set(contentTypeHeader, "multipart/form-data")
-	request.Header.Set(contentMD5, testUpload.UploadHash)
+	request.Header.Set(contentMD5, hash)
 
-	// Allow multiple attempts for test upload
-	for i := 1; i <= maxAttempts; i++ {
-		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
-		// Should return 403 with improper url
-		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
-			return nil
-		}
-		if err != nil {
-			log.Warnf("Cloudability test HTTPS request failed with error: %s. Please ensure agent "+
-				"is configured to have access to external resources", err.Error())
-		}
-		if resp != nil {
-			log.Warnf("Cloudability test upload %d failed with status code: %s", i, resp.Status)
-		}
-		if i < maxAttempts {
-			time.Sleep(retryBackoff(i))
-		}
+	resp, err := client.Do(request, testUploadDescription)
+	if err == nil {
+		_ = drainAndClose(resp.Body)
+		return errors.New("the test upload to a broken presigned URL was accepted; want 403")
 	}
-
-	return fmt.Errorf("bucket upload exceeded max amount of failures")
+	if code, ok := uploadStatusCode(err); ok && code == http.StatusForbidden {
+		return nil
+	}
+	return fmt.Errorf("test upload failed: %w. Please ensure agent is configured to have access to external resources", err)
 }
 
 // getUploadURL request to Cloudability to gather the presigned s3 URL that allows the agent to
 // upload to Apptio's S3 bucket
-func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL string, rErr error) {
+func (s *ApptioServiceImpl) getUploadURL(ctx context.Context, payload UploadPayload) (uploadURL string, rErr error) {
 	url := fmt.Sprintf("%s%s", s.CloudabilityURL, clustersUploadEndpoint)
 
 	// The Frontdoor API requires a plain semver without a leading "v".
@@ -470,7 +550,7 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 			fmt.Errorf("error in marshaling http request parameters to cloudability: %w", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("error in creating http request to cloudability: %w", err)
 	}
@@ -489,7 +569,7 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 		return "", fmt.Errorf("error connecting to cloudability: %w. Please ensure agent is "+
 			"configured to have access to external resources", err)
 	}
-	defer safeClose(resp.Body.Close, &rErr)
+	defer safeClose(func() error { return drainAndClose(resp.Body) }, &rErr)
 
 	if resp.StatusCode != http.StatusOK {
 		return "", statusErrorf(resp.StatusCode, "cloudability clusters/upload request call failed with status "+
@@ -508,16 +588,44 @@ func (s *ApptioServiceImpl) getUploadURL(payload UploadPayload) (uploadURL strin
 	return uploadURL, nil
 }
 
-func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) error {
-	return uploadPayloadToPresignedURL(s.CldyUploadClient, payload, uploadURL)
+func (s *ApptioServiceImpl) sendData(ctx context.Context, payload UploadPayload, uploadURL string) error {
+	return uploadPayloadToPresignedURL(ctx, s.CldyUploadClient, payload, uploadURL)
 }
 
-// doWithRetry sends req until it gets a 200, at most maxAttempts times. When every attempt
-// fails the error wraps the last one: an *HTTPStatusError if the server answered, or the
-// transport error.
+// requestTimeout is the deadline for one attempt of a request that sends n bytes: timeout, plus
+// the time n bytes take at minThroughput bytes per second, capped at maxUploadDeadline.
+func requestTimeout(timeout time.Duration, minThroughput, n int64) time.Duration {
+	d := timeout
+	if n > 0 && minThroughput > 0 {
+		d += time.Duration(float64(n) / float64(minThroughput) * float64(time.Second))
+	}
+	return min(d, maxUploadDeadline)
+}
+
+// uploadDeadline is the deadline for one Upload of a payload of size bytes: a request timeout
+// each for the login and the presign, and one sized to the payload for the PUT, capped at
+// maxUploadDeadline. Retries fit inside it only when attempts fail fast; the next upload cycle
+// retries the rest.
+func uploadDeadline(config ApptioConfig, size int64) time.Duration {
+	config = config.withDefaults()
+	return min(2*config.Timeout+requestTimeout(config.Timeout, config.MinThroughput, size), maxUploadDeadline)
+}
+
+// retryableStatus reports whether a request answered with code may succeed if sent again.
+func retryableStatus(code int) bool {
+	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
+}
+
+// doWithRetry sends req until it gets a 200, at most ac.attempts times (UPLOAD_RETRY_COUNT). A
+// transport error, 408, 429 or 5xx is retried, after a backoff; any other status is returned at
+// once. Each attempt has its own deadline (requestTimeout), inside the deadline of req's
+// context, which also cuts the backoff short. When every attempt fails the error wraps the last
+// one: an *HTTPStatusError if the server answered, or the transport error.
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
+	ctx := req.Context()
+	attempts := max(ac.attempts, 1)
 	var lastErr error
-	for i := 1; i <= maxAttempts; i++ {
+	for i := 1; i <= attempts; i++ {
 		// http.Client.Do always closes the request body, so every retry needs a fresh one.
 		if i > 1 && req.Body != nil && req.Body != http.NoBody {
 			if req.GetBody == nil {
@@ -530,10 +638,14 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 			req.Body = body
 		}
 		log.Debugf("Attempt %d: %s", i, requestDescription)
-		resp, err := ac.client.Do(req)
-		if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
+		attemptCtx, cancel := context.WithTimeout(ctx, requestTimeout(ac.timeout, ac.minThroughput, req.ContentLength))
+		resp, err := ac.client.Do(req.WithContext(attemptCtx))
+		if err == nil && resp.StatusCode == http.StatusOK {
+			// The attempt's deadline covers reading the body too; closing it releases the timer.
+			resp.Body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
 			return resp, nil
 		}
+		retry := true
 		if err != nil {
 			// A presigned URL's query string is a credential: keep it out of the error, which
 			// is logged here and by the uploader.
@@ -542,71 +654,130 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 			}
 			log.Warnf("HTTPS request failed with error: %s", err.Error())
 			lastErr = err
-		}
-		if resp != nil {
+		} else {
 			head, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-			_, _ = io.Copy(io.Discard, resp.Body)
-			_ = resp.Body.Close()
+			_ = drainAndClose(resp.Body)
 			lastErr = statusErrorf(resp.StatusCode, "status %s%s", resp.Status, s3ErrorCode(head))
 			log.Warnf("Request failed with status code: %s", lastErr)
+			retry = retryableStatus(resp.StatusCode)
 		}
-		if i < maxAttempts {
-			time.Sleep(retryBackoff(i))
+		cancel()
+		if !retry {
+			return nil, fmt.Errorf("request failed: %w", lastErr)
+		}
+		if i < attempts {
+			if err := sleepContext(ctx, retryBackoff(i)); err != nil {
+				return nil, fmt.Errorf("gave up after %d of %d attempts: %w; last error: %w", i, attempts, err, lastErr)
+			}
 		}
 	}
 	return nil, fmt.Errorf("failed to complete request after maximum retries: %w", lastErr)
 }
 
-// Note: All hybrid regions return that region's FrontdoorURL and the US CloudabilitiyURL.
-// Regions are all hardcoded because there is no direct formula from availability zone -> region suffix,
-// as well as this switch block acts as validation on the region field if changed by the user.
-func getURLsFromRegion(region string) (string, string) {
-	switch region {
-	case "staging": // staging account. Note the difference for -stage and -s
-		return formatFrontdoorAndCloudabilityURLs("-stage", "-s")
-	case "us", "us-west-2":
-		return formatFrontdoorAndCloudabilityURLs("", "")
-	case "eu", "eu-central-1":
-		return formatFrontdoorAndCloudabilityURLs("-eu", "-eu")
-	case "au", "ap-southeast-2":
-		return formatFrontdoorAndCloudabilityURLs("-au", "-au")
-	case "me", "me-central-1":
-		return formatFrontdoorAndCloudabilityURLs("-me", "-me")
-	case "sg", "ap-southeast-1":
-		return formatFrontdoorAndCloudabilityURLs("-sg", "-sg")
-	case "jp", "ap-northeast-1":
-		return formatFrontdoorAndCloudabilityURLs("-jp", "-jp")
-	case "in", "ap-south-1":
-		return formatFrontdoorAndCloudabilityURLs("-in", "-in")
-	case "ca", "ca-central-1":
-		return formatFrontdoorAndCloudabilityURLs("-ca", "-ca")
-	case "gov", "us-gov-west-1":
-		return formatFrontdoorAndCloudabilityURLs("-usgov", ".usgov")
-	case "gov2", "us-gov-east-1":
-		return formatFrontdoorAndCloudabilityURLs("-usgov2", ".usgov2")
-	case "hybrid-eu":
-		return formatFrontdoorAndCloudabilityURLs("-eu", "")
-	case "hybrid-au":
-		return formatFrontdoorAndCloudabilityURLs("-au", "")
-	case "hybrid-me":
-		return formatFrontdoorAndCloudabilityURLs("-me", "")
-	case "hybrid-sg":
-		return formatFrontdoorAndCloudabilityURLs("-sg", "")
-	case "hybrid-jp":
-		return formatFrontdoorAndCloudabilityURLs("-jp", "")
-	case "hybrid-in":
-		return formatFrontdoorAndCloudabilityURLs("-in", "")
-	case "hybrid-ca":
-		return formatFrontdoorAndCloudabilityURLs("-ca", "")
-	default:
-		log.Warnf("Invalid cloudability region: %s. Defaulting to 'us-west-2' region.", region)
-		return formatFrontdoorAndCloudabilityURLs("", "")
+// cancelOnClose cancels a request's context when its response body is closed.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c *cancelOnClose) Close() error {
+	err := c.ReadCloser.Close()
+	c.cancel()
+	return err
+}
+
+// drainAndClose reads what is left of a response body, up to 64 KiB, and closes it, so that
+// the connection can be reused.
+func drainAndClose(body io.ReadCloser) error {
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, 64<<10))
+	return body.Close()
+}
+
+// sleepContext waits for d, or until ctx is done, and then returns ctx's error.
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
-// Formats the region suffixes into the respective frontdoor and cloudability url
-func formatFrontdoorAndCloudabilityURLs(frontdoorRegionSuffix string, cloudabilityRegionSuffix string) (string, string) {
-	return fmt.Sprintf(frontdoorBaseURL, frontdoorRegionSuffix), fmt.Sprintf(cloudabilityBaseURL, cloudabilityRegionSuffix)
+// regionEndpoints are one upload region's endpoints on each upload path. "" means the path
+// doesn't serve the region, which is a configuration error on that path.
+type regionEndpoints struct {
+	frontdoor        string
+	cloudability     string
+	metricsCollector string
+}
+
+// endpoints formats a region's Frontdoor and Cloudability URLs from their suffixes.
+func endpoints(frontdoorSuffix, cloudabilitySuffix, metricsCollectorURL string) regionEndpoints {
+	return regionEndpoints{
+		frontdoor:        fmt.Sprintf(frontdoorBaseURL, frontdoorSuffix),
+		cloudability:     fmt.Sprintf(cloudabilityBaseURL, cloudabilitySuffix),
+		metricsCollector: metricsCollectorURL,
+	}
+}
+
+// usEndpoints are the US endpoints, which an unknown region falls back to (D3).
+var usEndpoints = endpoints("", "", metricsCollectorDefaultBaseURL)
+
+// regions maps every CLOUDABILITY_UPLOAD_REGION the agent accepts, short and AWS names, to its
+// endpoints. They are listed by hand because there is no formula from AWS region to suffix.
+// Note the staging suffixes: -stage for Frontdoor, -s for Cloudability.
+var regions = func() map[string]regionEndpoints {
+	m := map[string]regionEndpoints{}
+	add := func(e regionEndpoints, names ...string) {
+		for _, name := range names {
+			m[name] = e
+		}
+	}
+	add(usEndpoints, "us", "us-west-2")
+	add(endpoints("-stage", "-s", metricsCollectorStagingBaseURL), "staging", "us-west-2-staging")
+	add(endpoints("-eu", "-eu", metricsCollectorEUBaseURL), "eu", "eu-central-1")
+	add(endpoints("-au", "-au", metricsCollectorAUBaseURL), "au", "ap-southeast-2")
+	add(endpoints("-me", "-me", metricsCollectorMEBaseURL), "me", "me-central-1")
+	add(endpoints("-sg", "-sg", metricsCollectorSGBaseURL), "sg", "ap-southeast-1")
+	add(endpoints("-jp", "-jp", metricsCollectorJPBaseURL), "jp", "ap-northeast-1")
+	add(endpoints("-in", "-in", metricsCollectorINBaseURL), "in", "ap-south-1")
+	add(endpoints("-ca", "-ca", metricsCollectorCABaseURL), "ca", "ca-central-1")
+	add(endpoints("-usgov", ".usgov", metricsCollectorGovBaseURL), "gov", "us-gov-west-1")
+	// No metrics-collector serves gov2.
+	add(endpoints("-usgov2", ".usgov2", ""), "gov2", "us-gov-east-1")
+	// Deliberate: a hybrid region logs in to its own Frontdoor and uploads to the US Cloudability,
+	// on either path.
+	add(endpoints("-eu", "", metricsCollectorDefaultBaseURL), "hybrid-eu")
+	add(endpoints("-au", "", metricsCollectorDefaultBaseURL), "hybrid-au")
+	add(endpoints("-me", "", metricsCollectorDefaultBaseURL), "hybrid-me")
+	add(endpoints("-sg", "", metricsCollectorDefaultBaseURL), "hybrid-sg")
+	add(endpoints("-jp", "", metricsCollectorDefaultBaseURL), "hybrid-jp")
+	add(endpoints("-in", "", metricsCollectorDefaultBaseURL), "hybrid-in")
+	add(endpoints("-ca", "", metricsCollectorDefaultBaseURL), "hybrid-ca")
+	return m
+}()
+
+// resolveRegion returns the endpoints for region, ignoring case and surrounding space. An
+// unknown region gets the US endpoints and fallback is true (D3).
+func resolveRegion(region string) (e regionEndpoints, fallback bool) {
+	e, ok := regions[strings.ToLower(strings.TrimSpace(region))]
+	if !ok {
+		return usEndpoints, true
+	}
+	return e, false
+}
+
+// regionFallback reports whether uploads go to the US because the region is unknown (D3). Only
+// the Cloudability paths, metrics-collector and Frontdoor, use the region; they are selected as
+// newStorageServices selects them.
+func regionFallback(config ApptioConfig) bool {
+	if !hasAPIKeyConfigured(config.APIKeySecretManager) && config.EnvID == "" {
+		return false
+	}
+	_, fallback := resolveRegion(config.Region)
+	return fallback
 }
 
 type CustomS3Client struct {
@@ -634,7 +805,7 @@ func NewCustomS3Client(customS3Bucket string, customS3Region string) (StorageSer
 }
 
 type CustomS3UploadService interface {
-	Do(sampleToUpload *s3manager.UploadInput) error
+	Do(ctx context.Context, sampleToUpload *s3manager.UploadInput) error
 }
 
 type CustomS3Uploader struct {
@@ -657,7 +828,7 @@ func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 	}, nil
 }
 
-func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
+func (cs3c CustomS3Client) Upload(ctx context.Context, payload UploadPayload) (err error) {
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("unable to open metric sample file: %w", err)
@@ -675,7 +846,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 		Body:   fileReader,
 	}
 
-	err = cs3c.UploadClient.Do(sampleToUpload)
+	err = cs3c.UploadClient.Do(ctx, sampleToUpload)
 	if err != nil {
 		return &UploadError{Stage: UploadStageStore, Err: fmt.Errorf("failed to put sample to custom S3 with error: %w. Please ensure agent "+
 			"is configured to have access to external resources", err)}
@@ -685,8 +856,8 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 	return nil
 }
 
-func (cs3u CustomS3Uploader) Do(sampleToUpload *s3manager.UploadInput) error {
-	_, err := cs3u.Uploader.Upload(sampleToUpload)
+func (cs3u CustomS3Uploader) Do(ctx context.Context, sampleToUpload *s3manager.UploadInput) error {
+	_, err := cs3u.Uploader.UploadWithContext(ctx, sampleToUpload)
 	return err
 }
 
@@ -749,7 +920,7 @@ func NewCustomBlobClient(blobContainerName string, customBlobUrl string, azureTe
 }
 
 type CustomBlobUploadService interface {
-	Do(sampleToUpload *BlobUploadInput) error
+	Do(ctx context.Context, sampleToUpload *BlobUploadInput) error
 }
 
 type CustomBlobUploader struct {
@@ -812,7 +983,7 @@ type BlobUploadInput struct {
 	Body          *os.File
 }
 
-func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
+func (cbc CustomBlobClient) Upload(ctx context.Context, payload UploadPayload) (err error) {
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("unable to open metric sample file: %w", err)
@@ -830,7 +1001,7 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 		Body:          fileReader,
 	}
 
-	err = cbc.UploadClient.Do(sampleToUpload)
+	err = cbc.UploadClient.Do(ctx, sampleToUpload)
 	if err != nil {
 		return &UploadError{Stage: UploadStageStore, Err: fmt.Errorf("failed to put sample to custom azure blob with error: %w. Please ensure agent "+
 			"is configured to have access to external resources", err)}
@@ -840,8 +1011,8 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 	return nil
 }
 
-func (cbu CustomBlobUploader) Do(sampleToUpload *BlobUploadInput) error {
-	_, err := cbu.Uploader.UploadFile(context.TODO(), sampleToUpload.ContainerName, sampleToUpload.BlobName, sampleToUpload.Body, nil)
+func (cbu CustomBlobUploader) Do(ctx context.Context, sampleToUpload *BlobUploadInput) error {
+	_, err := cbu.Uploader.UploadFile(ctx, sampleToUpload.ContainerName, sampleToUpload.BlobName, sampleToUpload.Body, nil)
 	return err
 }
 
@@ -857,7 +1028,7 @@ func generateSampleKey(fileName string, clusterUID string) (string, error) {
 	numSegments := len(segments)
 
 	// Filename should be comprised of at least 6 segments
-	if numSegments < 5 {
+	if numSegments < 6 {
 		return "", fmt.Errorf("error parsing timestamp from sample filename")
 	}
 	minute := segments[numSegments-2]
@@ -912,4 +1083,11 @@ func (s *valueSecretManager) GetSecret() ([]byte, error) {
 // Trims query parameters
 func removeQueryParameters(url string) string {
 	return strings.Split(url, "?")[0]
+}
+
+// regionURLs returns the Frontdoor, Cloudability and metrics-collector URLs for region, "" where
+// the path doesn't serve it, and whether region is unknown and fell back to the US.
+func regionURLs(region string) (frontdoor, cloudability, metricsCollector string, fallback bool) {
+	e, fallback := resolveRegion(region)
+	return e.frontdoor, e.cloudability, e.metricsCollector, fallback
 }

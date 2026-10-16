@@ -1,7 +1,7 @@
 package cldy
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,7 +10,6 @@ import (
 	"path"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -63,15 +62,23 @@ func NewMetricsCollectorService(config ApptioConfig) (StorageService, error) {
 		return nil, fmt.Errorf("cloudability api key must be set to upload via metrics-collector")
 	}
 
+	// An unknown region falls back to the US; the uploader raises region_fallback for it (D3).
+	endpoints, _ := resolveRegion(config.Region)
+	if endpoints.metricsCollector == "" {
+		return nil, fmt.Errorf("CLOUDABILITY_UPLOAD_REGION %q is not served by the metrics-collector (API key) upload path", config.Region)
+	}
+
 	service := &MetricsCollectorServiceImpl{
 		APIKey:           apiKey,
-		BaseURL:          getMetricsCollectorURLByRegion(config.Region),
+		BaseURL:          endpoints.metricsCollector,
 		UserAgent:        fmt.Sprintf("cldy-client/%s", version.Version),
 		CldyUploadClient: NewApptioClient(config),
 	}
 
 	log.Infof("Testing Cloudability metrics-collector upload connection.")
-	if err := service.testUpload(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), uploadDeadline(config, 0))
+	defer cancel()
+	if err := service.testUpload(ctx); err != nil {
 		// Advisory: the service is still returned, and every upload cycle retries it.
 		return service, fmt.Errorf("cloudability metrics-collector %w: %v", errConnectivityTest, err)
 	}
@@ -100,16 +107,16 @@ func hasAPIKeyConfigured(secretManager SecretManager) bool {
 	return err == nil && apiKey != ""
 }
 
-func (s *MetricsCollectorServiceImpl) Upload(payload UploadPayload) error {
+func (s *MetricsCollectorServiceImpl) Upload(ctx context.Context, payload UploadPayload) error {
 	return putWithPresign(payload, func() (string, error) {
-		return s.getUploadURL(payload)
+		return s.getUploadURL(ctx, payload)
 	}, func(presignedURL string) error {
-		return uploadPayloadToPresignedURL(s.CldyUploadClient, payload, presignedURL)
+		return uploadPayloadToPresignedURL(ctx, s.CldyUploadClient, payload, presignedURL)
 	})
 }
 
-func (s *MetricsCollectorServiceImpl) getUploadURL(payload UploadPayload) (string, error) {
-	request, err := http.NewRequest(http.MethodPost, s.BaseURL, nil)
+func (s *MetricsCollectorServiceImpl) getUploadURL(ctx context.Context, payload UploadPayload) (uploadURL string, rErr error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.BaseURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("error creating metrics-collector upload request: %w", err)
 	}
@@ -135,11 +142,7 @@ func (s *MetricsCollectorServiceImpl) getUploadURL(payload UploadPayload) (strin
 		return "", fmt.Errorf("error connecting to metrics-collector: %w. Please ensure agent "+
 			"is configured to have access to external resources", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			log.Warnf("error closing metrics-collector response body: %v", closeErr)
-		}
-	}()
+	defer safeClose(func() error { return drainAndClose(resp.Body) }, &rErr)
 
 	if resp.StatusCode != http.StatusOK {
 		return "", statusErrorf(resp.StatusCode, "metrics-collector presign request failed with status code: %d", resp.StatusCode)
@@ -155,7 +158,7 @@ func (s *MetricsCollectorServiceImpl) getUploadURL(payload UploadPayload) (strin
 	return result.Location, nil
 }
 
-func (s *MetricsCollectorServiceImpl) testUpload() error {
+func (s *MetricsCollectorServiceImpl) testUpload(ctx context.Context) error {
 	testUpload := UploadPayload{
 		ClusterUID:   "9f89af4e-5353-41a9-a7ca-42dce367006f",
 		FileName:     "9f89af4e-5353-41a9-a7ca-42dce367006f_2006-01-02-15-04-05.tgz",
@@ -164,72 +167,21 @@ func (s *MetricsCollectorServiceImpl) testUpload() error {
 		UploadHash:   "aexCzQgBAnRYEZxKy71lAw==",
 	}
 
-	presignedURL, err := s.getUploadURL(testUpload)
+	presignedURL, err := s.getUploadURL(ctx, testUpload)
 	if err != nil {
 		return err
 	}
-
-	presignedURL += "testUpload"
-	request, err := http.NewRequest(http.MethodPut, presignedURL, new(bytes.Buffer))
-	if err != nil {
-		return err
-	}
-	request.Header.Set(contentTypeHeader, "multipart/form-data")
-	request.Header.Set(contentMD5, testUpload.UploadHash)
-
-	for i := 1; i <= maxAttempts; i++ {
-		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
-		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
-			return nil
-		}
-		if err != nil {
-			log.Warnf("Cloudability metrics-collector test HTTPS request failed with error: %s", err.Error())
-		}
-		if resp != nil {
-			log.Warnf("Cloudability metrics-collector test upload %d failed with status code: %s", i, resp.Status)
-		}
-		if i < maxAttempts {
-			time.Sleep(retryBackoff(i))
-		}
-	}
-
-	return fmt.Errorf("metrics-collector test upload exceeded max amount of failures")
+	return probePresignedURL(ctx, s.CldyUploadClient, http.MethodPut, presignedURL, testUpload.UploadHash)
 }
 
-// MetricsCollectorURLForRegion exposes region mapping for tests and documentation consumers.
+// MetricsCollectorURLForRegion is the metrics-collector URL for region: "" if no
+// metrics-collector serves it, and the US one if the region is unknown (D3).
 func MetricsCollectorURLForRegion(region string) string {
-	return getMetricsCollectorURLByRegion(region)
+	e, _ := resolveRegion(region)
+	return e.metricsCollector
 }
 
-func getMetricsCollectorURLByRegion(region string) string {
-	switch region {
-	case "eu", "eu-central-1":
-		return metricsCollectorEUBaseURL
-	case "au", "ap-southeast-2":
-		return metricsCollectorAUBaseURL
-	case "me", "me-central-1":
-		return metricsCollectorMEBaseURL
-	case "us", "us-west-2":
-		return metricsCollectorDefaultBaseURL
-	case "jp", "ap-northeast-1":
-		return metricsCollectorJPBaseURL
-	case "in", "ap-south-1":
-		return metricsCollectorINBaseURL
-	case "sg", "ap-southeast-1":
-		return metricsCollectorSGBaseURL
-	case "ca", "ca-central-1":
-		return metricsCollectorCABaseURL
-	case "gov", "us-gov-west-1":
-		return metricsCollectorGovBaseURL
-	case "staging", "us-west-2-staging":
-		return metricsCollectorStagingBaseURL
-	default:
-		log.Warnf("Region %s is not supported for metrics-collector uploads. Defaulting to us-west-2.", region)
-		return metricsCollectorDefaultBaseURL
-	}
-}
-
-func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, uploadURL string) error {
+func uploadPayloadToPresignedURL(ctx context.Context, client ClientService, payload UploadPayload, uploadURL string) error {
 	fileToUpload, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("error in opening file to upload: %w", err)
@@ -241,7 +193,7 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 		return err
 	}
 
-	request, err := http.NewRequest(http.MethodPut, uploadURL, fileToUpload)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, fileToUpload)
 	if err != nil {
 		_ = fileToUpload.Close()
 		return err
@@ -260,7 +212,7 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 		return err
 	}
 	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
+		if closeErr := drainAndClose(resp.Body); closeErr != nil {
 			log.Warnf("error closing upload response body: %v", closeErr)
 		}
 	}()
