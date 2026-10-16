@@ -1,7 +1,9 @@
 package cldy_test
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
@@ -169,9 +171,8 @@ var _ = Describe("Uploader", func() {
 				return filepath.Join(uploadDir, "test-id_"+stamp+".tgz")
 			}
 			recent, stale := tarAged(time.Hour), tarAged(48*time.Hour)
-			for _, path := range []string{recent, stale} {
-				Expect(os.WriteFile(path, []byte("sample contents"), 0600)).To(Succeed())
-			}
+			Expect(os.WriteFile(recent, completeGzip(GinkgoT()), 0600)).To(Succeed())
+			Expect(os.WriteFile(stale, completeGzip(GinkgoT()), 0600)).To(Succeed())
 
 			config := noUploadConfig(tempDir)
 			config.RecoveryPeriod = 0
@@ -233,6 +234,24 @@ var _ = Describe("Uploader", func() {
 
 			// copy over another sample and ensure recovery does not break happy path
 			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
+		})
+		It("should discard a partial tgz left by a mid-write crash rather than queuing it for upload", func() {
+			// Simulate a pod killed while createTGZ was writing: the gzip stream started but
+			// gzip.Writer.Close() never ran, so the file on disk has no GZIP footer.
+			uploadDir := filepath.Join(tempDir, "upload")
+			Expect(os.MkdirAll(uploadDir, os.ModePerm)).To(Succeed())
+			stamp := time.Now().UTC().Format("2006-01-02-15-04-05")
+			partialPath := filepath.Join(uploadDir, "test-id_"+stamp+".tgz")
+			Expect(os.WriteFile(partialPath, partialGzip(GinkgoT()), 0600)).To(Succeed())
+
+			config := noUploadConfig(tempDir)
+			config.RecoveryPeriod = time.Hour * 24
+			actualUploader := newUploader(config)
+
+			// recoverUploadFiles must not queue a file it cannot fully read
+			Expect(actualUploader.PendingUploads()).To(BeEmpty())
+			// and must remove it from disk so it cannot accumulate
+			Expect(partialPath).ToNot(BeAnExistingFile())
 		})
 	})
 	Context("TestUpload", func() {
@@ -794,8 +813,8 @@ func writeSample(uploadPathDir string) string {
 	return samplePath
 }
 
-// seedUploadQueue writes count tars with distinct timestamps into the upload directory, so a
-// subsequently constructed uploader recovers all of them into its queue
+// seedUploadQueue writes count valid (complete) tgz files with distinct timestamps into the
+// upload directory so a subsequently constructed uploader recovers all of them into its queue.
 func seedUploadQueue(tempDir string, count int) []string {
 	uploadDir := filepath.Join(tempDir, "upload")
 	Expect(os.MkdirAll(uploadDir, os.ModePerm)).To(Succeed())
@@ -803,10 +822,35 @@ func seedUploadQueue(tempDir string, count int) []string {
 	for i := range count {
 		stamp := time.Now().UTC().Add(-time.Duration(i) * time.Minute).Format("2006-01-02-15-04-05")
 		path := filepath.Join(uploadDir, fmt.Sprintf("test-id_%s.tgz", stamp))
-		Expect(os.WriteFile(path, []byte("sample contents"), 0600)).To(Succeed())
+		Expect(os.WriteFile(path, completeGzip(GinkgoT()), 0600)).To(Succeed())
 		paths = append(paths, path)
 	}
 	return paths
+}
+
+// completeGzip returns a valid, fully-closed gzip+tar stream containing one small file.
+func completeGzip(t GinkgoTInterface) []byte {
+	var buf bytes.Buffer
+	gzw, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	if err != nil {
+		t.Fatalf("completeGzip: %v", err)
+	}
+	tw := tar.NewWriter(gzw)
+	content := []byte(`{"complete":true}`)
+	hdr := &tar.Header{Name: "baseline-summary/test-id/data.json", Mode: 0600, Size: int64(len(content))}
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatalf("completeGzip: WriteHeader: %v", err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		t.Fatalf("completeGzip: Write: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("completeGzip: tar.Close: %v", err)
+	}
+	if err := gzw.Close(); err != nil {
+		t.Fatalf("completeGzip: gzip.Close: %v", err)
+	}
+	return buf.Bytes()
 }
 
 // mockStorageService stands in for an upload destination. The mutex is for specs that let the
@@ -878,3 +922,33 @@ func (ssm *stubSecretManager) callCount() int {
 	defer ssm.mutex.Unlock()
 	return ssm.calls
 }
+
+// partialGzip returns bytes that look like the start of a gzip/tar stream but are missing the
+// gzip footer — exactly what ConstructPayload leaves on disk if the agent is killed while
+// createTGZ is running (gzip.Writer.Close never executes).
+func partialGzip(t GinkgoTInterface) []byte {
+	var buf bytes.Buffer
+	gzw, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	if err != nil {
+		t.Fatalf("partialGzip: gzip.NewWriterLevel: %v", err)
+	}
+	tw := tar.NewWriter(gzw)
+	hdr := &tar.Header{
+		Name: "baseline-summary/test-id/data.json",
+		Mode: 0600,
+		Size: int64(len(`{"truncated":true}`)),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatalf("partialGzip: WriteHeader: %v", err)
+	}
+	if _, err := tw.Write([]byte(`{"truncated":true}`)); err != nil {
+		t.Fatalf("partialGzip: Write: %v", err)
+	}
+	// Deliberately do NOT call tw.Close() or gzw.Close() — simulating a mid-write kill.
+	// Force the gzip writer to flush what it has so the bytes are non-empty.
+	if err := gzw.Flush(); err != nil {
+		t.Fatalf("partialGzip: Flush: %v", err)
+	}
+	return buf.Bytes()
+}
+
