@@ -53,6 +53,9 @@ const (
 	// InformerResyncIntervalEnvVar is the resync interval for informers
 	InformerResyncIntervalEnvVar = "INFORMER_RESYNC_INTERVAL"
 
+	// InformerSyncTimeoutEnvVar bounds how long startup waits for the informers to sync
+	InformerSyncTimeoutEnvVar = "INFORMER_SYNC_TIMEOUT"
+
 	// ParseMetricDataEnvVar env var for sanitizing k8s resources
 	ParseMetricDataEnvVar = "PARSE_METRIC_DATA"
 
@@ -188,6 +191,21 @@ func GetInformerReSyncInterval() time.Duration {
 // /opt/finops-agent, as for the Cloudability emitter).
 func GetScratchDir() string {
 	return env.Get(CloudabilityPrefix+"SCRATCH_DIR", "/opt/finops-agent")
+}
+
+// DefaultInformerSyncTimeout is how long startup waits for the informers to sync by default.
+const DefaultInformerSyncTimeout = 5 * time.Minute
+
+// GetInformerSyncTimeout returns how long startup waits for the informers to sync before it
+// carries on, not ready, with the unsynced informers still retrying (D9). A value that isn't a
+// positive duration means the default.
+func GetInformerSyncTimeout() time.Duration {
+	timeout := getValueWithPotentialPrefixOrDefault(InformerSyncTimeoutEnvVar, CloudabilityPrefix, DefaultInformerSyncTimeout, cast.ToDuration)
+	if timeout <= 0 {
+		return DefaultInformerSyncTimeout
+	}
+	return timeout
+
 }
 
 // GetSanitizeData returns bool that further sanitizes k8s resources if true

@@ -34,6 +34,8 @@ const (
 type InformerConfig struct {
 	ResyncInterval time.Duration
 	SanitizeData   bool
+	// SyncTimeout bounds how long startup waits for the informers to sync.
+	SyncTimeout time.Duration
 }
 
 // LoadInformerConfig returns configs related to informer settings
@@ -41,6 +43,7 @@ func LoadInformerConfig() InformerConfig {
 	return InformerConfig{
 		ResyncInterval: env.GetInformerReSyncInterval(),
 		SanitizeData:   env.GetSanitizeData(),
+		SyncTimeout:    env.GetInformerSyncTimeout(),
 	}
 }
 

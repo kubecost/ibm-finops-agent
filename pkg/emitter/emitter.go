@@ -2,6 +2,7 @@ package emitter
 
 import (
 	"context"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -38,12 +39,18 @@ type KubernetesSnapshot struct {
 	// shortLivedPodsDrained is set when ShortLivedPods were drained from a cache that can't be
 	// peeked, so discarding this snapshot loses them.
 	shortLivedPodsDrained bool
+	// UnsyncedResources names the resources left empty because their informers haven't synced
+	// (e.g. "pods", "apps/deployments"). Their lists are unknown, not empty.
+	UnsyncedResources []string
 }
 
 // NodeStatsSummary contains summary data sets
 type NodeStatsSummary struct {
 	Stats         []*stats.Summary
 	CollectionErr error
+	// CollectedAt is when Stats were collected. With background collection it can be well
+	// before the snapshot (F-21).
+	CollectedAt time.Time
 }
 
 // MetricsSummary contains the metrics results from opencost data source queries.
@@ -244,11 +251,4 @@ type Emitter interface {
 
 	// Emit emits the `ClusterSnapshot` based on the emitter's implementation.
 	Emit(context.Context, *ClusterSnapshot) error
-}
-
-// HealthChecker is an optional interface that an Emitter can implement to participate
-// in the agent's /healthz liveness check. If Healthy() returns false, the agent reports
-// itself unhealthy and the kubelet liveness probe will eventually restart it.
-type HealthChecker interface {
-	Healthy() bool
 }

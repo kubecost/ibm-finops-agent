@@ -51,29 +51,6 @@ func TestUnwrapNodeErrors(t *testing.T) {
 	}
 }
 
-func TestHealthy(t *testing.T) {
-	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
-
-	tests := map[string]struct {
-		lastSuccess time.Time
-		want        bool
-	}{
-		"startup grace when never collected": {lastSuccess: time.Time{}, want: true},
-		"recent success is healthy":          {lastSuccess: time.Now().UTC(), want: true},
-		"within threshold is healthy":        {lastSuccess: time.Now().UTC().Add(-(restartThreshold - time.Minute)), want: true},
-		"beyond threshold is unhealthy":      {lastSuccess: time.Now().UTC().Add(-(restartThreshold + time.Minute)), want: false},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			ce := &Emitter{lastSuccessfulNodeCollection: tt.lastSuccess}
-			if got := ce.Healthy(); got != tt.want {
-				t.Fatalf("Healthy() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestRecordNodeStats(t *testing.T) {
 	sampleStats := []*statsv1.Summary{{}}
 	collErr := errors.New("collection boom")
@@ -98,6 +75,18 @@ func TestRecordNodeStats(t *testing.T) {
 		}
 		if !errors.Is(ce.lastNodeCollectionErr, collErr) {
 			t.Fatalf("err = %v, want %v", ce.lastNodeCollectionErr, collErr)
+		}
+	})
+
+	// F-21: with background collection the snapshot carries when the stats were collected, and
+	// that, not the snapshot time, is their age.
+	t.Run("stats carry their collection time", func(t *testing.T) {
+		collected := time.Now().UTC().Add(-40 * time.Minute)
+		ce := &Emitter{}
+		ce.recordNodeStats(&emitter.NodeStatsSummary{Stats: sampleStats, CollectedAt: collected})
+		if d := ce.lastSuccessfulNodeCollection.Sub(collected); d < 0 || d > time.Minute {
+			t.Fatalf("F-21: timestamp = %v, want the collection time %v; stale background stats were taken for fresh",
+				ce.lastSuccessfulNodeCollection, collected)
 		}
 	})
 
@@ -267,5 +256,33 @@ func TestWriteAgentFileNodeDiagnostics(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// F-12, D9: a sample that leaves resources out because their informers haven't synced says so in
+// agent-measurement.json, so the gap is visible to IBM as well as in cluster readiness (I6).
+func TestWriteAgentFileReportsUnsyncedResources(t *testing.T) {
+	dir := t.TempDir()
+	clusterID := "test-cluster-uid"
+	for _, unsynced := range [][]string{nil, {"apps/deployments", "resourcequotas"}} {
+		ce := &Emitter{startTime: time.Now(), currentSamplePath: dir + "/", ClusterID: &clusterID, unsyncedResources: unsynced}
+		if err := ce.writeAgentFile(); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := os.ReadFile(dir + "/agent-measurement.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var agent agentData
+		if err := json.Unmarshal(raw, &agent); err != nil {
+			t.Fatal(err)
+		}
+		want := ""
+		if unsynced != nil {
+			want = "apps/deployments,resourcequotas"
+		}
+		if got := agent.Values["unsynced_resources"]; got != want || agent.Metrics["unsynced_resources"] != len(unsynced) {
+			t.Errorf("unsynced %v: value %q metric %d", unsynced, got, agent.Metrics["unsynced_resources"])
+		}
 	}
 }

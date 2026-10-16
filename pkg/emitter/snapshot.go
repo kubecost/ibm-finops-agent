@@ -230,6 +230,7 @@ func snapshotClusterInfo(infoProvider clusters.ClusterInfoProvider) (*clusters.C
 }
 
 func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfig) (*KubernetesSnapshot, error) {
+	config, unsynced := omitUnsynced(cluster, config)
 	// if we get here, and a kubernetes snapshot config hasn't been provided, enable all resource snapshots by
 	// default
 	kconfig := config.KubernetesSnapshot
@@ -248,7 +249,7 @@ func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfi
 		drained = true
 	}
 
-	return &KubernetesSnapshot{
+	snapshot := &KubernetesSnapshot{
 		Nodes:                  snapshotResource(kconfig.Nodes, cluster.GetAllNodes),
 		Pods:                   snapshotResource(kconfig.Pods, cluster.GetAllPods),
 		ShortLivedPods:         shortLivedPods,
@@ -266,7 +267,9 @@ func snapshotKubernetes(cluster clustercache.ClusterCache, config *SnapshotConfi
 		ReplicationControllers: snapshotResource(kconfig.ReplicationControllers, cluster.GetAllReplicationControllers),
 		ResourceQuotas:         snapshotResource(kconfig.ResourceQuotas, cluster.GetAllResourceQuotas),
 		shortLivedPodsDrained:  drained,
-	}, nil
+	}
+	snapshot.UnsyncedResources = unsynced
+	return snapshot, nil
 }
 
 // if the error returned from node stats summary is a multi-error, unwrap and return the inner errors,
@@ -288,8 +291,11 @@ func snapshotResource[T any](flag bool, resourceGetter func() []T) []T {
 
 func snapshotNodeStats(ctx context.Context, client nodes.StatSummaryClient) (*NodeStatsSummary, error) {
 	var data []*stats.Summary
+	var collectedAt time.Time
 	var err error
-	if cc, ok := client.(nodes.ContextStatSummaryClient); ok {
+	if cached, ok := client.(nodes.CachedStatSummaryClient); ok {
+		data, collectedAt, err = cached.GetCachedNodeData()
+	} else if cc, ok := client.(nodes.ContextStatSummaryClient); ok {
 		data, err = cc.GetNodeDataContext(ctx)
 	} else {
 		data, err = client.GetNodeData()
@@ -309,6 +315,7 @@ func snapshotNodeStats(ctx context.Context, client nodes.StatSummaryClient) (*No
 	return &NodeStatsSummary{
 		Stats:         data,
 		CollectionErr: err,
+		CollectedAt:   collectedAt,
 	}, nil
 }
 
