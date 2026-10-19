@@ -332,6 +332,14 @@ func (cu *CldyUploader) recoverUploadFiles() error {
 				log.Infof("Cloudability sample is outside of recovery range, removing sample")
 				return os.Remove(path)
 			}
+
+			// Guard against partial gzips (from either OOM or long SIGKILL)
+			// Note: Could add some complex logic here to try to detangle partial samples
+			// from within the corrupted gzip as there may be some good samples within
+			if err := isCompleteGzip(path); err != nil {
+				log.Warnf("Discarding incomplete upload %s left by a previous interrupted write: %v", path, err)
+				return os.Remove(path)
+			}
 			// add to uploadSet for future shipping & clean up will occur during next upload
 			cu.uploadSet.add(path)
 			cu.RecoveredUploads++
@@ -339,6 +347,36 @@ func (cu *CldyUploader) recoverUploadFiles() error {
 		return nil
 	})
 	return err
+}
+
+// isCompleteGzip reads the gzip+tar stream at path to completion and returns an error if it is
+// truncated or invalid
+func isCompleteGzip(path string) (rerr error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer safeClose(f.Close, &rerr)
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("invalid gzip header: %w", err)
+	}
+	defer safeClose(gr.Close, &rerr)
+
+	tr := tar.NewReader(gr)
+	for {
+		_, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("truncated tar stream: %w", err)
+		}
+		if _, err := io.Copy(io.Discard, tr); err != nil {
+			return fmt.Errorf("truncated tar entry: %w", err)
+		}
+	}
 }
 
 func getNeededFiles() map[string]struct{} {

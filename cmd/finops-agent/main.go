@@ -139,6 +139,10 @@ func main() {
 
 		emitters = append(emitters, kubecost.NewKubecostEmitter(kubecostCloudProvider, diag, kubecostEmitterConfig))
 	}
+
+	cldyStop := make(chan struct{})
+	defer close(cldyStop)
+
 	if env.IsCloudyEmitterEnabled() {
 		cldyConfig, err := cldy.NewEmitterConfigFromEnv()
 		if err != nil {
@@ -158,7 +162,7 @@ func main() {
 			emitter.NewKubernetesSnapshotConfigFromEnabled(cldyConfig.KubernetesResourcesRequired),
 		)
 
-		emitters = append(emitters, cldy.NewEmitter(cldyConfig, make(chan struct{})))
+		emitters = append(emitters, cldy.NewEmitter(cldyConfig, cldyStop))
 	}
 	if env.IsTurboEmitterEnabled() {
 		log.Infof("Turbonomic emitter not yet implemented.")
