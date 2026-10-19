@@ -351,18 +351,18 @@ func (cu *CldyUploader) recoverUploadFiles() error {
 
 // isCompleteGzip reads the gzip+tar stream at path to completion and returns an error if it is
 // truncated or invalid
-func isCompleteGzip(path string) error {
+func isCompleteGzip(path string) (rerr error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer safeClose(f.Close, &rerr)
 
 	gr, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("invalid gzip header: %w", err)
 	}
-	defer gr.Close()
+	defer safeClose(gr.Close, &rerr)
 
 	tr := tar.NewReader(gr)
 	for {
