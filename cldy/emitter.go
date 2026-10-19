@@ -74,6 +74,10 @@ const MaxStaleUploadCycles = 3
 
 const minUploadFrequency = time.Minute
 
+// minHealthCycleDuration is the floor applied to UploadFrequency when computing the
+// health restart threshold.
+const minHealthCycleDuration = 10 * time.Minute
+
 func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetEnvPrefix("CLOUDABILITY")
 	defer viper.SetEnvPrefix("")
@@ -123,6 +127,10 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	uploadFrequency := viper.GetDuration("UPLOAD_FREQUENCY")
 	if uploadFrequency < minUploadFrequency {
 		return EmitterConfig{}, fmt.Errorf("invalid CLOUDABILITY_UPLOAD_FREQUENCY %q: must be at least %s (e.g. 10m)", viper.GetString("UPLOAD_FREQUENCY"), minUploadFrequency)
+	}
+	emissionInterval := viper.GetDuration("EMISSION_INTERVAL")
+	if uploadFrequency < emissionInterval {
+		log.Warn("UPLOAD_FREQUENCY is less than EMISSION_INTERVAL. Uploader will waste cycles trying to upload empty sets.")
 	}
 
 	var keyAccess, keySecret, envID string
@@ -230,7 +238,15 @@ func (ce *Emitter) Healthy() bool {
 	if lastSuccess.IsZero() {
 		return true
 	}
-	restartThreshold := time.Duration(MaxStaleUploadCycles) * ce.config.UploadFrequency
+
+	// Minimum restartThreshold should be 30m even if uploadFrequency is less than 10m
+	// to prevent erratic restarting
+	cycleDuration := ce.config.UploadFrequency
+	if cycleDuration < minHealthCycleDuration {
+		cycleDuration = minHealthCycleDuration
+	}
+
+	restartThreshold := time.Duration(MaxStaleUploadCycles) * cycleDuration
 	return time.Since(lastSuccess) <= restartThreshold
 }
 
