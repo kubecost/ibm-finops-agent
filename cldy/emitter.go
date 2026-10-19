@@ -68,11 +68,6 @@ type EmitterConfig struct {
 	ClusterVersionMinor         string
 }
 
-const UPLOAD_FREQUENCY = 10
-
-// UploadFrequencyDuration is the upload cadence as a time.Duration.
-var UploadFrequencyDuration = time.Minute * time.Duration(UPLOAD_FREQUENCY)
-
 // MaxStaleUploadCycles is how many upload cycles may pass with no successful node-stats
 // collection before the agent considers itself wedged. Used by the /healthz staleness check.
 const MaxStaleUploadCycles = 3
@@ -92,6 +87,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
 	viper.SetDefault("EMISSION_INTERVAL", "3m")
+	viper.SetDefault("UPLOAD_FREQUENCY", "10m")
 	viper.SetDefault("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY", false)
 
 	var outboundProxyUrl *url.URL
@@ -147,7 +143,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		CustomAzureClientID:             viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
 		CustomAzureClientSecret:         NewValueSecretManager(azureBlobClientSecret),
 		UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
-		UploadFrequency:                 time.Minute * time.Duration(UPLOAD_FREQUENCY),
+		UploadFrequency:                 viper.GetDuration("UPLOAD_FREQUENCY"),
 		ScratchDir:                      viper.GetString("SCRATCH_DIR"),
 		RecoveryPeriod:                  viper.GetDuration("UPLOAD_RECOVERY_PERIOD"),
 		EmitAsJson:                      viper.GetBool("EMIT_AS_JSON"),
@@ -227,7 +223,7 @@ func (ce *Emitter) Healthy() bool {
 	if lastSuccess.IsZero() {
 		return true
 	}
-	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
+	restartThreshold := time.Duration(MaxStaleUploadCycles) * ce.config.UploadFrequency
 	return time.Since(lastSuccess) <= restartThreshold
 }
 
