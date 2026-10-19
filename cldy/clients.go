@@ -247,11 +247,30 @@ func (config ApptioConfig) withDefaults() ApptioConfig {
 func NewApptioClient(config ApptioConfig) ApptioClient {
 	config = config.withDefaults()
 	return ApptioClient{
-		client:        &http.Client{Transport: newTransport(config)},
+		client: &http.Client{
+			Transport:     newTransport(config),
+			CheckRedirect: refuseRedirect,
+		},
 		attempts:      config.Retries,
 		timeout:       config.Timeout,
 		minThroughput: config.MinThroughput,
 	}
+}
+
+// refuseRedirect stops the client from following any redirect (ported from #240). This client
+// carries the API key to Frontdoor and PUTs the whole payload to a presigned S3 URL, and since
+// those requests set GetBody so the retry loop can replay them, net/http would otherwise replay
+// the body to whatever host a 307 or 308 names - including over plain http, since the stdlib does
+// not block a scheme downgrade on redirect. A redirected upload that answered 200 would also be
+// recorded as delivered and the payload deleted. Handing the 3xx back to the caller fails closed:
+// it is not a 200, so the upload is retried against the original host.
+func refuseRedirect(req *http.Request, _ []*http.Request) error {
+	if req.Body != nil {
+		if err := req.Body.Close(); err != nil {
+			log.Debugf("error closing the body of a refused redirect: %s", err)
+		}
+	}
+	return http.ErrUseLastResponse
 }
 
 // newTransport clones http.DefaultTransport, which keeps the proxy from HTTPS_PROXY and NO_PROXY,

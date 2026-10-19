@@ -39,12 +39,19 @@ type Uploader interface {
 }
 
 type CldyUploader struct {
-	config           UploaderConfig
-	mu               sync.RWMutex // guards clusterID
-	clusterID        string
-	agentVersion     string
-	UploadPathDir    string
-	StorageServices  []StorageService
+	config          UploaderConfig
+	mu              sync.RWMutex // guards clusterID
+	clusterID       string
+	agentVersion    string
+	UploadPathDir   string
+	StorageServices []StorageService
+	// rebuildServices, when set, rebuilds StorageServices after a failed construction (ported
+	// from #240), so a transient failure at startup, such as a secret that is not mounted yet,
+	// does not disable uploads until the next restart. Only NewCldyUploader sets it; only the
+	// upload loop (and Stop's last cycle, after the loop has ended) touches it and
+	// lastServiceBuild.
+	rebuildServices  func() ([]StorageService, storageServiceProblems)
+	lastServiceBuild time.Time
 	RecoveredSamples int
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
@@ -100,6 +107,10 @@ func NewCldyUploader(ctx context.Context, config UploaderConfig) (*CldyUploader,
 		"the selected Cloudability upload path is missing settings or credentials; see the error above")
 	uploader.setCondition(conditionUploadConnectivityFailed, problems.connectivityFailed,
 		"the Cloudability upload connectivity test failed; uploads are still attempted every cycle")
+	if problems.misconfigured && len(services) == 0 {
+		uploader.rebuildServices = func() ([]StorageService, storageServiceProblems) { return newStorageServices(config) }
+		uploader.lastServiceBuild = uploader.clock()
+	}
 	uploader.startLoop(ctx)
 	return uploader, nil
 }
@@ -385,6 +396,7 @@ func (cu *CldyUploader) uploadCycle(ctx context.Context) {
 		cu.checkUploadsFailing(hb)
 	}()
 
+	cu.retryStorageServices()
 	cu.checkConfigured()
 	if clusterID == "" {
 		log.Warnf("Cloudability cluster ID is not known yet; not packaging or uploading samples")
@@ -396,6 +408,31 @@ func (cu *CldyUploader) uploadCycle(ctx context.Context) {
 	cu.progress()
 	cu.queue.enforceBounds(clusterID, cu.recoveryPeriod, cu.backlogMaxBytes)
 	failed = !cu.uploadQueued(ctx, clusterID)
+}
+
+// retryStorageServices re-attempts building the storage service when construction failed at
+// startup, at most once per UploadFrequency (measured from when the previous build finished, as
+// a build can outlast the interval), so a broken configuration cannot hammer the endpoints.
+func (cu *CldyUploader) retryStorageServices() {
+	if cu.rebuildServices == nil || len(cu.StorageServices) > 0 {
+		return
+	}
+	if cu.clock().Sub(cu.lastServiceBuild) < cu.config.UploadFrequency {
+		return
+	}
+	log.Infof("Re-attempting creation of the Cloudability upload service")
+	services, problems := cu.rebuildServices()
+	cu.lastServiceBuild = cu.clock()
+	if len(services) == 0 {
+		return
+	}
+	cu.StorageServices = services
+	cu.rebuildServices = nil
+	log.Infof("Created the Cloudability upload service on retry")
+	cu.setCondition(conditionUploaderMisconfigured, problems.misconfigured,
+		"the selected Cloudability upload path is missing settings or credentials; see the error above")
+	cu.setCondition(conditionUploadConnectivityFailed, problems.connectivityFailed,
+		"the Cloudability upload connectivity test failed; uploads are still attempted every cycle")
 }
 
 // checkConfigured raises uploader_unconfigured while there is no storage service. The queue is

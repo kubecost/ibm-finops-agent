@@ -38,7 +38,7 @@ $(ENVTEST): $(LOCALBIN)
 	@test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 
 ci-lint:
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 	golangci-lint run
 
 # go-fix-check runs the Go fix tool to update deprecated or outdated API usage

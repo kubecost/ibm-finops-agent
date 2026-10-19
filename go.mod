@@ -1,6 +1,6 @@
 module github.com/ibm/finops-agent
 
-go 1.27.1
+go 1.27.2
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.1
@@ -11,10 +11,10 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/onsi/ginkgo/v2 v2.32.2
 	github.com/onsi/gomega v1.43.0
-	github.com/opencost/opencost v1.121.4-0.20260923173606-1aaf85ffd875
-	github.com/opencost/opencost/core v1.121.4-0.20260923173606-1aaf85ffd875
-	github.com/opencost/opencost/modules/collector-source v1.121.4-0.20260923173606-1aaf85ffd875
-	github.com/opencost/opencost/modules/prometheus-source v1.121.4-0.20260923173606-1aaf85ffd875
+	github.com/opencost/opencost v1.121.4-0.20261007204902-0951030fee1a
+	github.com/opencost/opencost/core v1.121.4-0.20261007204902-0951030fee1a
+	github.com/opencost/opencost/modules/collector-source v1.121.4-0.20261007204902-0951030fee1a
+	github.com/opencost/opencost/modules/prometheus-source v1.121.4-0.20261007204902-0951030fee1a
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.2
 	github.com/spf13/cast v1.10.0

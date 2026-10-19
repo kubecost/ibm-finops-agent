@@ -148,12 +148,22 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("BACKLOG_MAX_MB", defaultBacklogMaxBytes>>20)
 	viper.SetDefault("UPLOAD_MIN_THROUGHPUT_KBPS", defaultMinThroughput>>10)
 
+	// CLOUDABILITY_UPLOAD_RECOVERY_PERIOD is the name released in v1.0.28 (#240). It is still
+	// honoured when CLOUDABILITY_RECOVERY_PERIOD is unset, so an upgrade keeps the operator's value.
+	recoveryKey := "RECOVERY_PERIOD"
+	if _, set := os.LookupEnv("CLOUDABILITY_RECOVERY_PERIOD"); !set {
+		if _, legacy := os.LookupEnv("CLOUDABILITY_UPLOAD_RECOVERY_PERIOD"); legacy {
+			log.Warnf("CLOUDABILITY_UPLOAD_RECOVERY_PERIOD is deprecated; use CLOUDABILITY_RECOVERY_PERIOD")
+			recoveryKey = "UPLOAD_RECOVERY_PERIOD"
+		}
+	}
+
 	// Pending data older than this at startup is dropped rather than uploaded. A bare number
 	// parses as nanoseconds, so anything under one upload interval is rejected as a mistake.
-	recoveryPeriod := viper.GetDuration("RECOVERY_PERIOD")
+	recoveryPeriod := viper.GetDuration(recoveryKey)
 	if recoveryPeriod < UploadFrequencyDuration {
-		return EmitterConfig{}, fmt.Errorf("CLOUDABILITY_RECOVERY_PERIOD must be a duration of at least %s, such as 72h; got %q",
-			UploadFrequencyDuration, viper.GetString("RECOVERY_PERIOD"))
+		return EmitterConfig{}, fmt.Errorf("CLOUDABILITY_%s must be a duration of at least %s, such as 72h; got %q",
+			recoveryKey, UploadFrequencyDuration, viper.GetString(recoveryKey))
 	}
 
 	// The most the upload queue may hold, samples and payloads together; past it the oldest are

@@ -212,6 +212,29 @@ var _ = Describe("Emitter", func() {
 			Expect(config.ParseMetricData).To(BeFalse())
 			Expect(config.UploaderConfig.ScratchDir).To(Equal("/opt/finops-agent"))
 			Expect(config.UploaderConfig.ApptioConfig.Region).To(Equal("us"))
+			Expect(config.UploaderConfig.RecoveryPeriod).To(Equal(72 * time.Hour))
+		})
+		It("should load the recovery period from env", func() {
+			GinkgoT().Setenv("CLOUDABILITY_RECOVERY_PERIOD", "36h")
+
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(config.UploaderConfig.RecoveryPeriod).To(Equal(36 * time.Hour))
+		})
+		It("should still honour the deprecated CLOUDABILITY_UPLOAD_RECOVERY_PERIOD", func() {
+			GinkgoT().Setenv("CLOUDABILITY_UPLOAD_RECOVERY_PERIOD", "36h")
+
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(config.UploaderConfig.RecoveryPeriod).To(Equal(36 * time.Hour))
+		})
+		It("should prefer CLOUDABILITY_RECOVERY_PERIOD over the deprecated name", func() {
+			GinkgoT().Setenv("CLOUDABILITY_RECOVERY_PERIOD", "48h")
+			GinkgoT().Setenv("CLOUDABILITY_UPLOAD_RECOVERY_PERIOD", "36h")
+
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(config.UploaderConfig.RecoveryPeriod).To(Equal(48 * time.Hour))
 		})
 		It("should load and parse custom outbound config", func() {
 			tempDir, err := os.MkdirTemp("", "")
