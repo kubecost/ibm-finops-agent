@@ -72,6 +72,8 @@ type EmitterConfig struct {
 // collection before the agent considers itself wedged. Used by the /healthz staleness check.
 const MaxStaleUploadCycles = 3
 
+const minUploadFrequency = time.Minute
+
 func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetEnvPrefix("CLOUDABILITY")
 	defer viper.SetEnvPrefix("")
@@ -118,6 +120,11 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		}
 	}
 
+	uploadFrequency := viper.GetDuration("UPLOAD_FREQUENCY")
+	if uploadFrequency < minUploadFrequency {
+		return EmitterConfig{}, fmt.Errorf("invalid CLOUDABILITY_UPLOAD_FREQUENCY %q: must be at least %s (e.g. 10m)", viper.GetString("UPLOAD_FREQUENCY"), minUploadFrequency)
+	}
+
 	var keyAccess, keySecret, envID string
 	if customS3UploadBucket == "" && customS3UploadRegion == "" && customAzureBlobContainerName == "" && apiKey == "" {
 		keyAccess = getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
@@ -143,7 +150,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		CustomAzureClientID:             viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
 		CustomAzureClientSecret:         NewValueSecretManager(azureBlobClientSecret),
 		UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
-		UploadFrequency:                 viper.GetDuration("UPLOAD_FREQUENCY"),
+		UploadFrequency:                 uploadFrequency,
 		ScratchDir:                      viper.GetString("SCRATCH_DIR"),
 		RecoveryPeriod:                  viper.GetDuration("UPLOAD_RECOVERY_PERIOD"),
 		EmitAsJson:                      viper.GetBool("EMIT_AS_JSON"),
