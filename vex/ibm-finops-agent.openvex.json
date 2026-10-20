@@ -1,0 +1,191 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/kubecost/ibm-finops-agent/blob/develop/vex/ibm-finops-agent.openvex.json",
+  "author": "IBM FinOps Agent maintainers",
+  "timestamp": "2026-10-20T12:20:08Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": { "name": "CVE-2022-41409" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [
+            { "@id": "pkg:rpm/redhat/pcre2" },
+            { "@id": "pkg:rpm/redhat/pcre2-syntax" }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The flaw is in the pcre2test utility from pcre2-tools, which the image does not install."
+    },
+    {
+      "vulnerability": { "name": "CVE-2021-46195" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [{ "@id": "pkg:rpm/redhat/libgcc" }]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The flaw is in the libiberty Rust demangler used by the GCC toolchain. libgcc ships only libgcc_s, which does not contain the demangler, and the image has no compiler."
+    },
+    {
+      "vulnerability": { "name": "CVE-2022-27943" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [{ "@id": "pkg:rpm/redhat/libgcc" }]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The flaw is in the libiberty Rust demangler used by the GCC toolchain. libgcc ships only libgcc_s, which does not contain the demangler, and the image has no compiler."
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-102010" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [{ "@id": "pkg:rpm/redhat/libgcc" }]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The flaw is in libstdc++, which the image does not install. libgcc ships only libgcc_s."
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-95619" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [{ "@id": "pkg:rpm/redhat/libgcc" }]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The flaw is in libstdc++, which the image does not install. libgcc ships only libgcc_s."
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-89092" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [
+            { "@id": "pkg:rpm/redhat/glibc" },
+            { "@id": "pkg:rpm/redhat/glibc-common" },
+            { "@id": "pkg:rpm/redhat/glibc-minimal-langpack" }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The flaw is in nscd, which the image does not install."
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-97399" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [
+            { "@id": "pkg:rpm/redhat/glibc" },
+            { "@id": "pkg:rpm/redhat/glibc-common" },
+            { "@id": "pkg:rpm/redhat/glibc-minimal-langpack" }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The flaw is in the strncasecmp implementation optimized for POWER8. The image is built only for linux/amd64, linux/arm64 and linux/s390x, whose glibc builds do not include it."
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-8674" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [
+            { "@id": "pkg:rpm/redhat/glibc" },
+            { "@id": "pkg:rpm/redhat/glibc-common" },
+            { "@id": "pkg:rpm/redhat/glibc-minimal-langpack" }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The agent is a statically linked Go binary built with CGO_ENABLED=0. It resolves DNS with Go's own resolver and never initializes the glibc stub resolver."
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-86805" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [
+            { "@id": "pkg:rpm/redhat/glibc" },
+            { "@id": "pkg:rpm/redhat/glibc-common" },
+            { "@id": "pkg:rpm/redhat/glibc-minimal-langpack" }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The flaw affects only setuid or setgid programs. The image contains none, and the agent is a statically linked binary that does not use the dynamic loader."
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-95818" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [
+            { "@id": "pkg:rpm/redhat/glibc" },
+            { "@id": "pkg:rpm/redhat/glibc-common" },
+            { "@id": "pkg:rpm/redhat/glibc-minimal-langpack" }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The flaw affects only setuid or setgid programs. The image contains none, and the agent is a statically linked binary that does not use the dynamic loader."
+    },
+    {
+      "vulnerability": { "name": "CVE-2023-50495" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [
+            { "@id": "pkg:rpm/redhat/ncurses-base" },
+            { "@id": "pkg:rpm/redhat/ncurses-libs" }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The flaw is in _nc_wrap_entry in libtic. No program in the image links libtic, and the agent is a statically linked binary that does not load ncurses."
+    },
+    {
+      "vulnerability": { "name": "CVE-2026-56391" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [{ "@id": "pkg:rpm/redhat/coreutils-single" }]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The flaw is in uniq -w. The agent never runs uniq."
+    },
+    {
+      "vulnerability": { "name": "GO-2026-5932" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [{ "@id": "pkg:golang/golang.org/x/crypto" }]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The advisory covers the golang.org/x/crypto/openpgp packages. The agent does not import or link any of them."
+    }
+  ]
+}
