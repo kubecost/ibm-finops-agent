@@ -89,13 +89,13 @@ jobs:
             ibm-finops-agent-source-sbom.spdx.json
             ibm-finops-agent-source-sbom.cyclonedx.json
 
-      - name: Attach SBOM to release
+      - name: Attach SBOM and VEX to release
         if: github.event_name != 'pull_request'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', env.VERSION) }}
         run: |
-          files=(ibm-finops-agent-source-sbom.spdx.json ibm-finops-agent-source-sbom.cyclonedx.json)
+          files=(ibm-finops-agent-source-sbom.spdx.json ibm-finops-agent-source-sbom.cyclonedx.json vex/ibm-finops-agent.openvex.json)
           if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
             gh release upload "${TAG_NAME}" "${files[@]}" --clobber
           else

@@ -13,15 +13,16 @@ RUN go mod download
 # Copy the entire source code
 COPY . .
 
-# Build the binary
+# Build a static binary; vex/ibm-finops-agent.openvex.json relies on it
 RUN cd ./cmd/finops-agent && set -e ;\
-    go build -a -installsuffix cgo \
+    CGO_ENABLED=0 go build -a -installsuffix cgo \
     -ldflags \
     "-X github.com/ibm/finops-agent/pkg/version.Version=${version} \
     -X github.com/ibm/finops-agent/pkg/version.GitCommit=${commit}" \
     -o /go/bin/app
 
 
+# vex/ibm-finops-agent.openvex.json describes this base image; review it when changing the base
 FROM redhat/ubi9-micro:latest
 
 ARG commit
