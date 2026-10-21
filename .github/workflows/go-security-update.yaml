@@ -1,0 +1,94 @@
+name: Apply Go security fixes
+
+on:
+  schedule:
+    - cron: "0 13 * * *" # Daily at 1 PM UTC
+  workflow_dispatch:
+
+# A manual run during the scheduled one would pass the open-PR check too and open a duplicate PR.
+concurrency:
+  group: ${{ github.workflow }}
+
+# Explicit bash adds pipefail, so a failure piped into tee still fails the step.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Check for an open PR
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      open_pr: ${{ steps.check.outputs.open_pr }}
+    steps:
+      # Avoid redundant PRs: skip the update until the open PR is merged or closed.
+      - name: Find an open Go security PR
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          open_pr=$(gh pr list --base develop --label go-version-update --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open_pr" ]; then
+            echo "Skipping: PR #$open_pr is already open"
+          fi
+          echo "open_pr=$open_pr" >> "$GITHUB_OUTPUT"
+
+  update:
+    name: Update develop
+    needs: check
+    if: needs.check.outputs.open_pr == ''
+    # govulncheck peaked at ~5.6 GB on this repo; ubuntu-latest has 16 GB.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # The GitHub App token lets the pushed branch trigger CI.
+      - name: Generate an app token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Checkout develop
+        uses: actions/checkout@v6
+        with:
+          ref: develop
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # The script prints its changes, which become the PR description.
+      - name: Apply Go security fixes
+        run: |
+          {
+            echo "Automated by \`.github/workflows/go-security-update.yaml\`."
+            echo
+            .github/scripts/go-security-update.sh
+          } | tee "$RUNNER_TEMP/body.md"
+
+      - name: Open Pull Request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: go-security-update/develop-${{ github.run_id }}
+          TITLE: Apply Go security fixes to develop
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git commit -am "$TITLE"
+          git push -u origin "$BRANCH"
+          gh pr create --base develop --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md" \
+            --label automated --label dependencies --label go-version-update --label "security fix"
