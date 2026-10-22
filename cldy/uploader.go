@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ibm/finops-agent/pkg/version"
@@ -31,6 +32,7 @@ type Uploader interface {
 	AddSample(sample string)
 	RemoveSample(sample string)
 	SetClusterID(id string)
+	LastUploadAttempt() time.Time
 }
 
 type CldyUploader struct {
@@ -50,6 +52,7 @@ type CldyUploader struct {
 	RecoveredUploads int
 	recoveryPeriod   time.Duration
 	lastPayloadSize  uint64
+	lastUploadAttemptNano atomic.Int64
 }
 
 func NewCldyUploader(config UploaderConfig, stop chan struct{}) Uploader {
@@ -198,6 +201,15 @@ func (cu *CldyUploader) RemoveSample(sample string) {
 
 func (cu *CldyUploader) SetClusterID(id string) {
 	cu.clusterID = id
+}
+
+// LastUploadAttempt returns the time of the most recent upload-loop tick
+func (cu *CldyUploader) LastUploadAttempt() time.Time {
+	ns := cu.lastUploadAttemptNano.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
 }
 
 func (cu *CldyUploader) recoverDataOnStartup() error {
@@ -431,6 +443,7 @@ func (cu *CldyUploader) uploadLoop() {
 			if cu.sampleSet.length() == 0 {
 				continue
 			}
+			cu.lastUploadAttemptNano.Store(time.Now().UTC().UnixNano())
 			path, err := cu.ConstructPayload(time.Now().UTC())
 			if err != nil {
 				log.Warnf("did not construct cldy payload: %s", err)
