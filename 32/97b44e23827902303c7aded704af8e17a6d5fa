@@ -1,0 +1,20 @@
+.github/workflows/build-test.yaml
+  s_a0e20ff737f409::t_fb7ffcd2cd225e 8-12
+  s_a0e20ff737f409::t_9fca8087b1f998 7,13-15,22,31,33,37,40-41,43,46-47,49,52-53,56,66,73,81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3297b44e23827902303c7aded704af8e17a6d5fa",
+  "prompts": {},
+  "sessions": {
+    "s_a0e20ff737f409": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3cf714af-a07c-43e1-b395-7a80c5f9a506",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  }
+}
