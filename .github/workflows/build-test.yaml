@@ -4,42 +4,56 @@ on:
   pull_request:
     branches:
       - develop
+
+# A new push to the PR cancels the in-flight run for the same PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Deny everything by default; each job grants only what it needs.
+permissions: {}
+
 env:
   IMAGE_TAG_BASE: "gcr.io/${{ vars.GCR_PROJECT_ID }}/agent"
 
 jobs:
   build_test_agent:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
-      id-token: write
 
     outputs:
       AGENT_IMAGE_TAG: ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}
 
     steps:
       - name: Checkout ibm-finops-agent
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head.sha || github.ref }}
           path: ./ibm-finops-agent
 
-      # Creates tags for agent images 
+      # Creates tags for agent images
       - name: Set image tag
         id: tag
+        env:
+          REF_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head.sha || github.ref }}
         run: |
-          echo "AGENT_IMAGE_TAG=${{ env.IMAGE_TAG_BASE }}:${{ github.event.pull_request.head.sha || github.event.merge_group.head.sha || github.ref }}" >> $GITHUB_OUTPUT
+          echo "AGENT_IMAGE_TAG=${IMAGE_TAG_BASE}:${REF_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Output config info
+        env:
+          AGENT_IMAGE_TAG: ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}
         run: |
-          echo "Agent image tag: ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}"
+          echo "Agent image tag: ${AGENT_IMAGE_TAG}"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
       - name: Build test agent
         id: docker_build_agent
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./ibm-finops-agent
           file: ./ibm-finops-agent/Dockerfile
@@ -49,3 +63,32 @@ jobs:
             version=${{ github.event.pull_request.head.sha || github.event.merge_group.head.sha || github.ref }}
           tags: |
             ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}
+
+  # Builds and pushes the PR image to ICR via integration-ci-cd. The image is
+  # tagged pr-<pr number>-<short sha> and integration-ci-cd comments on the PR.
+  # Skipped for fork and Dependabot PRs, which cannot read the app secrets.
+  trigger_pr_image:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The job authenticates with the app token, not GITHUB_TOKEN.
+    permissions: {}
+    steps:
+      - name: Generate app token with permissions to dispatch to integration-ci-cd
+        id: generate-app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          owner: kubecost
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: integration-ci-cd
+          permission-contents: write
+      - name: Trigger finops-agent-pr dispatch
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          jq -n --arg pr "$PR_NUMBER" --arg sha "$HEAD_SHA" \
+            '{event_type: "finops-agent-pr", client_payload: {pr_number: $pr, sha: $sha}}' \
+            | gh api repos/kubecost/integration-ci-cd/dispatches --input -
