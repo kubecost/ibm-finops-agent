@@ -219,19 +219,20 @@ func (ce *Emitter) ID() emitter.EmitterID {
 // reports unhealthy.
 func (ce *Emitter) Healthy() bool {
 	ce.nodeStatsMu.RLock()
-	lastSuccess := ce.lastSuccessfulNodeCollection
+	lastNodeSuccess := ce.lastSuccessfulNodeCollection
 	ce.nodeStatsMu.RUnlock()
+
+	lastUploadAttempt := ce.Uploader.LastUploadAttempt()
 
 	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
 
-	// startup grace on !isZero: no successful node-stats collection has been observed yet
-	if !lastSuccess.IsZero() && time.Since(lastSuccess) > restartThreshold {
+	// Includes startup grace !isZero check
+	if !lastNodeSuccess.IsZero() && time.Since(lastNodeSuccess) > restartThreshold {
 		return false
 	}
 
-	// startup grace on !isZero: no upload attempt has been made yet
-	lastAttempt := ce.Uploader.LastUploadAttempt()
-	if !lastAttempt.IsZero() && time.Since(lastAttempt) > restartThreshold {
+	// Includes startup grace !isZero check
+	if !lastUploadAttempt.IsZero() && time.Since(lastUploadAttempt) > restartThreshold {
 		return false
 	}
 
