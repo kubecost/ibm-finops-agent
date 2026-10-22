@@ -51,10 +51,15 @@ jobs:
             ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}
   # Builds and pushes the PR image to ICR via integration-ci-cd. The image is
   # tagged pr-<pr number>-<short sha> and integration-ci-cd comments on the PR.
-  # Skipped for fork PRs, which cannot read the app secrets.
+  # Skipped for fork and Dependabot PRs, which cannot read the app secrets.
   trigger_pr_image:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
+    # The job authenticates with the app token, not GITHUB_TOKEN.
+    permissions: {}
+    concurrency:
+      group: trigger-pr-image-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     steps:
       - name: Generate app token with permissions to dispatch to integration-ci-cd
         id: generate-app-token
@@ -63,6 +68,7 @@ jobs:
           client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
           private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
           repositories: integration-ci-cd
+          permission-contents: write
       - name: Trigger finops-agent-pr dispatch
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
