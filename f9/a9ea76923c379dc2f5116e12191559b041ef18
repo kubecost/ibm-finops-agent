@@ -1,0 +1,14 @@
+.github/workflows/pr-agent.yml
+  h_cca6aa2712613d 1-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f9a9ea76923c379dc2f5116e12191559b041ef18",
+  "prompts": {},
+  "humans": {
+    "h_cca6aa2712613d": {
+      "author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  }
+}
