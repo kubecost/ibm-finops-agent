@@ -1,0 +1,19 @@
+cldy/uploader_test.go
+  s_49cf7262cdd0cb::t_4f68ef4d4f4234 124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "668d5fb8070c4fdf9da964be1002a98c55dccafa",
+  "prompts": {},
+  "sessions": {
+    "s_49cf7262cdd0cb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de96dae4-4a39-4289-a07b-3342203a5c54",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  }
+}
