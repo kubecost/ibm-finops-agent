@@ -68,14 +68,15 @@ type EmitterConfig struct {
 	ClusterVersionMinor         string
 }
 
-const UPLOAD_FREQUENCY = 10
-
-// UploadFrequencyDuration is the upload cadence as a time.Duration.
-var UploadFrequencyDuration = time.Minute * time.Duration(UPLOAD_FREQUENCY)
-
 // MaxStaleUploadCycles is how many upload cycles may pass with no successful node-stats
 // collection before the agent considers itself wedged. Used by the /healthz staleness check.
 const MaxStaleUploadCycles = 3
+
+const minUploadFrequency = time.Minute
+
+// minHealthCycleDuration is the floor applied to UploadFrequency when computing the
+// health restart threshold.
+const minHealthCycleDuration = 10 * time.Minute
 
 func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetEnvPrefix("CLOUDABILITY")
@@ -92,6 +93,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	viper.SetDefault("EMIT_AS_JSON", true)
 	viper.SetDefault("PARSE_METRIC_DATA", false)
 	viper.SetDefault("EMISSION_INTERVAL", "3m")
+	viper.SetDefault("UPLOAD_FREQUENCY", "10m")
 	viper.SetDefault("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY", false)
 
 	var outboundProxyUrl *url.URL
@@ -122,6 +124,15 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		}
 	}
 
+	uploadFrequency := viper.GetDuration("UPLOAD_FREQUENCY")
+	if uploadFrequency < minUploadFrequency {
+		return EmitterConfig{}, fmt.Errorf("invalid CLOUDABILITY_UPLOAD_FREQUENCY %q: must be at least %s (e.g. 10m)", viper.GetString("UPLOAD_FREQUENCY"), minUploadFrequency)
+	}
+	emissionInterval := viper.GetDuration("EMISSION_INTERVAL")
+	if uploadFrequency < emissionInterval {
+		log.Warn("UPLOAD_FREQUENCY is less than EMISSION_INTERVAL. Uploader will waste cycles trying to upload empty sets.")
+	}
+
 	var keyAccess, keySecret, envID string
 	if customS3UploadBucket == "" && customS3UploadRegion == "" && customAzureBlobContainerName == "" && apiKey == "" {
 		keyAccess = getSecretFromFileVolume(viper.GetString("KEY_ACCESS_FILEPATH"))
@@ -147,7 +158,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		CustomAzureClientID:             viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
 		CustomAzureClientSecret:         NewValueSecretManager(azureBlobClientSecret),
 		UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
-		UploadFrequency:                 time.Minute * time.Duration(UPLOAD_FREQUENCY),
+		UploadFrequency:                 uploadFrequency,
 		ScratchDir:                      viper.GetString("SCRATCH_DIR"),
 		RecoveryPeriod:                  viper.GetDuration("UPLOAD_RECOVERY_PERIOD"),
 		EmitAsJson:                      viper.GetBool("EMIT_AS_JSON"),
@@ -210,7 +221,7 @@ func (ce *Emitter) ID() emitter.EmitterID {
 
 // Healthy reports whether the cldy emitter considers itself healthy.
 // Returns false when node-stats collection has been stale for longer than
-// MaxStaleUploadCycles * UploadFrequencyDuration, signaling that a container
+// MaxStaleUploadCycles * UploadFrequency, signaling that a container
 // restart is warranted.
 //
 // Staleness is tracked from the snapshots the emitter receives, so this works on the
@@ -227,7 +238,15 @@ func (ce *Emitter) Healthy() bool {
 	if lastSuccess.IsZero() {
 		return true
 	}
-	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
+
+	// Minimum restartThreshold should be 30m even if uploadFrequency is less than 10m
+	// to prevent erratic restarting
+	cycleDuration := ce.config.UploadFrequency
+	if cycleDuration < minHealthCycleDuration {
+		cycleDuration = minHealthCycleDuration
+	}
+
+	restartThreshold := time.Duration(MaxStaleUploadCycles) * cycleDuration
 	return time.Since(lastSuccess) <= restartThreshold
 }
 

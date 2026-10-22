@@ -247,7 +247,31 @@ var _ = Describe("Emitter", func() {
 			Expect(config.UploaderConfig.ScratchDir).To(Equal("/opt/finops-agent"))
 			Expect(config.UploaderConfig.ApptioConfig.Region).To(Equal("us"))
 			Expect(config.UploaderConfig.RecoveryPeriod).To(Equal(24 * time.Hour))
+			Expect(config.UploaderConfig.UploadFrequency).To(Equal(10 * time.Minute))
 		})
+		It("should load the upload frequency from env", func() {
+			t := GinkgoT()
+			t.Setenv("CLOUDABILITY_UPLOAD_FREQUENCY", "15m")
+
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(config.UploaderConfig.UploadFrequency).To(Equal(15 * time.Minute))
+		})
+		DescribeTable("should reject an invalid upload frequency",
+			func(value string) {
+				t := GinkgoT()
+				t.Setenv("CLOUDABILITY_UPLOAD_FREQUENCY", value)
+
+				_, err := cldy.NewEmitterConfigFromEnv()
+				Expect(err).To(MatchError(ContainSubstring("CLOUDABILITY_UPLOAD_FREQUENCY")))
+			},
+			Entry("unit-less number", "10"),
+			Entry("garbage", "abc"),
+			Entry("zero", "0s"),
+			Entry("negative", "-5m"),
+			Entry("below minimum", "30s"),
+		)
 		It("should load the recovery period from env", func() {
 			t := GinkgoT()
 			t.Setenv("CLOUDABILITY_UPLOAD_RECOVERY_PERIOD", "36h")

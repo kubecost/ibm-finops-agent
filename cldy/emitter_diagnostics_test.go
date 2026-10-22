@@ -22,6 +22,9 @@ type fakeMultiError struct{ errs []error }
 func (f fakeMultiError) Error() string   { return "multi" }
 func (f fakeMultiError) Unwrap() []error { return f.errs }
 
+// testUploadFrequency is the upload cadence used by tests that construct an Emitter directly.
+const testUploadFrequency = 10 * time.Minute
+
 func TestUnwrapNodeErrors(t *testing.T) {
 	errA := errors.New("node a failed")
 	errB := errors.New("node b failed")
@@ -52,7 +55,7 @@ func TestUnwrapNodeErrors(t *testing.T) {
 }
 
 func TestHealthy(t *testing.T) {
-	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
+	restartThreshold := time.Duration(MaxStaleUploadCycles) * testUploadFrequency
 
 	tests := map[string]struct {
 		lastSuccess time.Time
@@ -67,6 +70,7 @@ func TestHealthy(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ce := &Emitter{lastSuccessfulNodeCollection: tt.lastSuccess}
+			ce.config.UploadFrequency = testUploadFrequency
 			if got := ce.Healthy(); got != tt.want {
 				t.Fatalf("Healthy() = %v, want %v", got, tt.want)
 			}
@@ -172,10 +176,10 @@ func TestWriteAgentFileNodeDiagnostics(t *testing.T) {
 			wantErrorCounts: map[string]int{},
 		},
 		"stale collection reports growing age": {
-			lastSuccess:     time.Now().UTC().Add(-(UploadFrequencyDuration + time.Minute)),
+			lastSuccess:     time.Now().UTC().Add(-(testUploadFrequency + time.Minute)),
 			collectionErr:   nil,
 			wantAgeZero:     false,
-			wantMinAgeSecs:  int64(UploadFrequencyDuration.Seconds()),
+			wantMinAgeSecs:  int64(testUploadFrequency.Seconds()),
 			wantNodesFailed: 0,
 			wantErrorCounts: map[string]int{},
 		},
