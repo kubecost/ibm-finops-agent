@@ -46,12 +46,12 @@ type CldyUploader struct {
 	StorageServices []StorageService
 	// servicesMutex guards StorageServices and lastServiceBuild, which are written from the
 	// upload goroutine whenever construction is re-attempted
-	servicesMutex    sync.RWMutex
-	lastServiceBuild time.Time
-	RecoveredSamples int
-	RecoveredUploads int
-	recoveryPeriod   time.Duration
-	lastPayloadSize  uint64
+	servicesMutex         sync.RWMutex
+	lastServiceBuild      time.Time
+	RecoveredSamples      int
+	RecoveredUploads      int
+	recoveryPeriod        time.Duration
+	lastPayloadSize       uint64
 	lastUploadAttemptNano atomic.Int64
 }
 

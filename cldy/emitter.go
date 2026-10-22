@@ -209,7 +209,7 @@ func (ce *Emitter) ID() emitter.EmitterID {
 }
 
 // Healthy reports whether the cldy emitter considers itself healthy.
-// Returns false when node-stats collection or the upload loop 
+// Returns false when node-stats collection or the upload loop
 // has stalled for longer than MaxStaleUploadCycles * UploadFrequencyDuration.
 //
 // Staleness is tracked from the snapshots the emitter receives, so this works on the

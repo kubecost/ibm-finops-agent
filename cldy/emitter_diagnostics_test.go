@@ -54,9 +54,9 @@ func TestUnwrapNodeErrors(t *testing.T) {
 // stubUploader satisfies the Uploader interface for health-check tests.
 type stubUploader struct{ lastAttempt time.Time }
 
-func (s *stubUploader) AddSample(string)           {}
-func (s *stubUploader) RemoveSample(string)        {}
-func (s *stubUploader) SetClusterID(string)        {}
+func (s *stubUploader) AddSample(string)             {}
+func (s *stubUploader) RemoveSample(string)          {}
+func (s *stubUploader) SetClusterID(string)          {}
 func (s *stubUploader) LastUploadAttempt() time.Time { return s.lastAttempt }
 
 func TestHealthy(t *testing.T) {
@@ -73,10 +73,10 @@ func TestHealthy(t *testing.T) {
 		"within threshold is healthy":        {lastSuccess: time.Now().UTC().Add(-(restartThreshold - time.Minute)), want: true},
 		"beyond threshold is unhealthy":      {lastSuccess: time.Now().UTC().Add(-(restartThreshold + time.Minute)), want: false},
 		// upload-loop staleness checks
-		"startup grace when no upload attempted":         {lastAttempt: time.Time{}, want: true},
-		"recent upload attempt is healthy":               {lastAttempt: time.Now().UTC(), want: true},
-		"upload attempt within threshold is healthy":     {lastAttempt: time.Now().UTC().Add(-(restartThreshold - time.Minute)), want: true},
-		"upload attempt beyond threshold is unhealthy":   {lastAttempt: time.Now().UTC().Add(-(restartThreshold + time.Minute)), want: false},
+		"startup grace when no upload attempted":       {lastAttempt: time.Time{}, want: true},
+		"recent upload attempt is healthy":             {lastAttempt: time.Now().UTC(), want: true},
+		"upload attempt within threshold is healthy":   {lastAttempt: time.Now().UTC().Add(-(restartThreshold - time.Minute)), want: true},
+		"upload attempt beyond threshold is unhealthy": {lastAttempt: time.Now().UTC().Add(-(restartThreshold + time.Minute)), want: false},
 		// both stale triggers unhealthy
 		"both stale is unhealthy": {
 			lastSuccess: time.Now().UTC().Add(-(restartThreshold + time.Minute)),
@@ -89,7 +89,7 @@ func TestHealthy(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ce := &Emitter{
 				lastSuccessfulNodeCollection: tt.lastSuccess,
-				Uploader:                    &stubUploader{lastAttempt: tt.lastAttempt},
+				Uploader:                     &stubUploader{lastAttempt: tt.lastAttempt},
 			}
 			if got := ce.Healthy(); got != tt.want {
 				t.Fatalf("Healthy() = %v, want %v", got, tt.want)
