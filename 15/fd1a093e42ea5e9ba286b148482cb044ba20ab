@@ -2,6 +2,7 @@
   h_cca6aa2712613d 15
 .github/workflows/build-test.yaml
   h_cca6aa2712613d 22,38,42,98
+  s_a0e20ff737f409::t_a2eb78f1cb0861 52-97,99-113
 .github/workflows/go-security-update.yaml
   h_cca6aa2712613d 51,58,64
 .github/workflows/pr.yaml
@@ -19,6 +20,16 @@
   "humans": {
     "h_cca6aa2712613d": {
       "author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_a0e20ff737f409": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3cf714af-a07c-43e1-b395-7a80c5f9a506",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
     }
   }
 }
