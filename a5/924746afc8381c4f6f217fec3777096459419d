@@ -1,0 +1,14 @@
+.github/workflows/build-test.yaml
+  h_cca6aa2712613d 54,56,58-62,71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a5924746afc8381c4f6f217fec3777096459419d",
+  "prompts": {},
+  "humans": {
+    "h_cca6aa2712613d": {
+      "author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  }
+}
