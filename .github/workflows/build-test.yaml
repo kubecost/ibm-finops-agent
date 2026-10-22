@@ -49,3 +49,26 @@ jobs:
             version=${{ github.event.pull_request.head.sha || github.event.merge_group.head.sha || github.ref }}
           tags: |
             ${{ steps.tag.outputs.AGENT_IMAGE_TAG }}
+  # Builds and pushes the PR image to ICR via integration-ci-cd. The image is
+  # tagged pr-<pr number>-<short sha> and integration-ci-cd comments on the PR.
+  # Skipped for fork PRs, which cannot read the app secrets.
+  trigger_pr_image:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token with permissions to dispatch to integration-ci-cd
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: integration-ci-cd
+      - name: Trigger finops-agent-pr dispatch
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          jq -n --arg pr "$PR_NUMBER" --arg sha "$HEAD_SHA" \
+            '{event_type: "finops-agent-pr", client_payload: {pr_number: $pr, sha: $sha}}' \
+            | gh api repos/kubecost/integration-ci-cd/dispatches --input -
