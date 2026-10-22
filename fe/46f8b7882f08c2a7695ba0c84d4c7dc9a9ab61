@@ -1,0 +1,24 @@
+.github/workflows/release.yaml
+  h_cca6aa2712613d 68,77,131,138,194,201,208
+.github/workflows/build-release.yaml
+  h_cca6aa2712613d 15
+.github/workflows/build-test.yaml
+  h_cca6aa2712613d 22,38,42
+.github/workflows/go-security-update.yaml
+  h_cca6aa2712613d 51,58,64
+.github/workflows/sbom.yml
+  h_cca6aa2712613d 31,49,56,85
+.github/workflows/pr.yaml
+  h_cca6aa2712613d 30,34,40,77,93,100,104,115,142,146,151,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fe46f8b7882f08c2a7695ba0c84d4c7dc9a9ab61",
+  "prompts": {},
+  "humans": {
+    "h_cca6aa2712613d": {
+      "author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  }
+}
