@@ -310,6 +310,8 @@ func (m *mockUploader) AddSample(sample string) {
 
 func (m *mockUploader) RemoveSample(sample string) {}
 
+func (m *mockUploader) LastUploadAttempt() time.Time { return time.Time{} }
+
 // ensure replicaSets with zero replicas are not emitted
 func checkForDeadReplicaSets(path string) error {
 	var rs *appsv1.ReplicaSet

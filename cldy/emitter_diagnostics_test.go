@@ -51,22 +51,46 @@ func TestUnwrapNodeErrors(t *testing.T) {
 	}
 }
 
+// stubUploader satisfies the Uploader interface for health-check tests.
+type stubUploader struct{ lastAttempt time.Time }
+
+func (s *stubUploader) AddSample(string)             {}
+func (s *stubUploader) RemoveSample(string)          {}
+func (s *stubUploader) SetClusterID(string)          {}
+func (s *stubUploader) LastUploadAttempt() time.Time { return s.lastAttempt }
+
 func TestHealthy(t *testing.T) {
 	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
 
 	tests := map[string]struct {
 		lastSuccess time.Time
+		lastAttempt time.Time
 		want        bool
 	}{
+		// node-stats staleness checks (no upload attempt yet)
 		"startup grace when never collected": {lastSuccess: time.Time{}, want: true},
 		"recent success is healthy":          {lastSuccess: time.Now().UTC(), want: true},
 		"within threshold is healthy":        {lastSuccess: time.Now().UTC().Add(-(restartThreshold - time.Minute)), want: true},
 		"beyond threshold is unhealthy":      {lastSuccess: time.Now().UTC().Add(-(restartThreshold + time.Minute)), want: false},
+		// upload-loop staleness checks
+		"startup grace when no upload attempted":       {lastAttempt: time.Time{}, want: true},
+		"recent upload attempt is healthy":             {lastAttempt: time.Now().UTC(), want: true},
+		"upload attempt within threshold is healthy":   {lastAttempt: time.Now().UTC().Add(-(restartThreshold - time.Minute)), want: true},
+		"upload attempt beyond threshold is unhealthy": {lastAttempt: time.Now().UTC().Add(-(restartThreshold + time.Minute)), want: false},
+		// both stale triggers unhealthy
+		"both stale is unhealthy": {
+			lastSuccess: time.Now().UTC().Add(-(restartThreshold + time.Minute)),
+			lastAttempt: time.Now().UTC().Add(-(restartThreshold + time.Minute)),
+			want:        false,
+		},
 	}
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			ce := &Emitter{lastSuccessfulNodeCollection: tt.lastSuccess}
+			ce := &Emitter{
+				lastSuccessfulNodeCollection: tt.lastSuccess,
+				Uploader:                     &stubUploader{lastAttempt: tt.lastAttempt},
+			}
 			if got := ce.Healthy(); got != tt.want {
 				t.Fatalf("Healthy() = %v, want %v", got, tt.want)
 			}

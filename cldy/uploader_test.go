@@ -1050,4 +1050,3 @@ func partialGzip(t GinkgoTInterface) []byte {
 	}
 	return buf.Bytes()
 }
-
