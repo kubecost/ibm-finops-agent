@@ -209,9 +209,8 @@ func (ce *Emitter) ID() emitter.EmitterID {
 }
 
 // Healthy reports whether the cldy emitter considers itself healthy.
-// Returns false when node-stats collection has been stale for longer than
-// MaxStaleUploadCycles * UploadFrequencyDuration, signaling that a container
-// restart is warranted.
+// Returns false when node-stats collection or the upload loop
+// has stalled for longer than MaxStaleUploadCycles * UploadFrequencyDuration.
 //
 // Staleness is tracked from the snapshots the emitter receives, so this works on the
 // foreground collection path (node stats fetched at snapshot time). When node-stats
@@ -220,15 +219,24 @@ func (ce *Emitter) ID() emitter.EmitterID {
 // reports unhealthy.
 func (ce *Emitter) Healthy() bool {
 	ce.nodeStatsMu.RLock()
-	lastSuccess := ce.lastSuccessfulNodeCollection
+	lastNodeSuccess := ce.lastSuccessfulNodeCollection
 	ce.nodeStatsMu.RUnlock()
 
-	// startup grace: no successful collection has been observed yet
-	if lastSuccess.IsZero() {
-		return true
-	}
+	lastUploadAttempt := ce.Uploader.LastUploadAttempt()
+
 	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
-	return time.Since(lastSuccess) <= restartThreshold
+
+	// Includes startup grace !isZero check
+	if !lastNodeSuccess.IsZero() && time.Since(lastNodeSuccess) > restartThreshold {
+		return false
+	}
+
+	// Includes startup grace !isZero check
+	if !lastUploadAttempt.IsZero() && time.Since(lastUploadAttempt) > restartThreshold {
+		return false
+	}
+
+	return true
 }
 
 // recordNodeStats captures node-stats collection diagnostics from a snapshot. It advances
