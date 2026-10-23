@@ -40,3 +40,4 @@ e2e_image_archive.tar
 temp/
 tmp/
 data/
+e2e/_artifacts/

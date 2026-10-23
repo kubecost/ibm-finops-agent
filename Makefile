@@ -13,6 +13,9 @@ ifndef IMAGE_TAG
 IMAGE_TAG:=localhost/e2e/ibm-finops-agent:e2e
 endif
 
+# Kubernetes version for the Go e2e suite (a kindest/node tag).
+KUBERNETES_VERSION ?= v1.34.0
+
 test: envtest
 	@KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile coverage.out
 
@@ -59,6 +62,13 @@ test-k8s-1.31.0:
 
 test-k8s-1.30.0:
 	$(call TEST_KUBERNETES,v1.30.0)
+
+# Go e2e suite (files tagged //go:build e2e). Settings are read by e2e/harness/config.go.
+# Override with e.g. `make e2e KUBERNETES_VERSION=v1.31.0 IMAGE_TAG=ghcr.io/...:tag`.
+.PHONY: e2e
+e2e:
+	IMAGE=$(IMAGE_TAG) KUBERNETES_VERSION=$(KUBERNETES_VERSION) \
+		go test -tags e2e ./e2e -v -timeout 45m -ginkgo.v
 
 .PHONY: podman-build-push
 podman-build-push:
