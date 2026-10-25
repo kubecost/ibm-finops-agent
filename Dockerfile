@@ -23,7 +23,8 @@ RUN cd ./cmd/finops-agent && set -e ;\
 
 
 # vex/ibm-finops-agent.openvex.json describes this base image; review it when changing the base
-FROM redhat/ubi9-micro:latest
+# Red Hat Hardened Image (distroless, ships CA certs + tzdata)
+FROM registry.access.redhat.com/hi/static:latest
 
 ARG commit
 ARG version
@@ -52,7 +53,6 @@ ADD ./opencost/configs/aws.json /models/aws.json
 ADD ./opencost/configs/gcp.json /models/gcp.json
 ADD ./opencost/configs/awsreservationofferings.json /static/awsreservationofferings.json
 ADD ./opencost/configs/alibaba.json /models/alibaba.json
-COPY --from=build-env /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY LICENSE /licenses/LICENSE
 
 COPY --from=build-env /go/bin/app /go/bin/app
