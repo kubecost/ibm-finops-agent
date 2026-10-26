@@ -239,14 +239,11 @@ jobs:
         if: steps.head.outputs.run == 'true'
         continue-on-error: true
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+        env:
+          AWS_REGION: us-east-1 # ecr-public:GetAuthorizationToken is only served from us-east-1
         with:
           registry-type: public
 
-      # Run the container like a Docker action: mount the workspace and runner temp at their host
-      # paths so GITHUB_EVENT_PATH, GITHUB_OUTPUT, and GITHUB_STEP_SUMMARY resolve unchanged, and
-      # forward the step environment by name (values never appear on the docker command line).
-      # To pin by digest instead of tag, use public.ecr.aws/u8u5i0e2/kc-pr-agent@sha256:<digest>
-      # (see SECURITY.md).
       - name: PR Agent action step
         id: pragent
         if: steps.head.outputs.run == 'true'
@@ -270,7 +267,7 @@ jobs:
           cmd.append(os.environ["PR_AGENT_IMAGE"])
           sys.exit(subprocess.call(cmd))
         env:
-          PR_AGENT_IMAGE: public.ecr.aws/u8u5i0e2/kc-pr-agent:v0.47.16
+          PR_AGENT_IMAGE: public.ecr.aws/u8u5i0e2/kc-pr-agent:v0.47 # NO_AUTO_UPDATE
           GITHUB_ACTION_CONFIG__WORKFLOW_SUMMARY_SHOW_DETAILED_OUTPUT: "true"
           GITHUB_ACTION_CONFIG__WORKFLOW_SUMMARY_SHOW_COST: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -362,7 +359,7 @@ jobs:
           AGENT_REASON: ${{ needs.pr_agent_job.outputs.reason }}
           AGENT_RESULT: ${{ needs.pr_agent_job.result }}
           AGENT_VERSION: ${{ needs.pr_agent_job.outputs.agent-version }}
-          ACTION_REF: public.ecr.aws/u8u5i0e2/kc-pr-agent:v0.47.16
+          ACTION_REF: public.ecr.aws/u8u5i0e2/kc-pr-agent:v0.47 # NO_AUTO_UPDATE
         with:
           script: |
             const escape = value => String(value).replace(/[&<>"]/g, c =>
