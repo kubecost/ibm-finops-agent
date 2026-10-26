@@ -1,0 +1,22 @@
+.github/workflows/pr-agent.yml
+  s_b980b7b32601d3::t_b4416579f30efb 283-284
+  s_b980b7b32601d3::t_148cde004d79a6 308
+  s_b980b7b32601d3::t_6d112482562ef5 280-282
+  s_b980b7b32601d3::t_208ec3fdff96fb 309
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "afad4c9da8a7756d80d43aebbacb6714aeaef041",
+  "prompts": {},
+  "sessions": {
+    "s_b980b7b32601d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a32e3f2e-ab72-493d-bd09-3d296fbfd4e0",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  }
+}
