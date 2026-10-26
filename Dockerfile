@@ -13,7 +13,7 @@ RUN go mod download
 # Copy the entire source code
 COPY . .
 
-# Build a static binary; vex/ibm-finops-agent.openvex.json relies on it
+# Build a static binary
 RUN cd ./cmd/finops-agent && set -e ;\
     CGO_ENABLED=0 go build -a -installsuffix cgo \
     -ldflags \
