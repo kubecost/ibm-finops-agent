@@ -1,26 +1,107 @@
-# PR-Agent automates pull request analysis, reviews, descriptions, and more.
-# By default a pull request gets one automatic describe and review, after every other workflow on the PR
-# has finished. Pull requests opened by bots and from forks are skipped. Trusted comment commands
-# (/review, /improve, /ask ...) run at any time.
+# pr-agent.yml
+#
+# PR-Agent posts AI-assisted describe, review, and improve feedback on pull requests.
+#
+# This is an internal fork of: <https://github.com/The-PR-Agent/pr-agent> and many thanks to them!
+#
+# Manual slash commands (/review, /describe, /improve, /ask, and others) run when a trusted
+# user comments on a pull request. Trusted authors are the repository owner, organization
+# members, and collaborators (see the job `if` condition below).
+#
+# Automatic describe / review / improve also run for an open, non-draft pull request from this
+# repository, unless the PR was opened by a bot. Before an automatic review starts, every
+# required CI workflow must have finished on the current head commit. If no required or optional
+# workflow lists are configured, the job waits for every other pull_request workflow on that head.
+# Optional workflows are typically path-filtered: the job waits for one only when a run for this
+# head already exists.
+#
+# This workflow works in for repository (public or private, any organization): it runs the public ECR image directly
+# Copy to .github/workflows/pr-agent.yml in the consuming repository
+#
+# scripts/aws-add-pr-agent-iam-role-for-repo.sh creates the IAM trust for one repository and sets the
+# variables below on it from your shell (.env-template).
+#
+# Required repository or organization variables (see README.md):
+#   KC_PR_AGENT_AWS_ROLE_TO_ASSUME        IAM role trusted for GitHub OIDC, allowed bedrock:InvokeModel,
+#                                         bedrock:GetInferenceProfile, bedrock:ListInferenceProfiles,
+#                                         ecr-public:GetAuthorizationToken and sts:GetServiceBearerToken
+#   KC_PR_AGENT_AWS_REGION                Bedrock region (optional, defaults to us-west-2)
+#   KC_PR_AGENT_AWS_MODEL_ARN             Bedrock inference profile ARN for the primary model (review, improve)
+#   KC_PR_AGENT_AWS_REASONING_MODEL_ARN   Optional. Model that scores /improve suggestions (default: primary)
+#   KC_PR_AGENT_AWS_WEAK_MODEL_ARN        Optional. Cheaper model for describe, ask and changelog (default: primary)
+#   KC_PR_AGENT_AWS_FALLBACK_MODEL_ARN    Optional. Used when a call to any of the above fails (default: primary)
+#
+# Optional variables for automatic runs:
+#   KC_PR_AGENT_REQUIRED_WORKFLOWS        JSON array of workflow names that must finish on the head first, for
+#                                         example '["Build-and-test", "pre-commit"]'. Default: every other
+#                                         workflow that runs on the pull request.
+#   KC_PR_AGENT_OPTIONAL_WORKFLOWS        JSON array of path-filtered workflows, waited for only when they run.
+#   KC_PR_AGENT_REVIEW_EVERY_PUSH         "true" reviews every new head. Default: one automatic review per PR;
+#                                         later heads are reviewed when someone comments /review.
+#
+# Optional telemetry to Tempo (README.md "Traces and AI attribution"; off until the endpoint is set):
+#   KC_PR_AGENT_OTEL_ENDPOINT             Variable. OTLP/HTTP base URL; /v1/traces is appended
+#   KC_PR_AGENT_OTEL_HEADERS              Secret, not a variable. Authorization=Bearer <otel-ingest-token>
+#   KC_PR_AGENT_ATTRIBUTION_TENANT_ID     Variable. ai-attribution tenant. Default: kubecost; set it when
+#                                         this organization reports spend as a different tenant
+#   KC_PR_AGENT_ATTRIBUTION_SERVICE_ID    Variable. ai-attribution service. Default: kc-pr-agent
+#
+# Set each variable at the organization level to apply it to every repository; a repository variable of
+# the same name overrides it. 
 
 name: PR-Agent
 
 on:
-  # "*" lets any other workflow's completion wake the readiness check. The two negated patterns are this
-  # workflow's name and file name; without them, its own completion would start another run.
+  # Match every other workflow by name (including names that contain "/"). Exclude this workflow
+  # by its `name:` so a PR-Agent completion does not retrigger itself. Keep the exclusion in sync
+  # with `name:` above.
   workflow_run:
-    workflows: ["*", "!PR-Agent", "!pr-agent.yml"]
+    workflows: ["**", "!PR-Agent"]
     types: [completed]
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    # opened / reopened: first look at a new PR (also the only automatic path in a repo with no
+    # other workflows). ready_for_review: a draft marked ready after its checks may already have
+    # finished. synchronize: a new push to the PR head.
+    types: [opened, reopened, ready_for_review, synchronize]
   issue_comment:
     types: [created]
 
 permissions: {}
 
 jobs:
-  pr-agent:
-    # A called workflow can use at most the permissions its caller grants.
+  pr_agent_job:
+    # Restrict comment-driven commands to owners, org members, and collaborators so untrusted
+    # commenters cannot invoke the LLM (and incur inference cost). GitHub reports an organization
+    # member with private membership as CONTRIBUTOR or NONE; to allow them, make membership public,
+    # add them as a collaborator, or extend the author_association list below.
+    if: >-
+      ((github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.pull_requests[0].number) ||
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+      github.event.sender.type != 'Bot' && contains(github.event.comment.body, '/') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    name: Run PR Agent commands
+    # Serialize automatic runs per pull request.
+    # - A new pull_request event (for example a push) cancels an in-progress run for the previous
+    #   head so work is not wasted on a stale commit.
+    # - A workflow_run completion queues behind that run instead of cancelling it, so another
+    #   workflow finishing cannot interrupt an active review.
+    # - The next candidate evaluates head SHA and commit status only after it acquires this group.
+    # Manual slash-command runs use a unique group (run_id) so they never cancel each other.
+    concurrency:
+      group: >-
+        ${{ github.workflow }}-${{ github.event_name != 'issue_comment' &&
+        format('automatic-{0}', github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number) ||
+        github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    outputs:
+      agent-version: ${{ steps.pragent.outputs.agent-version }}
+      reason: ${{ steps.preflight.outputs.reason }}
+    # GITHUB_TOKEN needs to read the PR and post comments. id-token is required for AWS OIDC.
+    # statuses: write records a successful automatic review on the head commit (used for deduping).
     permissions:
       actions: read
       contents: read
@@ -28,12 +109,345 @@ jobs:
       issues: write
       pull-requests: write
       statuses: write
-    uses: kubecost/kc-pr-agent/.github/workflows/pr-agent-kc-org.yml@v0.47
-    # A called workflow sees only the secrets passed here. Empty when the secret is unset.
-    secrets:
-      KC_PR_AGENT_OTEL_HEADERS: ${{ secrets.KC_PR_AGENT_OTEL_HEADERS }}
-    # Optional; each input falls back to the repository or organization variable.
-    # with:
-    #   required-workflows: '["Build-and-test", "pre-commit"]'
-    #   optional-workflows: '["Docker build"]'
-    #   review-every-push: true
+    steps:
+      - name: Check latest head, workflow completion, and previous review
+        id: preflight
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          # Repository variables (Settings → Variables). You may also replace these with literal
+          # JSON / string values to keep the configuration entirely in this file.
+          REQUIRED_WORKFLOWS: ${{ vars.KC_PR_AGENT_REQUIRED_WORKFLOWS }}
+          OPTIONAL_WORKFLOWS: ${{ vars.KC_PR_AGENT_OPTIONAL_WORKFLOWS }}
+          REVIEW_EVERY_PUSH: ${{ vars.KC_PR_AGENT_REVIEW_EVERY_PUSH }}
+          # When waiting for "every" workflow (both lists empty): on a pull_request event, pause
+          # briefly so sibling workflow runs have time to appear before concluding that none exist.
+          SETTLE_SECONDS: "20"
+        with:
+          script: |
+            const decide = async (run, reason) => {
+              core.setOutput('run', String(run));
+              core.setOutput('reason', reason);
+              core.info(reason);
+              await core.summary.addHeading('PR-Agent readiness').addRaw(reason, true).write();
+            };
+            // Workflows to wait for before an automatic review: JSON arrays of workflow names in the step's
+            // REQUIRED_WORKFLOWS and OPTIONAL_WORKFLOWS environment. These are the only lists of names to edit.
+            // required: run on every pull_request. Each must have a completed run on this head.
+            // optional: path-filtered. If a run for this head exists and is still in progress, wait;
+            // if none exists, do not wait. With both lists empty, wait for every other pull_request
+            // workflow run on this head. A skipped or cancelled completion of some other workflow
+            // does not start a review; success, failure, and timed_out do.
+            // REVIEW_EVERY_PUSH "true" reviews every new head; otherwise a pull request is reviewed
+            // automatically once, and later heads need a comment command.
+            const everyHead = process.env.REVIEW_EVERY_PUSH === 'true';
+            // Commit status written after a successful automatic review. A failed review does not
+            // write it, so rerunning the job retries. Comment commands do not read or write it.
+            const reviewStatus = "pr-agent/automatic";
+            const own = run => run.name === process.env.GITHUB_WORKFLOW || run.path === '.github/workflows/pr-agent.yml';
+            if (context.eventName === 'issue_comment') {
+              await decide(true, 'Trusted PR comment command; automatic checks are bypassed.');
+              return;
+            }
+            const names = key => {
+              const value = JSON.parse(process.env[key] || '[]');
+              if (!Array.isArray(value) || !value.every(name => typeof name === 'string'))
+                throw new Error(key + ' must be a JSON array of workflow names.');
+              return value;
+            };
+            const workflows = {required: names('REQUIRED_WORKFLOWS'), optional: names('OPTIONAL_WORKFLOWS')};
+            const waitForAll = !workflows.required.length && !workflows.optional.length;
+            const event = context.payload;
+            if (context.eventName === 'workflow_run') {
+              const triggering = event.workflow_run || {};
+              if (own(triggering)) {
+                await decide(false, 'Ignoring a completion of this workflow.');
+                return;
+              }
+              if (!['success', 'failure', 'timed_out'].includes(triggering.conclusion)) {
+                await decide(false, "The triggering workflow conclusion is '" +
+                  (triggering.conclusion || 'absent') + "'.");
+                return;
+              }
+            }
+            const number = event.pull_request?.number || event.workflow_run?.pull_requests?.[0]?.number;
+            const sha = event.workflow_run?.head_sha || event.pull_request?.head?.sha;
+            if (!number || !sha) {
+              await decide(false, 'No pull request is attached to this run.');
+              return;
+            }
+            const {data: pr} = await github.rest.pulls.get({...context.repo, pull_number: number});
+            if (pr.state !== 'open' || pr.draft ||
+                pr.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              await decide(false, 'Automatic reviews require an open, ready PR from this repository.');
+              return;
+            }
+            if (pr.user?.type === 'Bot') {
+              await decide(false, 'Automatic reviews skip pull requests opened by bots; a trusted comment command still runs.');
+              return;
+            }
+            if (pr.head.sha !== sha) {
+              await decide(false, 'The triggering commit is no longer the PR head.');
+              return;
+            }
+            // The event that opens a PR also starts its other workflows; give their runs time to appear.
+            const settle = Number(process.env.SETTLE_SECONDS || 0);
+            if (waitForAll && context.eventName === 'pull_request' && settle > 0)
+              await new Promise(resolve => setTimeout(resolve, settle * 1000));
+            const wanted = new Set([...workflows.required, ...workflows.optional]);
+            const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+              ...context.repo, head_sha: sha, event: 'pull_request', per_page: 100,
+            });
+            const checks = runs.filter(run => !own(run) && (waitForAll || wanted.has(run.name)) &&
+              (run.pull_requests || []).some(item => item.number === number));
+            const missing = workflows.required.filter(name => !checks.some(run => run.name === name));
+            if (missing.length) {
+              await decide(false, 'Waiting for ' + missing.join(', ') + ' to run on this head.');
+              return;
+            }
+            const pending = checks.filter(run => run.status !== 'completed');
+            if (pending.length) {
+              await decide(false, 'A monitored workflow is still pending on this head: ' +
+                pending.map(run => run.name + ' (' + run.status + ')').join(', ') + '.');
+              return;
+            }
+            if (everyHead) {
+              const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef,
+                {...context.repo, ref: sha, per_page: 100});
+              // Newest first: the latest status for the context decides.
+              if (statuses.find(item => item.context === reviewStatus)?.state === 'success') {
+                await decide(false, 'PR-Agent already completed an automatic review for this head.');
+                return;
+              }
+            } else {
+              // One query covers the latest 100 commits of the PR.
+              const result = await github.graphql(`query($owner: String!, $repo: String!, $number: Int!, $status: String!) {
+                repository(owner: $owner, name: $repo) { pullRequest(number: $number) { commits(last: 100) {
+                  nodes { commit { oid status { context(name: $status) { state } } } } } } } }`,
+                {...context.repo, number, status: reviewStatus});
+              const reviewed = (result.repository?.pullRequest?.commits?.nodes || [])
+                .find(node => node.commit?.status?.context?.state === 'SUCCESS');
+              if (reviewed) {
+                await decide(false, 'PR-Agent already reviewed this pull request automatically at ' +
+                  reviewed.commit.oid.slice(0, 7) + '. Comment /review to review the latest head, or set ' +
+                  'KC_PR_AGENT_REVIEW_EVERY_PUSH to true to review every new head.');
+                return;
+              }
+            }
+            core.setOutput('number', String(number));
+            core.setOutput('sha', sha);
+            core.setOutput('status', reviewStatus);
+            await decide(true, 'The current head has finished its monitored workflows and needs a review.');
+
+      - name: Configure AWS Credentials
+        if: steps.preflight.outputs.run == 'true'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: ${{ vars.KC_PR_AGENT_AWS_REGION || vars.AWS_REGION || 'us-west-2' }}
+          role-to-assume: ${{ vars.KC_PR_AGENT_AWS_ROLE_TO_ASSUME || vars.AWS_ROLE_TO_ASSUME }}
+
+      - name: Recheck head immediately before PR-Agent
+        id: head
+        if: steps.preflight.outputs.run == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ steps.preflight.outputs.number }}
+          HEAD_SHA: ${{ steps.preflight.outputs.sha }}
+        with:
+          script: |
+            if (context.eventName === 'issue_comment') {
+              core.setOutput('run', 'true');
+              return;
+            }
+            const {data: pr} = await github.rest.pulls.get({
+              ...context.repo, pull_number: Number(process.env.PR_NUMBER),
+            });
+            const current = pr.state === 'open' && !pr.draft && pr.head.sha === process.env.HEAD_SHA;
+            core.setOutput('run', String(current));
+            if (!current) core.info('PR state changed while preparing the review; skipping.');
+
+      # Authenticated pulls from Amazon ECR Public avoid the anonymous registry "Data limit exceeded"
+      # rate limit. Credentials come from the AWS step above; if login fails, the pull falls back to
+      # anonymous (continue-on-error) and may hit that limit on busy runners.
+      - name: Log in to ECR Public
+        if: steps.head.outputs.run == 'true'
+        continue-on-error: true
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+        env:
+          AWS_REGION: us-east-1 # ecr-public:GetAuthorizationToken is only served from us-east-1
+        with:
+          registry-type: public
+
+      # Run the container like a Docker action: mount the workspace and runner temp at their host
+      # paths so GITHUB_EVENT_PATH, GITHUB_OUTPUT, and GITHUB_STEP_SUMMARY resolve unchanged, and
+      # forward the step environment by name (values never appear on the docker command line).
+      # To pin by digest instead of tag, use public.ecr.aws/u8u5i0e2/kc-pr-agent@sha256:<digest>
+      # (see SECURITY.md).
+      - name: PR Agent action step
+        id: pragent
+        if: steps.head.outputs.run == 'true'
+        shell: python3 {0}
+        run: |
+          import os
+          import subprocess
+          import sys
+
+          # Runner / host paths that must not be inherited into the container.
+          skip = {
+              "PATH", "HOME", "PWD", "OLDPWD", "SHLVL", "_", "HOSTNAME", "LD_LIBRARY_PATH", "PKG_CONFIG_PATH",
+              "pythonLocation", "PR_AGENT_IMAGE",
+          }
+          workspace = os.environ["GITHUB_WORKSPACE"]
+          temp = os.environ["RUNNER_TEMP"]
+          cmd = ["docker", "run", "--rm", "--workdir", workspace, "-v", f"{workspace}:{workspace}", "-v", f"{temp}:{temp}"]
+          for name in sorted(os.environ):
+              if name not in skip and not (name.startswith("Python") and name.endswith("_ROOT_DIR")):
+                  cmd += ["-e", name]
+          cmd.append(os.environ["PR_AGENT_IMAGE"])
+          sys.exit(subprocess.call(cmd))
+        env:
+          # NO_AUTO_UPDATE
+          PR_AGENT_IMAGE: public.ecr.aws/u8u5i0e2/kc-pr-agent:v0.47
+          GITHUB_ACTION_CONFIG__WORKFLOW_SUMMARY_SHOW_DETAILED_OUTPUT: "true"
+          GITHUB_ACTION_CONFIG__WORKFLOW_SUMMARY_SHOW_COST: "true"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Preflight decides which PR events may run automatically. Use the same tool set for every
+          # accepted event, and disable the image's separate push-command path so it cannot override
+          # the AUTO_* settings below.
+          GITHUB_ACTION_CONFIG__PR_ACTIONS: '["opened", "reopened", "ready_for_review", "synchronize"]'
+          GITHUB_ACTION_CONFIG__HANDLE_PUSH_TRIGGER: "false"
+          # Propagate tool failures so the commit-status step below does not mark a failed review success.
+          GITHUB_ACTION_CONFIG__FAIL_ON_TOOL_ERRORS: "true"
+          AWS_USE_IMDS: "true"
+          AWS_REGION: ${{ vars.KC_PR_AGENT_AWS_REGION || vars.AWS_REGION || 'us-west-2' }}
+          AWS_REGION_NAME: ${{ vars.KC_PR_AGENT_AWS_REGION || vars.AWS_REGION || 'us-west-2' }}
+          # Bedrock inference-profile ARNs: prefer KC_PR_AGENT_* variables, then legacy unprefixed names.
+          # Before each command, PR-Agent asks Bedrock which model each profile serves, so the assumed
+          # role needs bedrock:GetInferenceProfile and bedrock:ListInferenceProfiles. If the reasoning
+          # or weak model ARN is empty, CONFIG__MODEL is used; the fallback defaults to the primary.
+          CONFIG__MODEL: ${{ vars.KC_PR_AGENT_AWS_MODEL_ARN || vars.AWS_MODEL_ARN }}
+          CONFIG__MODEL_REASONING: ${{ vars.KC_PR_AGENT_AWS_REASONING_MODEL_ARN || vars.AWS_REASONING_MODEL_ARN }}
+          CONFIG__MODEL_WEAK: ${{ vars.KC_PR_AGENT_AWS_WEAK_MODEL_ARN || vars.AWS_WEAK_MODEL_ARN }}
+          CONFIG__FALLBACK_MODELS: >-
+            ${{ vars.KC_PR_AGENT_AWS_FALLBACK_MODEL_ARN || vars.AWS_FALLBACK_MODEL_ARN
+            || vars.KC_PR_AGENT_AWS_MODEL_ARN || vars.AWS_MODEL_ARN }}
+          CONFIG__ENABLE_CLAUDE_ADAPTIVE_THINKING: "true"
+          CONFIG__REASONING_EFFORT: "high"
+          CONFIG__CUSTOM_MODEL_MAX_TOKENS: "1000000"
+          # Context window for packing the prompt (diff + instructions). After reserving output
+          # tokens below, roughly 168000 remain for input; large diffs may be truncated further.
+          CONFIG__MAX_MODEL_TOKENS: "200000"
+          # Maximum tokens the model may generate, also reserved from the window when fitting the diff.
+          CONFIG__MAX_OUTPUT_TOKENS: "32000"
+          # Optional OpenTelemetry export to Tempo (or any OTLP endpoint), including AI-attribution
+          # fields (tenant, service, repo, PR number, user). Disabled until KC_PR_AGENT_OTEL_ENDPOINT
+          # is set. Put auth in KC_PR_AGENT_OTEL_HEADERS (repository secret), for example
+          # Authorization=Bearer <token>. Endpoint and headers are not written to logs.
+          OTEL__IS_ENABLED: ${{ vars.KC_PR_AGENT_OTEL_ENDPOINT != '' }}
+          OTEL__EXPORTER_TYPE: otlp
+          OTEL__ENVIRONMENT: production
+          OTEL__OTLP_ENDPOINT: ${{ vars.KC_PR_AGENT_OTEL_ENDPOINT }}
+          OTEL__OTLP_HEADERS: ${{ secrets.KC_PR_AGENT_OTEL_HEADERS }}
+          OTEL__ATTRIBUTION_TENANT_ID: ${{ vars.KC_PR_AGENT_ATTRIBUTION_TENANT_ID }}
+          OTEL__ATTRIBUTION_SERVICE_ID: ${{ vars.KC_PR_AGENT_ATTRIBUTION_SERVICE_ID }}
+          # Post /describe as a PR comment instead of overwriting the pull request body.
+          PR_DESCRIPTION__PUBLISH_DESCRIPTION_AS_COMMENT: "true"
+          GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: true
+          # Automatic tools after monitored CI finishes. Unset or true means run; "false" disables.
+          # These environment values override .pr_agent.toml in the reviewed repository; remove a
+          # line here to let that file decide.
+          # AUTO_REVIEW → /review (inline + summary code review comments).
+          GITHUB_ACTION_CONFIG.AUTO_REVIEW: true
+          # AUTO_IMPROVE → /improve (inline code suggestions on the PR).
+          GITHUB_ACTION_CONFIG.AUTO_IMPROVE: true
+
+      # Record success only after the agent exits cleanly so a failed review can be retried by
+      # re-running this job (the status is what preflight uses to skip duplicate automatic runs).
+      - name: Record completed automatic review
+        if: github.event_name != 'issue_comment' && steps.pragent.outcome == 'success'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ steps.preflight.outputs.sha }}
+          REVIEW_STATUS: ${{ steps.preflight.outputs.status }}
+        with:
+          script: |
+            const server = process.env.GITHUB_SERVER_URL;
+            const repo = context.repo.owner + '/' + context.repo.repo;
+            await github.rest.repos.createCommitStatus({
+              ...context.repo,
+              sha: process.env.HEAD_SHA,
+              state: 'success',
+              context: process.env.REVIEW_STATUS,
+              description: 'Automatic describe, review, and improve finished',
+              target_url: server + '/' + repo + '/actions/runs/' + context.runId,
+            });
+
+  report:
+    name: Explain PR-Agent outcome
+    needs: pr_agent_job
+    if: >-
+      always() && (needs.pr_agent_job.result == 'failure' || needs.pr_agent_job.result == 'cancelled' ||
+      (needs.pr_agent_job.result == 'skipped' && github.event_name == 'issue_comment'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Report failures and skipped jobs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          AGENT_REASON: ${{ needs.pr_agent_job.outputs.reason }}
+          AGENT_RESULT: ${{ needs.pr_agent_job.result }}
+          AGENT_VERSION: ${{ needs.pr_agent_job.outputs.agent-version }}
+          # NO_AUTO_UPDATE
+          ACTION_REF: public.ecr.aws/u8u5i0e2/kc-pr-agent:v0.47
+        with:
+          script: |
+            const escape = value => String(value).replace(/[&<>"]/g, c =>
+              ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+            const event = context.payload;
+            const agent = process.env.AGENT_RESULT;
+            let reason = process.env.AGENT_REASON;
+            if (!reason && agent === 'skipped') {
+              if (context.eventName === 'issue_comment') {
+                if (!event.issue?.pull_request) reason = 'The comment is on an issue, not a pull request.';
+                else if (event.sender?.type === 'Bot') reason = 'Bot comments are ignored to prevent feedback loops.';
+                else if (!(event.comment?.body || '').includes('/')) reason = 'The comment contains no slash command.';
+                else if (!['OWNER', 'MEMBER', 'COLLABORATOR'].includes(event.comment?.author_association))
+                  reason = 'The comment author is not an owner, member, or collaborator.';
+                else reason = 'Automatic checks are bypassed for trusted PR comment commands.';
+              } else reason = 'This event is not eligible for an automatic review.';
+            }
+            if (!reason) reason = 'Agent ' + agent + '; inspect the job logs for details.';
+            const runUrl = process.env.GITHUB_SERVER_URL + '/' + context.repo.owner + '/' + context.repo.repo +
+              '/actions/runs/' + context.runId;
+            const lines = ['## PR-Agent workflow outcome', '', 'Agent: ' + escape(agent), '',
+              '<pre>' + escape(reason) + '</pre>', '', 'Event: ' + escape(context.eventName) + ' / ' + escape(event.action || ''),
+              'Configured Action: ' + escape(process.env.ACTION_REF),
+              'Runtime version: ' + escape(process.env.AGENT_VERSION || 'unavailable (the agent did not report a version)'),
+              '', '[Action run and logs](' + runUrl + ')'];
+            const prNumber = event.pull_request?.number || event.workflow_run?.pull_requests?.[0]?.number ||
+              (event.issue?.pull_request ? event.issue.number : null);
+            const head = event.workflow_run?.head_sha || event.pull_request?.head?.sha;
+            if (prNumber) lines.push('', 'Pull request: #' + escape(prNumber));
+            if (head) lines.push('Head commit: ' + escape(head));
+            if (event.workflow_run?.conclusion)
+              lines.push('Triggering workflow conclusion: ' + escape(event.workflow_run.conclusion));
+            if (['failure', 'cancelled'].includes(agent)) {
+              try {
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                  ...context.repo, run_id: context.runId, filter: 'latest', per_page: 100,
+                });
+                for (const job of jobs) {
+                  if (job.name === 'Explain PR-Agent outcome') continue;
+                  for (const step of job.steps || []) {
+                    if (['failure', 'cancelled'].includes(step.conclusion))
+                      lines.push('', '<pre>Failed or cancelled step: ' + escape(job.name) + ' / ' + escape(step.name) +
+                        ' (' + escape(step.conclusion) + ')</pre>');
+                  }
+                }
+              } catch {
+                lines.push('', 'Step details could not be retrieved; consult the Action logs.');
+                core.warning('Unable to retrieve workflow step outcomes.');
+              }
+            }
+            await core.summary.addRaw(lines.join('\n') + '\n').write();
