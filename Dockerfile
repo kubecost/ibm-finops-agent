@@ -13,7 +13,7 @@ RUN go mod download
 # Copy the entire source code
 COPY . .
 
-# Build a static binary
+# Must stay static (CGO_ENABLED=0): hi/static has no libc
 RUN cd ./cmd/finops-agent && set -e ;\
     CGO_ENABLED=0 go build -a -installsuffix cgo \
     -ldflags \
@@ -22,9 +22,11 @@ RUN cd ./cmd/finops-agent && set -e ;\
     -o /go/bin/app
 
 
-# vex/ibm-finops-agent.openvex.json describes this base image; review it when changing the base
+# Review vex/ibm-finops-agent.openvex.json when changing the base
 # Red Hat Hardened Image (distroless, ships CA certs + tzdata)
 FROM registry.access.redhat.com/hi/static:latest
+# hi/static defaults to /tmp; keep / like the previous ubi9-micro base
+WORKDIR /
 
 ARG commit
 ARG version
