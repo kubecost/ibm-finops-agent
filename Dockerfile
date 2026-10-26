@@ -56,6 +56,7 @@ ADD ./opencost/configs/alibaba.json /models/alibaba.json
 COPY LICENSE /licenses/LICENSE
 
 COPY --from=build-env /go/bin/app /go/bin/app
+# 1001, not the base's 65532: the Helm chart runs every pod as runAsUser/fsGroup 1001
 USER 1001
 
 ENTRYPOINT ["/go/bin/app"]
