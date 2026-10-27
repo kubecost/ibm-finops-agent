@@ -2,15 +2,13 @@
 
 Base branch is `develop`.
 
-## Image gotchas
+## The image
 
-The runtime base is `registry.access.redhat.com/hi/static:latest`, a distroless Red Hat Hardened Image:
+The base is `registry.access.redhat.com/hi/static`, a distroless Red Hat Hardened Image:
 
-- No shell, no libc. The binary must stay `CGO_ENABLED=0`, or the container dies with `exec /go/bin/app: no such file or directory`. `kubectl exec` into the agent fails, so read its files through a sidecar (see below).
-- CA certs come from the base, at `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`.
-- The base sets `WORKDIR /tmp` and `HOME=/tmp`; the Dockerfile resets `WORKDIR /`.
-- `USER 1001` matches the Helm chart's `runAsUser`.
-- When changing the base, review `vex/ibm-finops-agent.openvex.json` (see `vex/README.md`).
+- No shell or libc: the binary must be built with `CGO_ENABLED=0`, and `kubectl exec` into the agent won't work.
+- CA certs come from the base image.
+- When changing the base, review `vex/ibm-finops-agent.openvex.json`.
 
 ## Local testing
 
@@ -70,54 +68,15 @@ kubectl get pods   # expect Running, 0 restarts
 kubectl exec deploy/agent-finops-agent -c e2e-reader -- ls /opt/finops-agent/scratch/
 ```
 
+Repeat with `--set image.tag=before` to compare against develop.
+
 ### Outbound TLS
 
-With fake keys, `403 Forbidden` in the agent log means TLS worked; `x509: certificate signed by unknown authority` means it failed.
+With fake keys, `403 Forbidden` means TLS worked and `x509: certificate signed by unknown authority` means it didn't. To test a proxy with a private CA, put `mitmproxy` behind `agent.cloudability.outboundProxy` and enable `global.updateCaTrust` (see [#283](https://github.com/kubecost/ibm-finops-agent/pull/283)).
 
 ```sh
 kubectl logs deploy/agent-finops-agent -c finops-agent | grep -E 'status code|x509'
 ```
-
-To test a proxy with a private CA (what the chart's `updateCaTrust` is for), run `mitmproxy` signing with a throwaway CA:
-
-```sh
-openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 2 -subj '/CN=test CA'
-kubectl create secret generic mitm-ca --from-file=mitmproxy-ca.pem=<(cat ca.key ca.crt)
-kubectl create secret generic ca-certs-secret --from-file=test-ca.crt=ca.crt   # chart's default updateCaTrust secret
-rm ca.key ca.crt
-
-kubectl apply -f - <<'EOF'
-apiVersion: apps/v1
-kind: Deployment
-metadata: {name: mitm}
-spec:
-  selector: {matchLabels: {app: mitm}}
-  template:
-    metadata: {labels: {app: mitm}}
-    spec:
-      containers:
-        - name: mitm
-          image: docker.io/mitmproxy/mitmproxy:12.3.1
-          # mitmproxy writes into its confdir, so copy the CA out of the read-only secret
-          command: ["sh", "-c", "cp /ca/mitmproxy-ca.pem /conf/ && exec mitmdump --set confdir=/conf --listen-port 8080 --flow-detail 1"]
-          volumeMounts: [{name: ca, mountPath: /ca}, {name: conf, mountPath: /conf}]
-      volumes: [{name: ca, secret: {secretName: mitm-ca}}, {name: conf, emptyDir: {}}]
----
-apiVersion: v1
-kind: Service
-metadata: {name: mitm}
-spec: {selector: {app: mitm}, ports: [{port: 8080}]}
-EOF
-kubectl rollout status deploy/mitm
-
-PROXY="--set agent.cloudability.outboundProxy=http://mitm:8080"
-helm install proxy-noca finops-agent/finops-agent -f test-values.yaml --set image.tag=after $PROXY   # expect x509
-helm install proxy-ca   finops-agent/finops-agent -f test-values.yaml --set image.tag=after $PROXY \
-  --set global.updateCaTrust.enabled=true                                                          # expect 403
-kubectl logs deploy/mitm | grep -E 'POST|<<|TLS handshake'   # requests went through the proxy
-```
-
-Repeat any install with `--set image.tag=before` to compare against develop.
 
 ### Full Kubecost chart on kind
 
