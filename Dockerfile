@@ -13,7 +13,7 @@ RUN go mod download
 # Copy the entire source code
 COPY . .
 
-# Build a static binary; vex/ibm-finops-agent.openvex.json relies on it
+# Must stay static (CGO_ENABLED=0): hi/static has no libc
 RUN cd ./cmd/finops-agent && set -e ;\
     CGO_ENABLED=0 go build -a -installsuffix cgo \
     -ldflags \
@@ -22,8 +22,11 @@ RUN cd ./cmd/finops-agent && set -e ;\
     -o /go/bin/app
 
 
-# vex/ibm-finops-agent.openvex.json describes this base image; review it when changing the base
-FROM redhat/ubi9-micro:latest
+# Review vex/ibm-finops-agent.openvex.json when changing the base
+# Red Hat Hardened Image (distroless, ships CA certs + tzdata)
+FROM registry.access.redhat.com/hi/static:latest
+# hi/static defaults to /tmp; keep / like the previous ubi9-micro base
+WORKDIR /
 
 ARG commit
 ARG version
@@ -52,10 +55,10 @@ ADD ./opencost/configs/aws.json /models/aws.json
 ADD ./opencost/configs/gcp.json /models/gcp.json
 ADD ./opencost/configs/awsreservationofferings.json /static/awsreservationofferings.json
 ADD ./opencost/configs/alibaba.json /models/alibaba.json
-COPY --from=build-env /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY LICENSE /licenses/LICENSE
 
 COPY --from=build-env /go/bin/app /go/bin/app
+# 1001, not the base's 65532: the Helm chart runs every pod as runAsUser/fsGroup 1001
 USER 1001
 
 ENTRYPOINT ["/go/bin/app"]
