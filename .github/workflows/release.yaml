@@ -11,8 +11,7 @@ on:
       # --dry-run to each one: git still contacts the remote and validates auth
       # and the ref update, but nothing lands. Steps that need a push to have
       # actually landed are skipped with `if: !inputs.dry_run`. Not exercised:
-      # the image build, the chart publish, Chart.lock (which needs the new
-      # chart version to actually be published), and the kubecost PR.
+      # the image build, the chart PR merge and tag, and the chart publish.
       dry_run:
         description: "Dry run (validate and edit locally, push nothing)"
         required: false
@@ -41,8 +40,6 @@ env:
   BUILD_WORKFLOW: finops-agent-build-release.yaml
   CHART_REPO: kubecost/finops-agent-chart
   CHART_WORKFLOW: publish-chart.yaml
-  KUBECOST_REPO: kubecost/kubecost
-  KUBECOST_BRANCH: develop
 
   # Applies to every commit and annotated tag this workflow creates.
   GIT_AUTHOR_NAME: kc-actions-bot[bot]
@@ -97,11 +94,8 @@ jobs:
           git push $PUSH_ARGS origin "$TAG"
 
       # The tag push triggers build-release.yaml, which dispatches to
-      # $BUILD_REPO. Nothing in the resulting run names our tag — a
-      # repository_dispatch run reports the default branch — so --created is
-      # the only thing distinguishing it from the last release's run. Without
-      # it, --limit 1 returns that older run and `gh run watch` exits
-      # immediately with its stale success.
+      # $BUILD_REPO. A dispatched run doesn't name our tag, so match on start
+      # time and event type (PR builds run the same workflow).
       - name: Wait for image build
         if: ${{ !inputs.dry_run }}
         env:
@@ -109,16 +103,12 @@ jobs:
           SINCE: ${{ steps.push-tag.outputs.since }}
         timeout-minutes: 30
         run: |
-          for i in {1..24}; do
-            RUN_ID=$(gh run list --repo "$BUILD_REPO" --workflow "$BUILD_WORKFLOW" \
-              --event repository_dispatch --created ">=$SINCE" --limit 1 \
-              --json databaseId --jq '.[0].databaseId // empty')
-            if [ -n "$RUN_ID" ]; then break; fi
-            echo "⏳ Waiting for build to start (attempt $i/24)..."
+          while [ -z "${RUN_ID:-}" ]; do
             sleep 5
+            RUN_ID=$(gh run list --repo "$BUILD_REPO" --workflow "$BUILD_WORKFLOW" --created ">=$SINCE" \
+              --json databaseId,displayTitle \
+              --jq 'map(select(.displayTitle == "finops-agent-release"))[0].databaseId // empty')
           done
-          : "${RUN_ID:?build workflow did not start within 2 minutes}"
-
           gh run watch "$RUN_ID" --repo "$BUILD_REPO" --exit-status
 
   update-chart:
@@ -132,6 +122,15 @@ jobs:
         with:
           client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
           private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: finops-agent-chart
+
+      # main requires an approved PR, and a PR's author can't approve it.
+      - name: Generate approver app token for finops-agent-chart
+        id: approver-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_APPROVER_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_APPROVER_BOT_APP_PRIVATE_KEY }}
           repositories: finops-agent-chart
 
       - name: Checkout finops-agent-chart
@@ -157,107 +156,50 @@ jobs:
           verify charts/finops-agent/Chart.yaml .version "$VERSION"
           verify charts/finops-agent/Chart.yaml .appVersion "$TAG"
 
-      - name: Commit, tag, and push
+      - name: Push release branch
         run: |
+          git checkout -b "$BRANCH"
           git add charts/finops-agent/values.yaml charts/finops-agent/Chart.yaml
           git commit -m "Release $TAG"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push $PUSH_ARGS origin main "$TAG"
+          git push $PUSH_ARGS origin "$BRANCH"
 
-      # --branch matches the tag ref, so this correlates to the tag just
-      # pushed rather than to whatever happened to run most recently.
+      # The tag triggers the chart publish, so it's pushed only once the
+      # approved PR has merged.
+      - name: Approve and merge PR, then tag
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_REPO: ${{ env.CHART_REPO }}
+          BOT_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          APPROVER_TOKEN: ${{ steps.approver-token.outputs.token }}
+        run: |
+          PR_URL=$(GH_TOKEN=$BOT_TOKEN gh pr create --base main --head "$BRANCH" --title "Release $TAG" \
+            --body "Automated by https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          GH_TOKEN=$APPROVER_TOKEN gh pr review "$PR_URL" --approve
+          # No --auto, so this returns only after the merge.
+          GH_TOKEN=$BOT_TOKEN gh pr merge "$PR_URL" --squash --delete-branch
+
+          SHA=$(GH_TOKEN=$BOT_TOKEN gh pr view "$PR_URL" --json mergeCommit --jq .mergeCommit.oid)
+          git fetch origin "$SHA"
+          git tag -a "$TAG" -m "Release $TAG" "$SHA"
+          git push origin "$TAG"
+
+      # --branch matches the tag ref, so this finds the run for the tag just pushed.
       - name: Wait for chart publish
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: |
-          for i in {1..24}; do
-            RUN_ID=$(gh run list --repo "$CHART_REPO" --workflow "$CHART_WORKFLOW" \
-              --event push --branch "$TAG" --limit 1 \
-              --json databaseId --jq '.[0].databaseId // empty')
-            if [ -n "$RUN_ID" ]; then break; fi
-            echo "⏳ Waiting for chart publish to start (attempt $i/24)..."
+          while [ -z "${RUN_ID:-}" ]; do
             sleep 5
+            RUN_ID=$(gh run list --repo "$CHART_REPO" --workflow "$CHART_WORKFLOW" --branch "$TAG" \
+              --limit 1 --json databaseId --jq '.[0].databaseId // empty')
           done
-          : "${RUN_ID:?chart publish workflow did not start within 2 minutes}"
-
           gh run watch "$RUN_ID" --repo "$CHART_REPO" --exit-status
-
-  update-kubecost:
-    name: Update kubecost chart dependency
-    needs: update-chart
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate app token to update kubecost
-        id: generate-app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
-          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
-          repositories: kubecost
-
-      - name: Checkout kubecost
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.KUBECOST_REPO }}
-          ref: ${{ env.KUBECOST_BRANCH }}
-          token: ${{ steps.generate-app-token.outputs.token }}
-
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: v3.12.0
-
-      - name: Bump finops-agent dependency
-        run: |
-          sed -i -E "/^  - name: finops-agent$/,/^  - name:/ s|^    version: .*|    version: \"$TAG\"|" kubecost/Chart.yaml
-
-          git --no-pager diff
-
-          actual=$(yq '.dependencies[] | select(.name == "finops-agent") | .version' kubecost/Chart.yaml)
-          [ "$actual" = "$TAG" ] || { echo "❌ dependency is '$actual', expected '$TAG'"; exit 1; }
-
-      # Needs the new chart version to actually be published, so it can only
-      # run for real. Chart.lock is left untouched in a dry run.
-      - name: Update Chart.lock
-        if: ${{ !inputs.dry_run }}
-        timeout-minutes: 10
-        run: |
-          helm repo add finops-agent https://kubecost.github.io/finops-agent-chart/ || true
-          for i in {1..60}; do
-            helm repo update finops-agent
-            PUBLISHED=$(helm search repo finops-agent --version "$VERSION" \
-              --output json | jq -r '.[0].version // empty')
-            if [ -n "$PUBLISHED" ]; then break; fi
-            echo "⏳ Waiting for chart $VERSION to reach the published index (attempt $i/60)..."
-            sleep 5
-          done
-          : "${PUBLISHED:?chart $VERSION did not reach the published index within 5 minutes}"
-
-          helm dependency update ./kubecost
-
-      - name: Commit and push branch
-        run: |
-          git checkout -b "$BRANCH"
-          git add kubecost/Chart.yaml kubecost/Chart.lock
-          git commit -m "Update finops-agent to $TAG"
-          git push $PUSH_ARGS origin "$BRANCH"
-
-      - name: Open PR against kubecost
-        if: ${{ !inputs.dry_run }}
-        env:
-          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
-        run: |
-          gh pr create --repo "$KUBECOST_REPO" \
-            --base "$KUBECOST_BRANCH" --head "$BRANCH" \
-            --label dependencies \
-            --title "Update finops-agent to $TAG" \
-            --body "Automated by https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
   summary:
     name: Release Summary
-    needs: [tag-agent, update-chart, update-kubecost]
+    needs: [tag-agent, update-chart]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -265,7 +207,6 @@ jobs:
         env:
           TAG_RESULT: ${{ needs.tag-agent.result }}
           CHART_RESULT: ${{ needs.update-chart.result }}
-          KUBECOST_RESULT: ${{ needs.update-kubecost.result }}
         run: |
           mark() {
             case "$1" in
@@ -285,12 +226,11 @@ jobs:
           # $TITLE
 
           - $(mark "$TAG_RESULT") ibm-finops-agent tagged and image built
-          - $(mark "$CHART_RESULT") finops-agent-chart updated and published
-          - $(mark "$KUBECOST_RESULT") kubecost chart dependency PR opened — merge it to finish the release
+          - $(mark "$CHART_RESULT") finops-agent-chart published and kubecost PR opened — merge it to finish the release
 
           [agent tag](https://github.com/${{ github.repository }}/releases/tag/$TAG) &middot;
           [chart release](https://github.com/$CHART_REPO/releases/tag/$TAG) &middot;
-          [kubecost PR](https://github.com/$KUBECOST_REPO/pulls?q=head%3A$BRANCH)
+          [kubecost PR](https://github.com/kubecost/kubecost/pulls?q=head%3Aautomation%2Ffinops-agent-$VERSION)
           EOF
 
       # A dry run pushes no tags, so there is never anything to clean up.
