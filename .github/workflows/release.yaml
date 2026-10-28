@@ -165,20 +165,20 @@ jobs:
 
       # The tag triggers the chart publish, so it's pushed only once the
       # approved PR has merged.
-      - name: Approve and merge PR, then tag
+      - name: Merge release PR and tag
         if: ${{ !inputs.dry_run }}
         env:
           GH_REPO: ${{ env.CHART_REPO }}
-          BOT_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
           APPROVER_TOKEN: ${{ steps.approver-token.outputs.token }}
         run: |
-          PR_URL=$(GH_TOKEN=$BOT_TOKEN gh pr create --base main --head "$BRANCH" --title "Release $TAG" \
+          PR_URL=$(gh pr create --base main --head "$BRANCH" --title "Release $TAG" \
             --body "Automated by https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
           GH_TOKEN=$APPROVER_TOKEN gh pr review "$PR_URL" --approve
           # No --auto, so this returns only after the merge.
-          GH_TOKEN=$BOT_TOKEN gh pr merge "$PR_URL" --squash --delete-branch
+          gh pr merge "$PR_URL" --squash
 
-          SHA=$(GH_TOKEN=$BOT_TOKEN gh pr view "$PR_URL" --json mergeCommit --jq .mergeCommit.oid)
+          SHA=$(gh pr view "$PR_URL" --json mergeCommit --jq .mergeCommit.oid)
           git fetch origin "$SHA"
           git tag -a "$TAG" -m "Release $TAG" "$SHA"
           git push origin "$TAG"
