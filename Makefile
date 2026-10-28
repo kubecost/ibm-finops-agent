@@ -13,7 +13,10 @@ ifndef IMAGE_TAG
 IMAGE_TAG:=localhost/e2e/ibm-finops-agent:e2e
 endif
 
-# Kubernetes version for the Go e2e suite (a kindest/node tag).
+# Settings for the Go e2e suite. Both can be overridden on the command line or
+# from the environment. IMAGE falls back to IMAGE_TAG for the old local workflow.
+IMAGE ?= $(IMAGE_TAG)
+# A kindest/node tag.
 KUBERNETES_VERSION ?= v1.34.0
 
 test: envtest
@@ -64,11 +67,14 @@ test-k8s-1.30.0:
 	$(call TEST_KUBERNETES,v1.30.0)
 
 # Go e2e suite (files tagged //go:build e2e). Settings are read by e2e/harness/config.go.
-# Override with e.g. `make e2e KUBERNETES_VERSION=v1.31.0 IMAGE_TAG=ghcr.io/...:tag`.
+# Override with e.g. `make e2e KUBERNETES_VERSION=v1.31.0 IMAGE=ghcr.io/...:tag`.
+# A relative ARTIFACTS_DIR resolves from e2e/ (go test's working directory).
+# The suite timeout is Ginkgo's, not go test's: go test's -timeout kills the
+# process without running AfterSuite, which would leave the kind cluster behind.
 .PHONY: e2e
 e2e:
-	IMAGE=$(IMAGE_TAG) KUBERNETES_VERSION=$(KUBERNETES_VERSION) \
-		go test -tags e2e ./e2e -v -timeout 45m -ginkgo.v
+	IMAGE=$(IMAGE) KUBERNETES_VERSION=$(KUBERNETES_VERSION) \
+		go test -tags e2e ./e2e -v -timeout 0 -ginkgo.timeout 45m -ginkgo.v
 
 .PHONY: podman-build-push
 podman-build-push:

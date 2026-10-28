@@ -111,7 +111,7 @@ func TestConfigFrom(t *testing.T) {
 		c, err := configFrom(envFrom(with(map[string]string{
 			"CI":                "true",
 			"CONTAINER_RUNTIME": "podman",
-			"CLUSTER_NAME":      "mine",
+			"CLUSTER_NAME":      "e2e-mine",
 			"NAMESPACE":         "ns",
 			"RELEASE_NAME":      "rel",
 			"CHART_VERSION":     "9.9.9",
@@ -121,22 +121,22 @@ func TestConfigFrom(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c.ContainerRuntime != "podman" || c.ClusterName != "mine" || c.Namespace != "ns" ||
+		if c.ContainerRuntime != "podman" || c.ClusterName != "e2e-mine" || c.Namespace != "ns" ||
 			c.ReleaseName != "rel" || c.ChartVersion != "9.9.9" || c.ArtifactsDir != "/tmp/a" || !c.KeepCluster {
 			t.Fatalf("overrides not applied: %+v", c)
 		}
 	})
 	t.Run("ArtifactsDir follows CLUSTER_NAME when not set", func(t *testing.T) {
 		t.Parallel()
-		c, err := configFrom(envFrom(with(map[string]string{"CLUSTER_NAME": "mine"})))
+		c, err := configFrom(envFrom(with(map[string]string{"CLUSTER_NAME": "e2e-mine"})))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c.ClusterName != "mine" {
-			t.Fatalf("ClusterName = %q, want %q", c.ClusterName, "mine")
+		if c.ClusterName != "e2e-mine" {
+			t.Fatalf("ClusterName = %q, want %q", c.ClusterName, "e2e-mine")
 		}
-		if c.ArtifactsDir != "_artifacts/mine" {
-			t.Fatalf("ArtifactsDir = %q, want %q", c.ArtifactsDir, "_artifacts/mine")
+		if c.ArtifactsDir != "_artifacts/e2e-mine" {
+			t.Fatalf("ArtifactsDir = %q, want %q", c.ArtifactsDir, "_artifacts/e2e-mine")
 		}
 	})
 	t.Run("whitespace-only counts as unset", func(t *testing.T) {
@@ -152,6 +152,12 @@ func TestConfigFrom(t *testing.T) {
 		"bad runtime":      {"CONTAINER_RUNTIME": "containerd"},
 		"bad KEEP_CLUSTER": {"KEEP_CLUSTER": "yes"},
 		"bad image":        {"IMAGE": "agent:e2e"},
+		// The harness deletes clusters by name, so only e2e- names are allowed.
+		// That keeps it away from e.g. the user's default "kind" cluster.
+		"CLUSTER_NAME without e2e- prefix": {"CLUSTER_NAME": "kind"},
+		"CLUSTER_NAME escaping artifacts":  {"CLUSTER_NAME": "e2e-../../x"},
+		"CLUSTER_NAME with uppercase":      {"CLUSTER_NAME": "e2e-Mine"},
+		"CLUSTER_NAME prefix only":         {"CLUSTER_NAME": "e2e-"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

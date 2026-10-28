@@ -16,6 +16,15 @@ const DefaultChartVersion = "v1.0.31"
 
 var k8sVersionRE = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
+// ClusterNamePrefix is required on every cluster name. The harness deletes
+// clusters by name, so the prefix keeps it from touching clusters it didn't
+// create, such as the user's default "kind" cluster.
+const ClusterNamePrefix = "e2e-"
+
+// clusterNameRE is ClusterNamePrefix plus kind's allowed characters. It also
+// keeps the name safe to use as a directory under ArtifactsDir (no '/').
+var clusterNameRE = regexp.MustCompile(`^` + regexp.QuoteMeta(ClusterNamePrefix) + `[a-z0-9][a-z0-9.-]*$`)
+
 // ImageRef is IMAGE split the way the chart wants it (image.registry/repository/tag).
 type ImageRef struct {
 	Registry   string
@@ -61,7 +70,7 @@ func configFrom(lookup func(string) (string, bool)) (Config, error) {
 		Namespace:         get("NAMESPACE", "ibm-finops-agent"),
 		ReleaseName:       get("RELEASE_NAME", "unified-agent"),
 	}
-	c.ClusterName = get("CLUSTER_NAME", "e2e-"+c.KubernetesVersion)
+	c.ClusterName = get("CLUSTER_NAME", ClusterNamePrefix+c.KubernetesVersion)
 	c.ArtifactsDir = get("ARTIFACTS_DIR", filepath.Join("_artifacts", c.ClusterName))
 
 	defaultRuntime := "podman"
@@ -81,6 +90,14 @@ func configFrom(lookup func(string) (string, bool)) (Config, error) {
 		errs = append(errs, errors.New("KUBERNETES_VERSION is required (e.g. v1.34.0)"))
 	case !k8sVersionRE.MatchString(c.KubernetesVersion):
 		errs = append(errs, fmt.Errorf("KUBERNETES_VERSION %q must look like v1.34.0 (a kindest/node tag)", c.KubernetesVersion))
+	}
+
+	// Skip when the name is just the default built from a missing version;
+	// the KUBERNETES_VERSION error already covers that.
+	if get("CLUSTER_NAME", "") != "" || c.KubernetesVersion != "" {
+		if !clusterNameRE.MatchString(c.ClusterName) {
+			errs = append(errs, fmt.Errorf("CLUSTER_NAME %q must start with %q and use only a-z, 0-9, '.' and '-'", c.ClusterName, ClusterNamePrefix))
+		}
 	}
 
 	if c.ContainerRuntime != "docker" && c.ContainerRuntime != "podman" {
