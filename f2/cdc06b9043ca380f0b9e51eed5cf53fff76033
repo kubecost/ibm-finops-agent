@@ -1,0 +1,19 @@
+.github/workflows/release.yaml
+  s_558326292d537e::t_c3fd87ec0369b7 164-166,177-182,184-192,195,243,247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f2cdc06b9043ca380f0b9e51eed5cf53fff76033",
+  "prompts": {},
+  "sessions": {
+    "s_558326292d537e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6aefffc9-88b1-47d9-8823-4c09f48d2507",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  }
+}
