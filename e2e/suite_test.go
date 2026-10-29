@@ -8,8 +8,19 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/ibm/finops-agent/e2e/harness"
+)
+
+const (
+	// setupTimeout bounds all of BeforeSuite: cluster, image, localstack, agent.
+	setupTimeout = 15 * time.Minute
+	// setupGrace is how long BeforeSuite may keep running after a timeout or
+	// Ctrl-C, so EnsureCluster's cleanup (up to 2m) can finish.
+	setupGrace = 3 * time.Minute
+	// waitTimeout bounds each wait inside setup (localstack Ready, agent rollout, stress pod).
+	waitTimeout = 5 * time.Minute
 )
 
 var (
@@ -17,6 +28,11 @@ var (
 	cfg harness.Config
 	// cluster is the kind cluster the suite runs against; nil if setup failed early.
 	cluster *harness.Cluster
+	// kube is a client for the cluster, for specs that query it.
+	kube kubernetes.Interface
+	// installer installs releases on the cluster; specs can reinstall the agent
+	// with different values through installer.InstallAgent.
+	installer *harness.Installer
 )
 
 func TestE2E(t *testing.T) {
@@ -40,7 +56,25 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 
 	// pull the image and ensure the image is valid
 	Expect(cluster.LoadImage(ctx, cfg.Image)).To(Succeed())
-}, NodeTimeout(10*time.Minute))
+
+	kube, err = harness.NewClient(cluster.Kubeconfig)
+	Expect(err).NotTo(HaveOccurred())
+	installer = &harness.Installer{Cluster: cluster, Client: kube, Config: cfg, Timeout: waitTimeout}
+
+	// fake S3 for the agent's federated storage
+	By("installing localstack")
+	Expect(installer.InstallLocalstack(ctx)).To(Succeed())
+	By("creating the " + harness.Bucket + " bucket")
+	Expect(installer.EnsureBucket(ctx)).To(Succeed())
+
+	// the agent under test, at the pinned chart version
+	By("installing the agent")
+	Expect(installer.InstallAgent(ctx, harness.AgentInstall{})).To(Succeed())
+
+	// a known workload for the agent to report on (as e2e.sh did)
+	By("deploying the stress pod")
+	Expect(harness.DeployStress(ctx, kube, waitTimeout)).To(Succeed())
+}, NodeTimeout(setupTimeout), GracePeriod(setupGrace))
 
 var _ = AfterSuite(func(ctx SpecContext) {
 	if cluster == nil {

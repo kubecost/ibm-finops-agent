@@ -10,9 +10,9 @@ import (
 	"strings"
 )
 
-// Default Chart version pins the version that the tests will install
-// docs explicitly called out have the image pinned.
-const DefaultChartVersion = "v1.0.31"
+// DefaultChartVersion pins the finops-agent chart the suite installs, so a new
+// chart release can't change test results. Chart versions have no "v" prefix.
+const DefaultChartVersion = "1.0.32"
 
 var k8sVersionRE = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 

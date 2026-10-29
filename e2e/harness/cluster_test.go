@@ -1,11 +1,8 @@
 package harness
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -112,100 +109,6 @@ func TestEnsureClusterWithoutKind(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "kind not found") {
 		t.Fatalf("err = %v, want kind not found", err)
 	}
-}
-
-// fake configures the fake `kind` and `kubectl` that fakeTools puts on PATH.
-// Each field is a shell snippet; empty means "exit 0".
-type fake struct {
-	clusters string // stdout of `kind get clusters`, one name per line
-	create   string // `kind create cluster ...`
-	del      string // `kind delete cluster ...`
-	export   string // `kind export kubeconfig ...`
-	wait     string // `kubectl wait ...`
-}
-
-// failOnce is a fake snippet that fails the first call and succeeds after,
-// e.g. a broken kept cluster whose replacement becomes Ready.
-const failOnce = `if [ -f "$0.called" ]; then exit 0; fi; touch "$0.called"; exit 1`
-
-// fakeTools puts fake `kind` and `kubectl` scripts first on PATH and returns a
-// function that reads the calls they received, one line per call:
-// "<tool> provider=<KIND_EXPERIMENTAL_PROVIDER> kubeconfig=<KUBECONFIG> args=<args>".
-//
-// Callers can't be parallel, because this changes PATH with t.Setenv.
-func fakeTools(t *testing.T, f fake) (calls func() []string) {
-	t.Helper()
-	or := func(s string) string {
-		if s == "" {
-			return "exit 0"
-		}
-		return s
-	}
-	dir := t.TempDir()
-	log := filepath.Join(dir, "calls.log")
-	logLine := fmt.Sprintf(`echo "$(basename "$0") provider=$KIND_EXPERIMENTAL_PROVIDER kubeconfig=$KUBECONFIG args=$*" >> '%s'`, log)
-
-	kind := fmt.Sprintf(`#!/bin/sh
-%s
-case "$1" in
-  get) printf '%%s\n' '%s' ;;
-  create) %s ;;
-  delete) %s ;;
-  export) %s ;;
-esac
-`, logLine, f.clusters, or(f.create), or(f.del), or(f.export))
-	kubectl := fmt.Sprintf("#!/bin/sh\n%s\n%s\n", logLine, or(f.wait))
-
-	for name, script := range map[string]string{"kind": kind, "kubectl": kubectl} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	return func() []string {
-		b, err := os.ReadFile(log)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil // no tool was called
-		}
-		if err != nil {
-			t.Fatalf("read fake tool log: %v", err)
-		}
-		return strings.Split(strings.TrimSpace(string(b)), "\n")
-	}
-}
-
-func fakeConfig(t *testing.T, runtime string) Config {
-	return Config{
-		ClusterName:       "e2e-fake",
-		KubernetesVersion: "v1.34.0",
-		ContainerRuntime:  runtime,
-		ArtifactsDir:      t.TempDir(),
-	}
-}
-
-// subcommands returns the tool and first two args of each call, e.g. "kind create cluster".
-func subcommands(calls []string) []string {
-	var out []string
-	for _, c := range calls {
-		tool, _, _ := strings.Cut(c, " ")
-		_, args, _ := strings.Cut(c, "args=")
-		f := strings.Fields(args)
-		if len(f) >= 2 {
-			out = append(out, tool+" "+f[0]+" "+f[1])
-		}
-	}
-	return out
-}
-
-// field returns the value of key (e.g. "kubeconfig") in a recorded call.
-func field(call, key string) string {
-	for f := range strings.FieldsSeq(call) {
-		if v, ok := strings.CutPrefix(f, key+"="); ok {
-			return v
-		}
-	}
-	return ""
 }
 
 // TestEnsureClusterCalls checks the exact kind/kubectl sequence and result of
@@ -332,17 +235,6 @@ func TestEnsureClusterCalls(t *testing.T) {
 			}
 		})
 	}
-}
-
-// captureLog sends LogWriter to a buffer for this test. Only safe in tests that
-// aren't parallel; parallel tests don't start until those finish.
-func captureLog(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	prev := LogWriter
-	LogWriter = &buf
-	t.Cleanup(func() { LogWriter = prev })
-	return &buf
 }
 
 // A cancelled context while checking a reused cluster stops the run. It must
