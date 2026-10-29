@@ -161,7 +161,9 @@ jobs:
           git checkout -b "$BRANCH"
           git add charts/finops-agent/values.yaml charts/finops-agent/Chart.yaml
           git commit -m "Release $TAG"
-          git push $PUSH_ARGS origin "$BRANCH"
+          # Force: a rerun after a partial failure finds the earlier attempt's
+          # branch. It's only ever written by this workflow.
+          git push --force $PUSH_ARGS origin "$BRANCH"
 
       # The tag triggers the chart publish, so it's pushed only once the
       # approved PR has merged.
@@ -172,13 +174,25 @@ jobs:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
           APPROVER_TOKEN: ${{ steps.approver-token.outputs.token }}
         run: |
-          PR_URL=$(gh pr create --base main --head "$BRANCH" --title "Release $TAG" \
-            --body "Automated by https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          # A rerun reuses the open PR from the failed attempt.
+          PR_URL=$(gh pr list --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
+          if [ -z "$PR_URL" ]; then
+            PR_URL=$(gh pr create --base main --head "$BRANCH" --title "Release $TAG" \
+              --body "Automated by https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          fi
           GH_TOKEN=$APPROVER_TOKEN gh pr review "$PR_URL" --approve
-          # No --auto, so this returns only after the merge.
-          gh pr merge "$PR_URL" --squash
+
+          # No --auto, so a successful merge returns only once it has landed.
+          # GitHub may still be computing mergeability for the new PR; retry.
+          for i in 1 2 3 4 5 6; do
+            gh pr merge "$PR_URL" --squash && break
+            [ "$i" = 6 ] && { echo "❌ could not merge $PR_URL"; exit 1; }
+            echo "⏳ Merge not ready (attempt $i/6), retrying..."
+            sleep 10
+          done
 
           SHA=$(gh pr view "$PR_URL" --json mergeCommit --jq .mergeCommit.oid)
+          : "${SHA:?could not determine merge commit of $PR_URL}"
           git fetch origin "$SHA"
           git tag -a "$TAG" -m "Release $TAG" "$SHA"
           git push origin "$TAG"
@@ -226,11 +240,11 @@ jobs:
           # $TITLE
 
           - $(mark "$TAG_RESULT") ibm-finops-agent tagged and image built
-          - $(mark "$CHART_RESULT") finops-agent-chart published and kubecost PR opened — merge it to finish the release
+          - $(mark "$CHART_RESULT") finops-agent-chart published (its publish workflow opens the kubecost PR — merge it to finish the release)
 
           [agent tag](https://github.com/${{ github.repository }}/releases/tag/$TAG) &middot;
           [chart release](https://github.com/$CHART_REPO/releases/tag/$TAG) &middot;
-          [kubecost PR](https://github.com/kubecost/kubecost/pulls?q=head%3Aautomation%2Ffinops-agent-$VERSION)
+          [kubecost PR](https://github.com/kubecost/kubecost/pulls?q=finops-agent+subchart+$VERSION)
           EOF
 
       # A dry run pushes no tags, so there is never anything to clean up.
