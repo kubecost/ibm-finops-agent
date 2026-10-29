@@ -20,11 +20,15 @@ const (
 	agentChart     = "finops-agent"
 
 	// LocalstackChartRepo serves the localstack chart (fake S3 for the agent's
-	// federated storage). Its version is not pinned yet.
+	// federated storage).
 	LocalstackChartRepo = "https://helm.localstack.cloud"
-	localstackChart     = "localstack"
-	localstackRelease   = "localstack"
-	LocalstackSelector  = "app.kubernetes.io/name=localstack"
+	// LocalstackChartVersion pins the chart, so a new localstack chart release
+	// can't break every run at once. The image is pinned separately (4.12) in
+	// testdata/localstack-values.yaml.
+	LocalstackChartVersion = "0.7.1"
+	localstackChart        = "localstack"
+	localstackRelease      = "localstack"
+	LocalstackSelector     = "app.kubernetes.io/name=localstack"
 
 	// Bucket is the S3 bucket testdata/values.yaml points the agent at.
 	Bucket = "kubecost-store"
@@ -34,6 +38,9 @@ const (
 	LocalstackValuesFile = "testdata/localstack-values.yaml"
 
 	defaultInstallTimeout = 5 * time.Minute
+	// defaultExecTimeout bounds each awslocal call in EnsureBucket. They
+	// normally take about a second.
+	defaultExecTimeout = 30 * time.Second
 )
 
 // AgentSelector selects the agent pods of release.
@@ -47,7 +54,12 @@ type AgentInstall struct {
 	// ValuesFiles are applied after AgentValuesFile, in order; later files win.
 	ValuesFiles []string
 	// Set holds extra --set values, e.g. "agent.cloudability.emissionInterval": "5s".
-	// They are applied after the image settings, so they can override them.
+	// They go through --set, so specs can pass booleans and numbers.
+	//
+	// The image.registry, image.repository and image.tag keys can't be
+	// overridden here: helm applies every --set before every --set-string,
+	// whatever the order on the command line, so the image flags always win.
+	// That's intended; the suite always tests the IMAGE it was given.
 	Set map[string]string
 }
 
@@ -60,7 +72,15 @@ type Installer struct {
 	// Timeout bounds each wait (localstack Ready, agent rollout). Zero means 5m.
 	Timeout time.Duration
 
-	interval time.Duration // poll interval; tests shorten it
+	interval    time.Duration // poll interval; tests shorten it
+	execTimeout time.Duration // per kubectl exec; zero means defaultExecTimeout; tests shorten it
+}
+
+func (in *Installer) execTimeoutOrDefault() time.Duration {
+	if in.execTimeout > 0 {
+		return in.execTimeout
+	}
+	return defaultExecTimeout
 }
 
 func (in *Installer) timeout() time.Duration {
@@ -86,6 +106,7 @@ func (in *Installer) run(ctx context.Context, name string, args ...string) (stri
 func (in *Installer) InstallLocalstack(ctx context.Context) error {
 	if _, err := in.run(ctx, "helm", "upgrade", "--install", localstackRelease, localstackChart,
 		"--repo", LocalstackChartRepo,
+		"--version", LocalstackChartVersion,
 		"--namespace", in.Config.Namespace, "--create-namespace",
 		"--values", LocalstackValuesFile); err != nil {
 		return fmt.Errorf("install localstack: %w", err)
@@ -103,13 +124,23 @@ func (in *Installer) EnsureBucket(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("find localstack pod: %w", err)
 	}
+	// Each exec gets its own timeout, so a hung awslocal fails this step with
+	// a clear error instead of using up the whole setup timeout.
 	exec := func(args ...string) (string, error) {
+		ctx, cancel := context.WithTimeout(ctx, in.execTimeoutOrDefault())
+		defer cancel()
 		return in.run(ctx, "kubectl", append([]string{"exec", "--namespace", in.Config.Namespace, pod, "--"}, args...)...)
 	}
 
-	if _, headErr := exec("awslocal", "s3api", "head-bucket", "--bucket", Bucket); headErr == nil {
+	_, headErr := exec("awslocal", "s3api", "head-bucket", "--bucket", Bucket)
+	switch {
+	case headErr == nil:
 		return nil // already there
-	} else if _, err := exec("awslocal", "s3", "mb", "s3://"+Bucket); err != nil {
+	case isTimeout(headErr):
+		// Hung, not "bucket missing"; creating it would likely hang too.
+		return fmt.Errorf("head-bucket %s: %w", Bucket, headErr)
+	}
+	if _, err := exec("awslocal", "s3", "mb", "s3://"+Bucket); err != nil {
 		// Report both: if head-bucket failed for another reason, its error says why.
 		return fmt.Errorf("create bucket %s: %w", Bucket, errors.Join(err, fmt.Errorf("head-bucket: %w", headErr)))
 	}
@@ -163,10 +194,13 @@ func agentInstallArgs(cfg Config, opts AgentInstall) []string {
 	for _, f := range opts.ValuesFiles {
 		args = append(args, "--values", f)
 	}
+	// --set-string, because --set parses values: an all-digit tag such as a
+	// short SHA (12345678) would become a number and fail the chart, and a tag
+	// like 1.10 would become the float 1.1.
 	args = append(args,
-		"--set", "image.registry="+cfg.ImageRef.Registry,
-		"--set", "image.repository="+cfg.ImageRef.Repository,
-		"--set", "image.tag="+cfg.ImageRef.Tag,
+		"--set-string", "image.registry="+cfg.ImageRef.Registry,
+		"--set-string", "image.repository="+cfg.ImageRef.Repository,
+		"--set-string", "image.tag="+cfg.ImageRef.Tag,
 	)
 	// Sorted so the command (and its log line) is the same every run.
 	for _, k := range slices.Sorted(maps.Keys(opts.Set)) {

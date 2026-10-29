@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -82,12 +83,20 @@ func waitForPodsReady(ctx context.Context, client kubernetes.Interface, namespac
 
 // podsReady reports whether there is at least one live pod and all live pods
 // are Ready, plus a description of their state for error messages.
+//
+// Terminating pods are ignored, and so are finished ones (Failed or Succeeded,
+// e.g. evicted): they stay around until pod GC but will never be Ready.
+// Finished pods are still described, so an eviction shows up in the error.
 func podsReady(pods []corev1.Pod) (bool, string) {
-	var descs []string
+	var descs, finished []string
 	live, ready := 0, 0
 	for i := range pods {
 		p := &pods[i]
-		if p.DeletionTimestamp != nil {
+		switch {
+		case p.DeletionTimestamp != nil:
+			continue
+		case isFinished(p):
+			finished = append(finished, describePod(p))
 			continue
 		}
 		live++
@@ -96,11 +105,20 @@ func podsReady(pods []corev1.Pod) (bool, string) {
 		}
 		descs = append(descs, describePod(p))
 	}
+	slices.Sort(descs)
+	slices.Sort(finished)
 	if live == 0 {
+		if len(finished) > 0 {
+			return false, "no running pods; finished: " + strings.Join(finished, "; ")
+		}
 		return false, "no matching pods"
 	}
-	slices.Sort(descs)
 	return ready == live, strings.Join(descs, "; ")
+}
+
+// isFinished reports whether p has stopped for good (Failed or Succeeded).
+func isFinished(p *corev1.Pod) bool {
+	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
 }
 
 func isPodReady(p *corev1.Pod) bool {
@@ -116,6 +134,14 @@ func isPodReady(p *corev1.Pod) bool {
 // "agent-123: Running, not Ready, container agent: CrashLoopBackOff (back-off 10s ...), restarts=3".
 func describePod(p *corev1.Pod) string {
 	parts := []string{fmt.Sprintf("%s: %s", p.Name, p.Status.Phase)}
+	// Pod-level reason, e.g. "Evicted (The node was low on resource: ephemeral-storage.)".
+	if p.Status.Reason != "" {
+		r := p.Status.Reason
+		if p.Status.Message != "" {
+			r += " (" + p.Status.Message + ")"
+		}
+		parts = append(parts, r)
+	}
 	if isPodReady(p) {
 		parts = append(parts, "Ready")
 	} else {
@@ -194,11 +220,18 @@ func ensureStressPod(ctx context.Context, client kubernetes.Interface, timeout, 
 	if err != nil {
 		return fmt.Errorf("get existing stress pod: %w", err)
 	}
-	if len(existing.Spec.Containers) == 1 && existing.Spec.Containers[0].Image == stressImage {
+	// A bare pod isn't restarted once it has finished (e.g. evicted under disk
+	// pressure), so a finished pod is replaced even if its image is current.
+	currentImage := len(existing.Spec.Containers) == 1 && existing.Spec.Containers[0].Image == stressImage
+	if currentImage && !isFinished(existing) {
 		return nil
 	}
 
-	_, _ = fmt.Fprintf(LogWriter, "replacing stress pod: it runs %q, want %q\n", existing.Spec.Containers[0].Image, stressImage)
+	if currentImage {
+		_, _ = fmt.Fprintf(LogWriter, "replacing stress pod: %s\n", describePod(existing))
+	} else {
+		_, _ = fmt.Fprintf(LogWriter, "replacing stress pod: it runs %q, want %q\n", existing.Spec.Containers[0].Image, stressImage)
+	}
 	if err := pods.Delete(ctx, stressPodName, metav1.DeleteOptions{GracePeriodSeconds: new(int64)}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete old stress pod: %w", err)
 	}
@@ -242,4 +275,10 @@ func stressPod() *corev1.Pod {
 			}},
 		},
 	}
+}
+
+// isTimeout reports whether err came from a wait that ran out of time
+// (as opposed to failing for another reason).
+func isTimeout(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || wait.Interrupted(err)
 }

@@ -12,7 +12,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
@@ -33,12 +32,6 @@ func pod(name string, labels map[string]string, ready bool) *corev1.Pod {
 			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: status}},
 		},
 	}
-}
-
-// isTimeout reports whether err came from a wait that ran out of time
-// (as opposed to failing for another reason).
-func isTimeout(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded) || wait.Interrupted(err)
 }
 
 var agentLabels = map[string]string{"app.kubernetes.io/name": "finops-agent"}
@@ -66,6 +59,12 @@ func TestWaitForPodsReady(t *testing.T) {
 	unschedulable.Status.Conditions = []corev1.PodCondition{{
 		Type: corev1.PodScheduled, Status: corev1.ConditionFalse, Message: "0/1 nodes are available: 1 Insufficient cpu.",
 	}}
+	evicted := pod("agent-evicted", agentLabels, false)
+	evicted.Status.Phase = corev1.PodFailed
+	evicted.Status.Reason = "Evicted"
+	evicted.Status.Message = "The node was low on resource: ephemeral-storage."
+	completed := pod("agent-done", agentLabels, false)
+	completed.Status.Phase = corev1.PodSucceeded
 	terminatingOld := pod("agent-old", agentLabels, true)
 	terminatingOld.DeletionTimestamp = &metav1.Time{Time: time.Now()}
 	terminatingOld.Finalizers = []string{"test"} // the fake requires one for a deletion timestamp
@@ -85,6 +84,10 @@ func TestWaitForPodsReady(t *testing.T) {
 		// After a rollout restart the old pod can still be Ready while it shuts down.
 		{name: "terminating ready pod does not count", pods: []runtime.Object{terminatingOld}, wantErr: []string{"no matching pods"}},
 		{name: "terminating pod ignored next to a ready one", pods: []runtime.Object{terminatingOld, pod("agent-new", agentLabels, true)}},
+		// Evicted and completed pods stay around until pod GC but will never be Ready.
+		{name: "evicted pod ignored next to a ready one", pods: []runtime.Object{evicted, pod("agent-new", agentLabels, true)}},
+		{name: "completed pod ignored next to a ready one", pods: []runtime.Object{completed, pod("agent-new", agentLabels, true)}},
+		{name: "only an evicted pod reports the eviction", pods: []runtime.Object{evicted}, wantErr: []string{"no running pods", "agent-evicted: Failed", "Evicted", "low on resource"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -284,6 +287,33 @@ func TestDeployStressKeepsCurrentPod(t *testing.T) {
 		if a.GetVerb() == "delete" {
 			t.Fatalf("unexpected %s %s", a.GetVerb(), a.GetResource().Resource)
 		}
+	}
+}
+
+// A bare pod that was evicted (or exited) is never restarted, so on a kept
+// cluster it is replaced even though its image is current.
+func TestDeployStressReplacesFinishedPod(t *testing.T) {
+	t.Parallel()
+	for _, phase := range []corev1.PodPhase{corev1.PodFailed, corev1.PodSucceeded} {
+		t.Run(string(phase), func(t *testing.T) {
+			t.Parallel()
+			old := stressPod()
+			old.Status.Phase = phase
+			old.Status.Reason = "Evicted"
+			client := k8sfake.NewClientset(&corev1.Namespace{Name: StressNamespace}, old)
+			readyOnCreate(client)
+
+			if err := deployStress(context.Background(), client, 5*time.Second, testInterval); err != nil {
+				t.Fatal(err)
+			}
+			p, err := client.CoreV1().Pods(StressNamespace).Get(context.Background(), "stress", metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Status.Phase != corev1.PodRunning || !isPodReady(p) {
+				t.Fatalf("stress pod phase = %s, ready = %v; want the %s pod replaced", p.Status.Phase, isPodReady(p), phase)
+			}
+		})
 	}
 }
 

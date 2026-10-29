@@ -67,13 +67,14 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	By("creating the " + harness.Bucket + " bucket")
 	Expect(installer.EnsureBucket(ctx)).To(Succeed())
 
+	// a known workload for the agent to report on (as e2e.sh did). It must be
+	// Ready before the agent starts, so every sample the agent emits includes it.
+	By("deploying the stress pod")
+	Expect(harness.DeployStress(ctx, kube, waitTimeout)).To(Succeed())
+
 	// the agent under test, at the pinned chart version
 	By("installing the agent")
 	Expect(installer.InstallAgent(ctx, harness.AgentInstall{})).To(Succeed())
-
-	// a known workload for the agent to report on (as e2e.sh did)
-	By("deploying the stress pod")
-	Expect(harness.DeployStress(ctx, kube, waitTimeout)).To(Succeed())
 }, NodeTimeout(setupTimeout), GracePeriod(setupGrace))
 
 var _ = AfterSuite(func(ctx SpecContext) {

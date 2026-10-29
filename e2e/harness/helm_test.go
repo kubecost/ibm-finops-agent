@@ -78,7 +78,7 @@ func TestAgentInstallArgs(t *testing.T) {
 	t.Parallel()
 	got := agentInstallArgs(testInstallConfig(), AgentInstall{
 		ValuesFiles: []string{"testdata/fast.yaml", "testdata/limits.yaml"},
-		Set:         map[string]string{"z.last": "1", "agent.cloudability.emissionInterval": "5s", "image.tag": "override"},
+		Set:         map[string]string{"z.last": "1", "agent.cloudability.emissionInterval": "5s", "agent.kubecost.enabled": "false"},
 	})
 	want := []string{
 		"upgrade", "--install", testRelease, "finops-agent",
@@ -89,17 +89,34 @@ func TestAgentInstallArgs(t *testing.T) {
 		"--values", AgentValuesFile,
 		"--values", "testdata/fast.yaml",
 		"--values", "testdata/limits.yaml",
-		// Image under test, split by ParseImage.
-		"--set", "image.registry=localhost",
-		"--set", "image.repository=e2e/ibm-finops-agent",
-		"--set", "image.tag=e2e",
-		// Extra values last and sorted, so they can override and the command is stable.
+		// Image under test, split by ParseImage. Always strings, so an
+		// all-digit tag isn't turned into a number.
+		"--set-string", "image.registry=localhost",
+		"--set-string", "image.repository=e2e/ibm-finops-agent",
+		"--set-string", "image.tag=e2e",
+		// Extra values sorted, so the command is the same every run. They use
+		// --set, so a spec can pass booleans and numbers. (They can't override
+		// image.*: helm applies --set-string after --set. See AgentInstall.Set.)
 		"--set", "agent.cloudability.emissionInterval=5s",
-		"--set", "image.tag=override",
+		"--set", "agent.kubecost.enabled=false",
 		"--set", "z.last=1",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("args =\n  %v\nwant\n  %v", got, want)
+	}
+}
+
+// Tags that look like numbers (short SHAs, x.y versions) stay strings.
+func TestAgentInstallArgsNumericTag(t *testing.T) {
+	t.Parallel()
+	for _, tag := range []string{"12345678", "1.10", "0123"} {
+		cfg := testInstallConfig()
+		cfg.ImageRef.Tag = tag
+		args := agentInstallArgs(cfg, AgentInstall{})
+		i := slices.Index(args, "image.tag="+tag)
+		if i < 1 || args[i-1] != "--set-string" {
+			t.Errorf("tag %q: want --set-string image.tag=%s in %v", tag, tag, args)
+		}
 	}
 }
 
@@ -111,6 +128,7 @@ func TestInstallLocalstack(t *testing.T) {
 		}
 		got := calls()
 		want := "upgrade --install localstack localstack --repo " + LocalstackChartRepo +
+			" --version " + LocalstackChartVersion +
 			" --namespace " + testNS + " --create-namespace --values " + LocalstackValuesFile
 		if len(got) != 1 || argsOf(got[0]) != want {
 			t.Fatalf("calls = %v\nwant one helm call: %s", got, want)
@@ -191,6 +209,26 @@ func TestEnsureBucket(t *testing.T) {
 			}
 		})
 	}
+
+	// A hung awslocal fails that step quickly with a clear error, instead of
+	// using up the whole setup timeout.
+	t.Run("hung exec times out and names the step", func(t *testing.T) {
+		in, _ := newInstaller(t, fake{on: map[string]string{
+			"kubectl exec --namespace " + testNS + " localstack-0 -- awslocal s3api": `exec sleep 30`,
+		}}, readyPodIn("localstack-0", localstackLabels, true))
+		in.execTimeout = 200 * time.Millisecond
+
+		start := time.Now()
+		err := in.EnsureBucket(context.Background())
+		if time.Since(start) > 10*time.Second {
+			t.Fatalf("EnsureBucket took %s; the hung exec wasn't stopped", time.Since(start))
+		}
+		for _, want := range []string{"head-bucket", "context deadline exceeded"} {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("err = %v, want it to contain %q", err, want)
+			}
+		}
+	})
 
 	t.Run("no Ready localstack pod", func(t *testing.T) {
 		in, calls := newInstaller(t, fake{}, readyPodIn("localstack-0", localstackLabels, false))
