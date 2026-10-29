@@ -69,7 +69,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 
 	// a known workload for the agent to report on (as e2e.sh did). It must be
 	// Ready before the agent starts, so every sample the agent emits includes it.
-	By("deploying the stress pod")
+	By("deploying the stress pod with 100m cpu and 128mb Ram (including baseline ram will read as 136mb)")
 	Expect(harness.DeployStress(ctx, kube, waitTimeout)).To(Succeed())
 
 	// the agent under test, at the pinned chart version

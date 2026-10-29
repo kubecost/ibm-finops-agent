@@ -3,9 +3,12 @@ package harness
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -213,12 +216,32 @@ func readyOnCreate(client *k8sfake.Clientset) {
 	})
 }
 
-func TestDeployStressCreatesNamespaceAndPod(t *testing.T) {
+// recordConsume returns a consumeFunc that records each load request, failing
+// the first failFirst calls (e.g. the HTTP server not listening yet).
+func recordConsume(failFirst int) (consumeFunc, func() []string) {
+	var mu sync.Mutex
+	var got []string
+	calls := 0
+	f := func(_ context.Context, endpoint string, params url.Values) error {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if calls <= failFirst {
+			return errors.New("connection refused")
+		}
+		got = append(got, endpoint+"?"+params.Encode())
+		return nil
+	}
+	return f, func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(got) }
+}
+
+func TestDeployStressCreatesPodAndStartsLoad(t *testing.T) {
 	t.Parallel()
 	client := k8sfake.NewClientset()
 	readyOnCreate(client)
+	consume, sent := recordConsume(0)
 
-	if err := deployStress(context.Background(), client, 5*time.Second, testInterval); err != nil {
+	if err := deployStress(context.Background(), client, consume, 5*time.Second, testInterval); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.CoreV1().Namespaces().Get(context.Background(), StressNamespace, metav1.GetOptions{}); err != nil {
@@ -228,102 +251,96 @@ func TestDeployStressCreatesNamespaceAndPod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stress pod not created: %v", err)
 	}
-	// Same pod e2e.sh created; the sample checks look for the app=stress label.
+	// The ported e2e.sh checks look for this name, namespace and label.
 	if p.Labels["app"] != "stress" {
 		t.Errorf("labels = %v, want app=stress", p.Labels)
 	}
 	c := p.Spec.Containers[0]
-	if c.Image != stressImage {
-		t.Errorf("image = %s, want %s", c.Image, stressImage)
+	if c.Image != stressImage || len(c.Ports) != 1 || c.Ports[0].ContainerPort != stressPort {
+		t.Errorf("container = %s ports %v", c.Image, c.Ports)
 	}
-	// resource-consumer idles until asked over HTTP; checks reach it on this port.
-	if len(c.Ports) != 1 || c.Ports[0].ContainerPort != stressPort {
-		t.Errorf("ports = %v, want %d", c.Ports, stressPort)
+	// Limits must leave headroom above the load, or the pod is throttled or OOM-killed.
+	if c.Resources.Limits.Cpu().MilliValue() <= StressCPUMillicores ||
+		c.Resources.Limits.Memory().Value() <= int64(StressMemoryMegabytes)*1_000_000*11/10 {
+		t.Errorf("limits %v leave no headroom above the load", c.Resources.Limits)
 	}
-	if c.Resources.Limits.Cpu().IsZero() || c.Resources.Limits.Memory().IsZero() {
-		t.Errorf("stress pod should have CPU and memory limits, got %v", c.Resources.Limits)
+
+	want := []string{
+		"ConsumeCPU?durationSec=7200&millicores=100",
+		"ConsumeMem?durationSec=7200&megabytes=128",
+	}
+	if got := sent(); !slices.Equal(got, want) {
+		t.Fatalf("load requests = %v, want %v", got, want)
 	}
 }
 
-// A kept cluster may hold a stress pod with an old image (e.g. the unpullable
-// jfusterm/stress). Pod images can't change in place, so it is recreated.
-func TestDeployStressReplacesOutdatedPod(t *testing.T) {
+// A pod from an earlier run is always replaced, even if it looks fine: its
+// load would add to the new one (resource-consumer stacks requests).
+func TestDeployStressReplacesPodFromEarlierRun(t *testing.T) {
 	t.Parallel()
 	old := stressPod()
-	old.Spec.Containers[0].Image = "docker.io/jfusterm/stress:latest"
+	old.Status.Phase = corev1.PodRunning
+	old.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	old.Annotations = map[string]string{"run": "earlier"}
 	client := k8sfake.NewClientset(&corev1.Namespace{Name: StressNamespace}, old)
 	readyOnCreate(client)
+	consume, sent := recordConsume(0)
 
-	if err := deployStress(context.Background(), client, 5*time.Second, testInterval); err != nil {
+	if err := deployStress(context.Background(), client, consume, 5*time.Second, testInterval); err != nil {
 		t.Fatal(err)
 	}
 	p, err := client.CoreV1().Pods(StressNamespace).Get(context.Background(), "stress", metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.Spec.Containers[0].Image; got != stressImage {
-		t.Fatalf("image = %s, want the old pod replaced with %s", got, stressImage)
+	if p.Annotations["run"] == "earlier" {
+		t.Fatal("the earlier run's stress pod was kept")
 	}
-	var deleted bool
-	for _, a := range client.Actions() {
-		deleted = deleted || (a.GetVerb() == "delete" && a.GetResource().Resource == "pods")
-	}
-	if !deleted {
-		t.Error("old pod was not deleted")
+	if len(sent()) != 2 {
+		t.Fatalf("load requests = %v, want one CPU and one memory request", sent())
 	}
 }
 
-// A stress pod already running the current image is left alone (no restart).
-func TestDeployStressKeepsCurrentPod(t *testing.T) {
+// The load requests are retried until resource-consumer's HTTP server answers.
+func TestDeployStressRetriesLoadRequests(t *testing.T) {
 	t.Parallel()
-	existing := stressPod()
-	existing.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
-	client := k8sfake.NewClientset(&corev1.Namespace{Name: StressNamespace}, existing)
+	client := k8sfake.NewClientset()
+	readyOnCreate(client)
+	consume, sent := recordConsume(3)
 
-	if err := deployStress(context.Background(), client, 5*time.Second, testInterval); err != nil {
+	if err := deployStress(context.Background(), client, consume, 5*time.Second, testInterval); err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range client.Actions() {
-		if a.GetVerb() == "delete" {
-			t.Fatalf("unexpected %s %s", a.GetVerb(), a.GetResource().Resource)
-		}
+	if got := sent(); len(got) != 2 {
+		t.Fatalf("load requests = %v, want both sent after the retries", got)
 	}
 }
 
-// A bare pod that was evicted (or exited) is never restarted, so on a kept
-// cluster it is replaced even though its image is current.
-func TestDeployStressReplacesFinishedPod(t *testing.T) {
+func TestDeployStressLoadFailureIsReported(t *testing.T) {
 	t.Parallel()
-	for _, phase := range []corev1.PodPhase{corev1.PodFailed, corev1.PodSucceeded} {
-		t.Run(string(phase), func(t *testing.T) {
-			t.Parallel()
-			old := stressPod()
-			old.Status.Phase = phase
-			old.Status.Reason = "Evicted"
-			client := k8sfake.NewClientset(&corev1.Namespace{Name: StressNamespace}, old)
-			readyOnCreate(client)
+	client := k8sfake.NewClientset()
+	readyOnCreate(client)
+	consume, _ := recordConsume(1 << 30) // never succeeds
 
-			if err := deployStress(context.Background(), client, 5*time.Second, testInterval); err != nil {
-				t.Fatal(err)
-			}
-			p, err := client.CoreV1().Pods(StressNamespace).Get(context.Background(), "stress", metav1.GetOptions{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if p.Status.Phase != corev1.PodRunning || !isPodReady(p) {
-				t.Fatalf("stress pod phase = %s, ready = %v; want the %s pod replaced", p.Status.Phase, isPodReady(p), phase)
-			}
-		})
+	err := deployStress(context.Background(), client, consume, 100*time.Millisecond, testInterval)
+	for _, want := range []string{"start stress load ConsumeCPU", "connection refused"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to contain %q", err, want)
+		}
 	}
 }
 
 func TestDeployStressReportsNotReady(t *testing.T) {
 	t.Parallel()
 	client := k8sfake.NewClientset() // pods stay without a Ready condition
+	consume, sent := recordConsume(0)
 
-	err := deployStress(context.Background(), client, 100*time.Millisecond, testInterval)
+	err := deployStress(context.Background(), client, consume, 100*time.Millisecond, testInterval)
 	if err == nil || !strings.Contains(err.Error(), "stress pod") || !strings.Contains(err.Error(), "not Ready") {
 		t.Fatalf("err = %v, want a not-Ready error for the stress pod", err)
+	}
+	if got := sent(); got != nil {
+		t.Fatalf("load requests = %v, want none before the pod is Ready", got)
 	}
 }
 
@@ -333,8 +350,9 @@ func TestDeployStressCreateError(t *testing.T) {
 	client.PrependReactor("create", "namespaces", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("forbidden")
 	})
+	consume, _ := recordConsume(0)
 
-	err := deployStress(context.Background(), client, time.Second, testInterval)
+	err := deployStress(context.Background(), client, consume, time.Second, testInterval)
 	if err == nil || !strings.Contains(err.Error(), "create namespace stress: forbidden") {
 		t.Fatalf("err = %v", err)
 	}

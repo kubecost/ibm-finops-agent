@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +34,14 @@ const (
 	// whose Docker v1 manifest recent kind nodes can't pull.
 	stressImage = "registry.k8s.io/e2e-test-images/resource-consumer:1.15.0"
 	stressPort  = 8080
+
+	// StressCPUMillicores and StressMemoryMegabytes are the load DeployStress
+	// starts on the stress pod. Checks compare the agent's data against them.
+	StressCPUMillicores   = 100
+	StressMemoryMegabytes = 128
+	// stressLoadDuration outlasts the 45m suite timeout, so the load never
+	// stops mid-run. The pod is recreated each run, so it doesn't linger.
+	stressLoadDuration = 2 * time.Hour
 )
 
 // NewClient returns a Kubernetes client for the cluster in kubeconfig.
@@ -180,63 +190,69 @@ func describePod(p *corev1.Pod) string {
 	return strings.Join(parts, ", ")
 }
 
-// DeployStress creates the stress namespace and pod (as e2e.sh did) and waits
-// for the pod to be Ready. Existing ones are reused when current, so this is
-// safe on a kept cluster. The stress pod gives data validation a consistent workload.
+// DeployStress recreates the stress namespace and pod (as e2e.sh did), waits
+// for the pod to be Ready, and starts its load: StressCPUMillicores of CPU and
+// StressMemoryMegabytes of memory. Run it before the agent is installed, so
+// every sample the agent takes sees the same, known load.
+//
+// The pod is recreated on every run rather than reused. resource-consumer adds
+// each request to the running load, so re-sending the load to a kept pod would
+// stack it, and doubled memory gets the pod OOM-killed (which drops all load).
 func DeployStress(ctx context.Context, client kubernetes.Interface, timeout time.Duration) error {
-	return deployStress(ctx, client, timeout, pollInterval)
+	return deployStress(ctx, client, proxyConsume(client), timeout, pollInterval)
 }
 
-func deployStress(ctx context.Context, client kubernetes.Interface, timeout, interval time.Duration) error {
+// consumeFunc sends one load request (e.g. "ConsumeCPU") to the stress pod.
+type consumeFunc func(ctx context.Context, endpoint string, params url.Values) error
+
+// proxyConsume sends load requests through the API server's pod proxy, so no
+// port-forward is needed.
+func proxyConsume(client kubernetes.Interface) consumeFunc {
+	return func(ctx context.Context, endpoint string, params url.Values) error {
+		req := client.CoreV1().RESTClient().Post().
+			Namespace(StressNamespace).
+			Resource("pods").
+			Name(fmt.Sprintf("%s:%d", stressPodName, stressPort)).
+			SubResource("proxy").
+			Suffix(endpoint)
+		for k, vs := range params {
+			for _, v := range vs {
+				req = req.Param(k, v)
+			}
+		}
+		return req.Do(ctx).Error()
+	}
+}
+
+func deployStress(ctx context.Context, client kubernetes.Interface, consume consumeFunc, timeout, interval time.Duration) error {
 	ns := &corev1.Namespace{Name: StressNamespace}
 	if _, err := client.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create namespace %s: %w", StressNamespace, err)
 	}
-	if err := ensureStressPod(ctx, client, timeout, interval); err != nil {
+	if err := recreateStressPod(ctx, client, timeout, interval); err != nil {
 		return err
 	}
 	if err := waitForPodsReady(ctx, client, StressNamespace, StressSelector, timeout, interval); err != nil {
 		return fmt.Errorf("stress pod: %w", err)
 	}
-	return nil
+	return startStressLoad(ctx, consume, timeout, interval)
 }
 
-// ensureStressPod creates the stress pod. An existing pod is kept if it runs
-// stressImage and replaced otherwise: a pod's image can't be changed in place,
-// and a kept cluster may still have a pod from an older harness version.
-func ensureStressPod(ctx context.Context, client kubernetes.Interface, timeout, interval time.Duration) error {
+// recreateStressPod deletes any stress pod left by an earlier run and creates
+// a fresh one, so the pod never carries load from before this run.
+func recreateStressPod(ctx context.Context, client kubernetes.Interface, timeout, interval time.Duration) error {
 	pods := client.CoreV1().Pods(StressNamespace)
-	want := stressPod()
-
-	_, err := pods.Create(ctx, want, metav1.CreateOptions{})
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create stress pod: %w", err)
-	}
-
-	existing, err := pods.Get(ctx, stressPodName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing stress pod: %w", err)
-	}
-	// A bare pod isn't restarted once it has finished (e.g. evicted under disk
-	// pressure), so a finished pod is replaced even if its image is current.
-	currentImage := len(existing.Spec.Containers) == 1 && existing.Spec.Containers[0].Image == stressImage
-	if currentImage && !isFinished(existing) {
-		return nil
-	}
-
-	if currentImage {
-		_, _ = fmt.Fprintf(LogWriter, "replacing stress pod: %s\n", describePod(existing))
-	} else {
-		_, _ = fmt.Fprintf(LogWriter, "replacing stress pod: it runs %q, want %q\n", existing.Spec.Containers[0].Image, stressImage)
-	}
-	if err := pods.Delete(ctx, stressPodName, metav1.DeleteOptions{GracePeriodSeconds: new(int64)}); err != nil && !apierrors.IsNotFound(err) {
+	switch err := pods.Delete(ctx, stressPodName, metav1.DeleteOptions{GracePeriodSeconds: new(int64)}); {
+	case err == nil:
+		_, _ = fmt.Fprintln(LogWriter, "replacing stress pod from an earlier run")
+	case apierrors.IsNotFound(err):
+	default:
 		return fmt.Errorf("delete old stress pod: %w", err)
 	}
+
 	// Create fails with AlreadyExists until the old pod is fully gone.
-	err = wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+	want := stressPod()
+	err := wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
 		_, err := pods.Create(ctx, want, metav1.CreateOptions{})
 		switch {
 		case err == nil:
@@ -248,14 +264,39 @@ func ensureStressPod(ctx context.Context, client kubernetes.Interface, timeout, 
 		}
 	})
 	if err != nil {
-		return fmt.Errorf("recreate stress pod: %w", err)
+		return fmt.Errorf("create stress pod: %w", err)
+	}
+	return nil
+}
+
+// startStressLoad asks the stress pod for its fixed CPU and memory load. Each
+// request is sent once it succeeds; failures (e.g. the HTTP server not
+// listening yet) are retried until timeout.
+func startStressLoad(ctx context.Context, consume consumeFunc, timeout, interval time.Duration) error {
+	dur := strconv.Itoa(int(stressLoadDuration.Seconds()))
+	loads := []struct {
+		endpoint string
+		params   url.Values
+	}{
+		{"ConsumeCPU", url.Values{"millicores": {strconv.Itoa(StressCPUMillicores)}, "durationSec": {dur}}},
+		{"ConsumeMem", url.Values{"megabytes": {strconv.Itoa(StressMemoryMegabytes)}, "durationSec": {dur}}},
+	}
+	for _, l := range loads {
+		var last error
+		err := wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+			last = consume(ctx, l.endpoint, l.params)
+			return last == nil, nil
+		})
+		if err != nil {
+			return fmt.Errorf("start stress load %s: %w", l.endpoint, errors.Join(err, last))
+		}
 	}
 	return nil
 }
 
 // stressPod is the pod e2e.sh created (name and namespace "stress", label
-// app=stress), now running resource-consumer. It idles until a check asks it to
-// consume CPU or memory; the limits leave room above what those checks request.
+// app=stress), now running resource-consumer. The limits leave headroom above
+// the load: 128 MB of memory shows up as about 136 MiB working set.
 func stressPod() *corev1.Pod {
 	return &corev1.Pod{
 		Name:      stressPodName,
