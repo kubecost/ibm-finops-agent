@@ -1,0 +1,10 @@
+image:
+  repository: localstack/localstack
+  # Use the last version from the 4.x branch before the March 2026 unified change
+  # We will want to update this in the future to use the auth; this is only a temporary fix
+  tag: "4.12" 
+  pullPolicy: IfNotPresent
+
+extraEnvVars:
+  - name: ACTIVATE_PRO
+    value: "false"
