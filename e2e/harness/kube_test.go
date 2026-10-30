@@ -188,6 +188,43 @@ func TestWaitForPodsReadyKeepsPodStateAtDeadline(t *testing.T) {
 	}
 }
 
+func TestWaitForPodsGone(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no pods", func(t *testing.T) {
+		t.Parallel()
+		client := k8sfake.NewClientset(pod("other", map[string]string{"app": "x"}, true))
+		if err := waitForPodsGone(context.Background(), client, "ns", agentSelector, time.Second, testInterval); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("waits until the pod is deleted", func(t *testing.T) {
+		t.Parallel()
+		client := k8sfake.NewClientset(pod("agent-a", agentLabels, true))
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			_ = client.CoreV1().Pods("ns").Delete(context.Background(), "agent-a", metav1.DeleteOptions{})
+		}()
+		if err := waitForPodsGone(context.Background(), client, "ns", agentSelector, 5*time.Second, testInterval); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	// A terminating pod can still write, so it counts until it is gone.
+	t.Run("terminating pod still counts", func(t *testing.T) {
+		t.Parallel()
+		p := pod("agent-a", agentLabels, true)
+		p.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+		p.Finalizers = []string{"test"}
+		client := k8sfake.NewClientset(p)
+		err := waitForPodsGone(context.Background(), client, "ns", agentSelector, 100*time.Millisecond, testInterval)
+		if err == nil || !strings.Contains(err.Error(), "still present") || !strings.Contains(err.Error(), "agent-a") {
+			t.Fatalf("err = %v, want the terminating pod reported", err)
+		}
+	})
+}
+
 // A cancelled context (suite timeout, Ctrl-C) stops the wait immediately.
 func TestWaitForPodsReadyStopsOnCancel(t *testing.T) {
 	t.Parallel()

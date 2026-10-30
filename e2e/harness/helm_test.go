@@ -157,6 +157,7 @@ func TestEnsureBucket(t *testing.T) {
 	const (
 		head = "kubectl exec --namespace " + testNS + " localstack-0 -- awslocal s3api head-bucket --bucket " + Bucket
 		mb   = "kubectl exec --namespace " + testNS + " localstack-0 -- awslocal s3 mb s3://" + Bucket
+		rm   = "kubectl exec --namespace " + testNS + " localstack-0 -- awslocal s3 rm s3://" + Bucket + " --recursive"
 	)
 	tests := []struct {
 		name      string
@@ -165,10 +166,18 @@ func TestEnsureBucket(t *testing.T) {
 		wantCalls []string
 	}{
 		{
-			name:      "existing bucket is left alone",
-			wantCalls: []string{head},
+			// A kept cluster's bucket holds the previous run's data.
+			name:      "existing bucket is emptied",
+			wantCalls: []string{head, rm},
 		},
 		{
+			name:      "failure to empty the bucket is reported",
+			on:        map[string]string{"kubectl exec --namespace " + testNS + " localstack-0 -- awslocal s3 rm": `echo "access denied" >&2; exit 1`},
+			wantErr:   []string{"empty bucket " + Bucket, "access denied"},
+			wantCalls: []string{head, rm},
+		},
+		{
+			// A new bucket is already empty, so there's nothing to remove.
 			name:      "missing bucket is created",
 			on:        map[string]string{"kubectl exec --namespace " + testNS + " localstack-0 -- awslocal s3api": `exit 254`},
 			wantCalls: []string{head, mb},
@@ -240,6 +249,78 @@ func TestEnsureBucket(t *testing.T) {
 			t.Fatalf("calls = %v, want none", got)
 		}
 	})
+}
+
+// RemoveAgent stops an earlier run's agent so it can't write into the bucket
+// after EnsureBucket empties it.
+func TestRemoveAgent(t *testing.T) {
+	agentLabelsFor := map[string]string{"app.kubernetes.io/name": "finops-agent", "app.kubernetes.io/instance": testRelease}
+	const (
+		status    = "helm status " + testRelease + " --namespace " + testNS
+		uninstall = "helm uninstall " + testRelease + " --namespace " + testNS
+	)
+	tests := []struct {
+		name      string
+		on        map[string]string
+		objs      []runtime.Object
+		wantErr   []string
+		wantCalls []string
+	}{
+		{
+			name:      "no release: nothing to remove",
+			on:        map[string]string{"helm status": notFound},
+			wantCalls: []string{status},
+		},
+		{
+			name:      "existing release is uninstalled",
+			wantCalls: []string{status, uninstall},
+		},
+		{
+			// The pod keeps writing until it's gone, so its removal is waited for.
+			name:      "old agent pod that never goes away fails",
+			objs:      []runtime.Object{readyPodIn("unified-agent-old", agentLabelsFor, true)},
+			wantErr:   []string{"old agent", "still present", "unified-agent-old"},
+			wantCalls: []string{status, uninstall},
+		},
+		{
+			name:      "uninstall failure is reported",
+			on:        map[string]string{"helm uninstall": `echo "uninstall failed" >&2; exit 1`},
+			wantErr:   []string{"uninstall agent", "uninstall failed"},
+			wantCalls: []string{status, uninstall},
+		},
+		{
+			name:      "helm status error stops before uninstalling",
+			on:        map[string]string{"helm status": `echo "cluster unreachable" >&2; exit 1`},
+			wantErr:   []string{"check helm release", "cluster unreachable"},
+			wantCalls: []string{status},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in, calls := newInstaller(t, fake{on: tt.on}, tt.objs...)
+			log := captureLog(t)
+
+			err := in.RemoveAgent(context.Background())
+			if tt.wantErr == nil && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			for _, want := range tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Errorf("err = %v, want it to contain %q", err, want)
+				}
+			}
+			var got []string
+			for _, c := range calls() {
+				got = append(got, "helm "+argsOf(c))
+			}
+			if !slices.Equal(got, tt.wantCalls) {
+				t.Fatalf("calls =\n  %v\nwant\n  %v", got, tt.wantCalls)
+			}
+			if slices.Contains(tt.wantCalls, uninstall) && !strings.Contains(log.String(), "removing agent release") {
+				t.Errorf("log %q should say the old release is being removed", log.String())
+			}
+		})
+	}
 }
 
 // TestInstallAgentCalls checks the exact helm/kubectl sequence of InstallAgent.

@@ -117,8 +117,37 @@ func (in *Installer) InstallLocalstack(ctx context.Context) error {
 	return nil
 }
 
-// EnsureBucket creates the agent's S3 bucket in localstack unless it already
-// exists (e.g. on a kept cluster).
+// RemoveAgent uninstalls the agent release if it exists (a kept cluster) and
+// waits until its pods are gone. Call it before EnsureBucket: the old agent
+// keeps writing to the bucket until it stops, so emptying the bucket while it
+// runs would let its data back in.
+func (in *Installer) RemoveAgent(ctx context.Context) error {
+	release, ns := in.Config.ReleaseName, in.Config.Namespace
+	existed, err := in.releaseExists(ctx, release)
+	if err != nil {
+		return err
+	}
+	if !existed {
+		return nil
+	}
+	_, _ = fmt.Fprintf(LogWriter, "removing agent release %s from an earlier run\n", release)
+	if _, err := in.run(ctx, "helm", "uninstall", release, "--namespace", ns); err != nil {
+		return fmt.Errorf("uninstall agent: %w", err)
+	}
+	if err := waitForPodsGone(ctx, in.Client, ns, AgentSelector(release), in.timeout(), in.pollEvery()); err != nil {
+		return fmt.Errorf("old agent: %w", err)
+	}
+	return nil
+}
+
+// EnsureBucket leaves the agent's S3 bucket in localstack existing and empty.
+// On a kept cluster the bucket survives from the previous run, so it is
+// emptied: otherwise old federated windows, heartbeats and uploads would mix
+// with this run's (the stress pod keeps its name across runs, so its usage
+// would be combined in the longer windows).
+//
+// No agent may be running when this is called (see RemoveAgent), or it will
+// write new objects right after the bucket is emptied.
 func (in *Installer) EnsureBucket(ctx context.Context) error {
 	pod, err := in.readyPod(ctx, LocalstackSelector)
 	if err != nil {
@@ -135,7 +164,11 @@ func (in *Installer) EnsureBucket(ctx context.Context) error {
 	_, headErr := exec("awslocal", "s3api", "head-bucket", "--bucket", Bucket)
 	switch {
 	case headErr == nil:
-		return nil // already there
+		// Left from an earlier run: empty it.
+		if _, err := exec("awslocal", "s3", "rm", "s3://"+Bucket, "--recursive"); err != nil {
+			return fmt.Errorf("empty bucket %s: %w", Bucket, err)
+		}
+		return nil
 	case isTimeout(headErr):
 		// Hung, not "bucket missing"; creating it would likely hang too.
 		return fmt.Errorf("head-bucket %s: %w", Bucket, headErr)

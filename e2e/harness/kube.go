@@ -318,6 +318,27 @@ func stressPod() *corev1.Pod {
 	}
 }
 
+// waitForPodsGone waits until no pod in namespace matches selector, including
+// terminating ones: a pod still shutting down can still write data.
+func waitForPodsGone(ctx context.Context, client kubernetes.Interface, namespace, selector string, timeout, interval time.Duration) error {
+	var last []string
+	err := wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+		pods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+		if err != nil {
+			return false, nil // retried until the timeout
+		}
+		last = last[:0]
+		for i := range pods.Items {
+			last = append(last, describePod(&pods.Items[i]))
+		}
+		return len(pods.Items) == 0, nil
+	})
+	if err != nil {
+		return fmt.Errorf("pods %q in namespace %s still present after %s: %s: %w", selector, namespace, timeout, strings.Join(last, "; "), err)
+	}
+	return nil
+}
+
 // isTimeout reports whether err came from a wait that ran out of time
 // (as opposed to failing for another reason).
 func isTimeout(err error) bool {

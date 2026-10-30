@@ -64,7 +64,11 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	// fake S3 for the agent's federated storage
 	By("installing localstack")
 	Expect(installer.InstallLocalstack(ctx)).To(Succeed())
-	By("creating the " + harness.Bucket + " bucket")
+	// On a kept cluster, stop the previous run's agent first, or it keeps
+	// writing into the bucket after it is emptied.
+	By("removing any agent from an earlier run")
+	Expect(installer.RemoveAgent(ctx)).To(Succeed())
+	By("creating an empty " + harness.Bucket + " bucket")
 	Expect(installer.EnsureBucket(ctx)).To(Succeed())
 
 	// a known workload for the agent to report on (as e2e.sh did). It must be
@@ -87,8 +91,3 @@ var _ = AfterSuite(func(ctx SpecContext) {
 	}
 	Expect(cluster.Delete(ctx)).To(Succeed())
 }, NodeTimeout(2*time.Minute))
-
-// Placeholder so BeforeSuite runs; removed in step 4 when install_test.go adds real specs.
-var _ = It("loads config", func() {
-	Expect(cfg.ImageRef.Tag).NotTo(BeEmpty())
-})
