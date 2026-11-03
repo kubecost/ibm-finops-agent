@@ -621,6 +621,7 @@ func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 }
 
 func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
+	log.Debugf("Reading payload file for custom S3 upload: %s", payload.FilePath)
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("unable to open metric sample file: %w", err)
@@ -776,6 +777,7 @@ type BlobUploadInput struct {
 }
 
 func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
+	log.Debugf("Reading payload file for custom azure blob upload: %s", payload.FilePath)
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("unable to open metric sample file: %w", err)
