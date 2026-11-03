@@ -32,3 +32,13 @@ agent:
       cloudabilityAccessKey: "XXX"
       cloudabilitySecretKey: "XXX"
       cloudabilityEnvId: "XXX"
+# The agent image has no shell, so e2e.sh reads the agent's samples through
+# this sidecar, which mounts the same data volume read-only.
+sidecars:
+  - name: e2e-reader
+    image: busybox:1.37
+    command: ["sleep", "infinity"]
+    volumeMounts:
+      - name: data
+        mountPath: /opt/finops-agent
+        readOnly: true

@@ -121,7 +121,7 @@ var _ = Describe("Uploader", func() {
 			Eventually(func() ([]os.DirEntry, error) {
 				return os.ReadDir(actualUploader.UploadPathDir)
 			}, 5*time.Second, 10*time.Millisecond).Should(BeEmpty())
-			Expect(actualUploader.PendingUploads()).To(BeEmpty())
+			Eventually(actualUploader.PendingUploads, 5*time.Second, 10*time.Millisecond).Should(BeEmpty())
 		})
 	})
 	Context("TestStartupRecovery", func() {
