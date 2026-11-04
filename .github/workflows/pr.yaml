@@ -169,6 +169,137 @@ jobs:
           helm repo add localstack https://helm.localstack.cloud
           KUBERNETES_VERSION=${{ matrix.k8s-version }} IMAGE=${{ needs.build-and-test.outputs.image-tag }} TEMP_DIR=$(mktemp -d) e2e/e2e.sh
 
+  # Go/Ginkgo replacement for e2e-test (see e2e/harness). Runs next to the shell
+  # suite until it reaches parity. It is not added it to the
+  # required status checks yet.
+  e2e-go:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        k8s-version: ["v1.34.0", "v1.33.0", "v1.32.0", "v1.31.0"]
+    env:
+      IMAGE: ${{ needs.build-and-test.outputs.image-tag }}
+      KUBERNETES_VERSION: ${{ matrix.k8s-version }}
+      # Absolute, because go test runs from e2e/ and a relative path would
+      # resolve there. Holds the kubeconfig, which must not be uploaded.
+      # (The runner context is not available in job-level env, so no runner.temp.)
+      ARTIFACTS_DIR: ${{ github.workspace }}/e2e-artifacts/${{ matrix.k8s-version }}
+      # This prevents the cluster from being deleted. Once the work from
+      # artifacts are uploaded, this can be removed. Until then it provides
+      # the ability to look at the cluster on a failure to debug. 
+      KEEP_CLUSTER: "true"
+
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "stable"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ./ibm-finops-agent
+
+      - name: Go Mod cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key:
+            ${{ runner.os }}-go-${{ hashFiles('./ibm-finops-agent/**/go.sum') }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull Docker image
+        run: |
+          if [ -z "$IMAGE" ]; then
+            echo "::error::build-and-test produced no image tag"
+            exit 1
+          fi
+          docker pull "$IMAGE"
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: 3.18.4
+
+      - name: E2E (new suite) for ${{ matrix.k8s-version }}
+        working-directory: ./ibm-finops-agent
+        shell: bash 
+        run: |
+          mkdir -p "$ARTIFACTS_DIR"
+          make e2e E2E_FLAGS="-ginkgo.junit-report=$ARTIFACTS_DIR/junit.xml" 2>&1 \
+            | tee "$ARTIFACTS_DIR/ginkgo.log"
+
+      # To be replaced by a summary.md the suite writes from ReportAfterSuite.
+      # Summary.md will be addressed along with artifacts.
+      - name: Summarize results
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import os, xml.etree.ElementTree as ET
+          version = os.environ["KUBERNETES_VERSION"]
+          path = os.path.join(os.environ["ARTIFACTS_DIR"], "junit.xml")
+          print(f"### Go E2E on Kubernetes {version}")
+          print(f"Image: `{os.environ['IMAGE']}`")
+          print()
+          try:
+              suites = ET.parse(path).getroot()
+          except (OSError, ET.ParseError):
+              # Ginkgo writes the report even when BeforeSuite fails, so a
+              # missing or unreadable one means go test never got that far.
+              print("No JUnit report: the suite did not finish (compile error, crash or timeout). See the job log.")
+          else:
+              print("| Spec | Result |")
+              print("| --- | --- |")
+              for case in suites.iter("testcase"):
+                  if case.find("failure") is not None or case.find("error") is not None:
+                      result = "failed"
+                  elif case.find("skipped") is not None:
+                      result = "skipped"
+                  else:
+                      result = "passed"
+                  print(f"| {case.get('name')} | {result} |")
+          EOF
+
+      # Stopgap until the suite saves its own artifacts
+      - name: Collect cluster diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          out="$ARTIFACTS_DIR/diagnostics"
+          mkdir -p "$out"
+          export KUBECONFIG="$ARTIFACTS_DIR/kubeconfig"
+          kubectl get pods -A -o wide > "$out/pods.txt" || true
+          kubectl describe pods -A > "$out/pods-describe.txt" || true
+          kubectl get events -A --sort-by=.lastTimestamp > "$out/events.txt" || true
+          kubectl logs -n ibm-finops-agent -l app.kubernetes.io/name=finops-agent \
+            --all-containers --tail=-1 > "$out/agent.log" || true
+          kind export logs "$out/kind" --name "e2e-$KUBERNETES_VERSION" || true
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-go-${{ matrix.k8s-version }}
+          retention-days: 7
+          if-no-files-found: warn
+          # The kubeconfig holds cluster credentials.
+          path: |
+            ${{ env.ARTIFACTS_DIR }}
+            !**/kubeconfig
+
   set-labels:
     needs: [build-and-test, e2e-test]
     runs-on: ubuntu-latest
