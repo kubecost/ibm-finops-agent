@@ -28,6 +28,7 @@ type Agent struct {
 	Client    kubernetes.Interface
 	Namespace string
 	Release   string
+	Cluster   *Cluster
 }
 
 // Response is an HTTP response from the agent.
