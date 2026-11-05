@@ -262,6 +262,7 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 	if err != nil {
 		return err
 	}
+	log.Debugf("Finished reading payload file for upload: %s", payload.FilePath)
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
 			log.Warnf("error closing upload response body: %v", closeErr)

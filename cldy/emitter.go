@@ -402,7 +402,11 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 	defer safeClose(file.Close, &rerr)
 
 	_, err = file.Write(data)
-	return err
+	if err != nil {
+		return err
+	}
+	log.Debugf("Finished writing stats file %s", fileName)
+	return nil
 }
 
 func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
@@ -616,7 +620,11 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		return err
 	}
 	_, err = outFile.Write(agentBytes)
-	return err
+	if err != nil {
+		return err
+	}
+	log.Debugf("Finished writing agent measurement file %s", outputPath)
+	return nil
 }
 
 type agentData struct {
