@@ -364,6 +364,7 @@ func (cu *CldyUploader) recoverUploadFiles() error {
 // isCompleteGzip reads the gzip+tar stream at path to completion and returns an error if it is
 // truncated or invalid
 func isCompleteGzip(path string) (rerr error) {
+	log.Debugf("Verifying completeness of archive: %s", path)
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -380,6 +381,7 @@ func isCompleteGzip(path string) (rerr error) {
 	for {
 		_, err := tr.Next()
 		if errors.Is(err, io.EOF) {
+			log.Debugf("Finished verifying completeness of archive: %s", path)
 			return nil
 		}
 		if err != nil {
@@ -477,6 +479,7 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 			sampleTime.Format("2006-01-02-15-04-05"),
 		),
 	)
+	log.Debugf("Writing tar archive %s", path)
 	tw, err := os.Create(path)
 	if err != nil {
 		return "", err
@@ -510,6 +513,7 @@ func (cu *CldyUploader) ConstructPayload(sampleTime time.Time) (path string, rer
 		return "", err
 	}
 
+	log.Debugf("Finished writing tar archive %s", path)
 	return path, nil
 }
 
@@ -632,9 +636,11 @@ func (cu *CldyUploader) createTGZ(writer io.Writer, srcs ...*os.File) (rerr erro
 			defer safeClose(f.Close, &rerr)
 
 			// copy file data into tar writer
+			log.Debugf("Writing file data to tar archive: %s", file)
 			if _, err := io.Copy(tw, f); err != nil {
 				return err
 			}
+			log.Debugf("Finished writing file data to tar archive: %s", file)
 
 			return err
 		})

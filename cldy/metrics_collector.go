@@ -218,6 +218,7 @@ func getMetricsCollectorURLByRegion(region string) string {
 }
 
 func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, uploadURL string) error {
+	log.Debugf("Reading payload file for upload: %s", payload.FilePath)
 	fileToUpload, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("error in opening file to upload: %w", err)
@@ -261,6 +262,7 @@ func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, up
 	if err != nil {
 		return err
 	}
+	log.Debugf("Finished reading payload file for upload: %s", payload.FilePath)
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
 			log.Warnf("error closing upload response body: %v", closeErr)

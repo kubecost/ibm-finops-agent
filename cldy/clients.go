@@ -621,6 +621,7 @@ func newUploadClient(s3Region string) (*CustomS3Uploader, error) {
 }
 
 func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
+	log.Debugf("Reading payload file for custom S3 upload: %s", payload.FilePath)
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("unable to open metric sample file: %w", err)
@@ -643,6 +644,7 @@ func (cs3c CustomS3Client) Upload(payload UploadPayload) (err error) {
 		return fmt.Errorf("failed to put sample to custom S3 with error: %w. Please ensure agent "+
 			"is configured to have access to external resources", err)
 	}
+	log.Debugf("Finished reading payload file for custom S3 upload: %s", payload.FilePath)
 
 	log.Infof("Successfully uploaded metric sample %s to custom S3 bucket: %s", path.Base(key), cs3c.S3Bucket)
 	return nil
@@ -776,6 +778,7 @@ type BlobUploadInput struct {
 }
 
 func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
+	log.Debugf("Reading payload file for custom azure blob upload: %s", payload.FilePath)
 	fileReader, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("unable to open metric sample file: %w", err)
@@ -798,6 +801,7 @@ func (cbc CustomBlobClient) Upload(payload UploadPayload) (err error) {
 		return fmt.Errorf("failed to put sample to custom azure blob with error: %s. Please ensure agent "+
 			"is configured to have access to external resources", err)
 	}
+	log.Debugf("Finished reading payload file for custom azure blob upload: %s", payload.FilePath)
 
 	log.Infof("Successfully uploaded metric sample %s to custom azure blob: %s", path.Base(key), cbc.BlobContainerName)
 	return nil
