@@ -145,6 +145,12 @@ func startStressLoad(ctx context.Context, consume consumeFunc, timeout, interval
 	return nil
 }
 
+// StressLimits are the resource limits of the stress pod, for checking that
+// the agent reports them.
+func StressLimits() corev1.ResourceList {
+	return stressPod().Spec.Containers[0].Resources.Limits
+}
+
 // stressPod is the pod e2e.sh created (name and namespace "stress", label
 // app=stress), now running resource-consumer. The limits leave headroom above
 // the load: 128 MB of memory shows up as about 136 MiB working set.
