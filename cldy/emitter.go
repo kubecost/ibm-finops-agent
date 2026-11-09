@@ -394,6 +394,7 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 		fileName = ce.nextSamplePath
 	}
 	fileName = fileName + fmt.Sprintf(statsFileTemplate, outputPrefix, nodeName)
+	log.Debugf("Writing stats file %s (%d bytes)", fileName, len(data))
 	file, err := os.Create(fileName)
 	if err != nil {
 		return err
@@ -401,7 +402,11 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 	defer safeClose(file.Close, &rerr)
 
 	_, err = file.Write(data)
-	return err
+	if err != nil {
+		return err
+	}
+	log.Debugf("Finished writing stats file %s", fileName)
+	return nil
 }
 
 func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
@@ -531,6 +536,7 @@ func shouldSkipPod(previousHour time.Time, resource *v1.Pod) bool {
 
 func (ce *Emitter) writeObjects(name string, data []runtime.Object) (err error) {
 	outputPath := ce.currentSamplePath + name + ce.getSuffix()
+	log.Debugf("Writing objects file %s (%d objects)", outputPath, len(data))
 	outFile, err := os.Create(outputPath)
 	defer safeClose(outFile.Close, &err)
 	if err != nil {
@@ -546,11 +552,13 @@ func (ce *Emitter) writeObjects(name string, data []runtime.Object) (err error) 
 			return err
 		}
 	}
+	log.Debugf("Finished writing objects file %s", outputPath)
 	return nil
 }
 
 func (ce *Emitter) writeAgentFile() (err error) {
 	outputPath := ce.currentSamplePath + "agent-measurement.json"
+	log.Debugf("Writing agent measurement file %s", outputPath)
 	outFile, err := os.Create(outputPath)
 	defer safeClose(outFile.Close, &err)
 	if err != nil {
@@ -612,7 +620,11 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		return err
 	}
 	_, err = outFile.Write(agentBytes)
-	return err
+	if err != nil {
+		return err
+	}
+	log.Debugf("Finished writing agent measurement file %s", outputPath)
+	return nil
 }
 
 type agentData struct {

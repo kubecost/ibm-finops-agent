@@ -117,6 +117,7 @@ func newSet() *set {
 }
 
 func getFileNameAndHash(filePath string) (string, string, error) {
+	log.Debugf("Calculating hash for %s", filePath)
 	file, err := os.Open(filePath)
 	if err != nil {
 		return "", "", err
@@ -128,6 +129,7 @@ func getFileNameAndHash(filePath string) (string, string, error) {
 	if _, err = io.Copy(hash, file); err != nil {
 		return "", "", err
 	}
+	log.Debugf("Finished calculating hash for %s", filePath)
 	return fileName, base64.StdEncoding.EncodeToString(hash.Sum(nil)), nil
 }
 
