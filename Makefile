@@ -48,11 +48,14 @@ endef
 
 # To run the e2e tests locally, have an image built off the total UA docker file tagged 'localhost/e2e/ibm-finops-agent:e2e'
 # and export it to IMAGE_TAG. This could be manually configured by editing the HELM_INSTALL variable in the e2e.sh files
-e2e-test: add-e2e-chart test-k8s-1.33.0 test-k8s-1.32.0 test-k8s-1.31.0 test-k8s-1.30.0 
+e2e-test: add-e2e-chart test-k8s-1.34.0 test-k8s-1.33.0 test-k8s-1.32.0 test-k8s-1.31.0
 
 add-e2e-chart:
 	helm repo add ibm-finops https://kubecost.github.io/finops-agent-chart
 	helm repo add localstack https://helm.localstack.cloud
+
+test-k8s-1.34.0:
+	$(call TEST_KUBERNETES,v1.34.0)
 
 test-k8s-1.33.0:
 	$(call TEST_KUBERNETES,v1.33.0)
@@ -71,10 +74,19 @@ test-k8s-1.30.0:
 # A relative ARTIFACTS_DIR resolves from e2e/ (go test's working directory).
 # The suite timeout is Ginkgo's, not go test's: go test's -timeout kills the
 # process without running AfterSuite, which would leave the kind cluster behind.
+# E2E_FLAGS adds extra go test / Ginkgo flags, e.g. E2E_FLAGS="-ginkgo.label-filter=install".
+E2E_FLAGS ?=
 .PHONY: e2e
 e2e:
 	IMAGE=$(IMAGE) KUBERNETES_VERSION=$(KUBERNETES_VERSION) \
-		go test -tags e2e ./e2e -v -timeout 0 -ginkgo.timeout 45m -ginkgo.v
+		go test -tags e2e ./e2e -v -timeout 0 -ginkgo.timeout 45m -ginkgo.v $(E2E_FLAGS)
+
+# Compiles and vets the tagged suite without a cluster. golangci-lint skips
+# _test.go and `make test` has no e2e tag, so neither covers it. For local use;
+# in CI the e2e-go job compiles the suite when it runs it.
+.PHONY: e2e-vet
+e2e-vet:
+	go vet -tags e2e ./e2e/...
 
 .PHONY: podman-build-push
 podman-build-push:
