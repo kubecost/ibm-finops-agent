@@ -107,7 +107,7 @@ var _ = Describe("E2E", func() {
 			Expect(namespaceNames).To(ContainElement("stress"))
 			Expect(namespaceNames).To(ContainElement("ibm-finops-agent"))
 		})
-
+		// Has the correct pod metadata
 		It("has the correct pod metadata", func() {
 			f, err := os.Open(wd + "/pods.jsonl")
 			Expect(err).NotTo(HaveOccurred())
