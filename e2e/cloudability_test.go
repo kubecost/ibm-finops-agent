@@ -106,10 +106,18 @@ var _ = Describe("Cloudability sample", Ordered, Label("cloudability"), func() {
 		Expect(pod.Memory).NotTo(BeNil())
 		Expect(pod.Memory.WorkingSetBytes).NotTo(BeNil())
 
-		// Only that usage is reported, not how much: the stress pod is under
-		// load, so zero would mean the agent is not reporting its usage.
-		Expect(*pod.CPU.UsageNanoCores).To(BeNumerically(">", 0), "cpu usageNanoCores")
-		Expect(*pod.Memory.WorkingSetBytes).To(BeNumerically(">", 0), "memory workingSetBytes")
+		// The stress pod is loaded with StressCPUMillicores (100m) and StressMemoryMegabytes (128MB).
+		// Validate that the stats reported by the agent fall within expected bounds.
+		const (
+			minNanoCores = 50 * 1_000_000  // 50m
+			maxNanoCores = 500 * 1_000_000 // 500m (pod limit)
+			minMemBytes  = 100 * 1024 * 1024 // 100 MiB
+			maxMemBytes  = 256 * 1024 * 1024 // 256 MiB (pod limit)
+		)
+		Expect(*pod.CPU.UsageNanoCores).To(BeNumerically(">=", minNanoCores), "cpu usageNanoCores")
+		Expect(*pod.CPU.UsageNanoCores).To(BeNumerically("<=", maxNanoCores), "cpu usageNanoCores")
+		Expect(*pod.Memory.WorkingSetBytes).To(BeNumerically(">=", minMemBytes), "memory workingSetBytes")
+		Expect(*pod.Memory.WorkingSetBytes).To(BeNumerically("<=", maxMemBytes), "memory workingSetBytes")
 	})
 
 	It("reports a healthy agent in agent-measurement.json", func() {
