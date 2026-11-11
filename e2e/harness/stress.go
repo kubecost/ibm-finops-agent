@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 // The stress pod is a known workload for the agent to report on. Checks compare
@@ -39,22 +41,78 @@ const (
 	// stressLoadDuration outlasts the 45m suite timeout, so the load never
 	// stops mid-run. The pod is recreated each run, so it doesn't linger.
 	stressLoadDuration = 2 * time.Hour
+
+	// StressSteadyCPUNanoCores and StressSteadyMemoryBytes are the usage the
+	// kubelet must report for the stress pod before DeployStress returns. They
+	// match the lower bounds of the usage checks: the load takes 10-20s to ramp
+	// up, and an agent emitting every 10s would otherwise sample the ramp.
+	StressSteadyCPUNanoCores = 50 * 1_000_000    // 50m
+	StressSteadyMemoryBytes  = 100 * 1024 * 1024 // 100 MiB
 )
 
 // DeployStress recreates the stress namespace and pod (as e2e.sh did), waits
-// for the pod to be Ready, and starts its load: StressCPUMillicores of CPU and
-// StressMemoryMegabytes of memory. Run it before the agent is installed, so
-// every sample the agent takes sees the same, known load.
+// for the pod to be Ready, starts its load (StressCPUMillicores of CPU and
+// StressMemoryMegabytes of memory), and waits until the kubelet reports at
+// least StressSteadyCPUNanoCores and StressSteadyMemoryBytes for it. Run it
+// before the agent is installed, so every sample the agent takes sees the
+// same, known load.
 //
 // The pod is recreated on every run rather than reused. resource-consumer adds
 // each request to the running load, so re-sending the load to a kept pod would
 // stack it, and doubled memory gets the pod OOM-killed (which drops all load).
 func DeployStress(ctx context.Context, client kubernetes.Interface, timeout time.Duration) error {
-	return deployStress(ctx, client, proxyConsume(client), timeout, pollInterval)
+	return deployStress(ctx, client, proxyConsume(client), proxyUsage(client), timeout, pollInterval)
 }
 
 // consumeFunc sends one load request (e.g. "ConsumeCPU") to the stress pod.
 type consumeFunc func(ctx context.Context, endpoint string, params url.Values) error
+
+// usageFunc returns the stress pod's current CPU and working-set memory as
+// the kubelet reports them.
+type usageFunc func(ctx context.Context) (cpuNanoCores, workingSetBytes uint64, err error)
+
+// proxyUsage reads the stress pod's usage from its node's kubelet stats
+// summary, through the API server's node proxy. That is the same source the
+// agent reads, so a steady value here is what the agent will see.
+func proxyUsage(client kubernetes.Interface) usageFunc {
+	return func(ctx context.Context) (uint64, uint64, error) {
+		p, err := client.CoreV1().Pods(StressNamespace).Get(ctx, stressPodName, metav1.GetOptions{})
+		if err != nil {
+			return 0, 0, fmt.Errorf("get stress pod: %w", err)
+		}
+		if p.Spec.NodeName == "" {
+			return 0, 0, errors.New("stress pod has no node")
+		}
+		body, err := client.CoreV1().RESTClient().Get().
+			Resource("nodes").
+			Name(p.Spec.NodeName).
+			SubResource("proxy").
+			Suffix("stats/summary").
+			DoRaw(ctx)
+		if err != nil {
+			return 0, 0, fmt.Errorf("kubelet stats for node %s: %w", p.Spec.NodeName, err)
+		}
+		var summary stats.Summary
+		if err := json.Unmarshal(body, &summary); err != nil {
+			return 0, 0, fmt.Errorf("decode kubelet stats for node %s: %w", p.Spec.NodeName, err)
+		}
+		return stressUsage(summary)
+	}
+}
+
+// stressUsage finds the stress pod in a kubelet stats summary.
+func stressUsage(summary stats.Summary) (uint64, uint64, error) {
+	for _, ps := range summary.Pods {
+		if ps.PodRef.Namespace != StressNamespace || ps.PodRef.Name != stressPodName {
+			continue
+		}
+		if ps.CPU == nil || ps.CPU.UsageNanoCores == nil || ps.Memory == nil || ps.Memory.WorkingSetBytes == nil {
+			return 0, 0, errors.New("kubelet stats have no cpu or memory usage for the stress pod yet")
+		}
+		return *ps.CPU.UsageNanoCores, *ps.Memory.WorkingSetBytes, nil
+	}
+	return 0, 0, errors.New("stress pod not in the kubelet stats yet")
+}
 
 // proxyConsume sends load requests through the API server's pod proxy, so no
 // port-forward is needed.
@@ -75,7 +133,7 @@ func proxyConsume(client kubernetes.Interface) consumeFunc {
 	}
 }
 
-func deployStress(ctx context.Context, client kubernetes.Interface, consume consumeFunc, timeout, interval time.Duration) error {
+func deployStress(ctx context.Context, client kubernetes.Interface, consume consumeFunc, usage usageFunc, timeout, interval time.Duration) error {
 	ns := &corev1.Namespace{Name: StressNamespace}
 	if _, err := client.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create namespace %s: %w", StressNamespace, err)
@@ -86,7 +144,36 @@ func deployStress(ctx context.Context, client kubernetes.Interface, consume cons
 	if err := waitForPodsReady(ctx, client, StressNamespace, StressSelector, timeout, interval); err != nil {
 		return fmt.Errorf("stress pod: %w", err)
 	}
-	return startStressLoad(ctx, consume, timeout, interval)
+	if err := startStressLoad(ctx, consume, timeout, interval); err != nil {
+		return err
+	}
+	return waitForStressSteady(ctx, usage, timeout, interval)
+}
+
+// waitForStressSteady polls the stress pod's usage until it reaches
+// StressSteadyCPUNanoCores and StressSteadyMemoryBytes. On timeout the error
+// includes the last reading, so a pod stuck below the bounds is easy to spot.
+func waitForStressSteady(ctx context.Context, usage usageFunc, timeout, interval time.Duration) error {
+	start := time.Now()
+	var cpu, mem uint64
+	var last error
+	err := wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+		cpu, mem, last = usage(ctx)
+		if last != nil {
+			return false, nil
+		}
+		return cpu >= StressSteadyCPUNanoCores && mem >= StressSteadyMemoryBytes, nil
+	})
+	if err != nil {
+		reading := fmt.Errorf("last reading: cpu %dm, memory %d MiB", cpu/1_000_000, mem/(1024*1024))
+		if last != nil {
+			reading = fmt.Errorf("last reading: %w", last)
+		}
+		return fmt.Errorf("stress load did not reach %dm cpu and %d MiB memory: %w", StressSteadyCPUNanoCores/1_000_000, StressSteadyMemoryBytes/(1024*1024), errors.Join(err, reading))
+	}
+	_, _ = fmt.Fprintf(LogWriter, "stress load steady after %s: cpu %dm, memory %d MiB\n",
+		time.Since(start).Round(time.Second), cpu/1_000_000, mem/(1024*1024))
+	return nil
 }
 
 // recreateStressPod deletes any stress pod left by an earlier run and creates

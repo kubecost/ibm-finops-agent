@@ -23,6 +23,17 @@ global:
 agent:
   kubecost:
     enabled: true
+  # Short intervals so the self-hosted specs see usage in the bucket within
+  # about 30s instead of 3+ minutes.
+  collectorDataSource:
+    scrapeInterval: 5s
+  exporter:
+    emissionInterval: 10s
+  exportIntervals:
+    allocation: 10s
+    asset: 10s
+    heartbeat: 10s
+    diagnostics: 10s
   cloudability:
     enabled: true
     uploadRegion: staging
@@ -32,6 +43,10 @@ agent:
       cloudabilityAccessKey: "XXX"
       cloudabilitySecretKey: "XXX"
       cloudabilityEnvId: "XXX"
+# The chart has no value for the kubemodel export interval.
+extraEnvVars:
+  - name: KUBEMODEL_EXPORT_INTERVAL
+    value: 10s
 sidecars:
   - name: e2e-reader
     image: busybox:1.37
