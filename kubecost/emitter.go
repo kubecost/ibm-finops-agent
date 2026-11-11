@@ -27,6 +27,7 @@ type KubecostEmitter struct {
 	pipelineControllers *exporter.PipelineExportControllers
 	heartbeatController ocexporter.ExportController
 	diagController      ocexporter.ExportController
+	storageCleaner      *EventStorageCleaner
 	diag                diagnostics.DiagnosticService
 
 	config *EmitterConfig
@@ -123,12 +124,32 @@ func (ke *KubecostEmitter) Init(snapshot *emitter.ClusterSnapshot) error {
 		diagnosticsExporter.Start(ke.config.ExportIntervals.DiagnosticsInterval)
 	}
 
+	// Clean up expired heartbeat/diagnostics objects written by this agent.
+	storageCleaner := NewEventStorageCleaner(
+		bucketStore,
+		ke.config.AppName,
+		ke.config.ClusterName,
+		ke.config.HeartbeatStorageRetention,
+		ke.config.DiagnosticsStorageRetention,
+	)
+	if storageCleaner.Enabled() {
+		if storageCleaner.Start(ke.config.StorageCleanupInterval) {
+			log.Infof(
+				"Started federated storage cleanup for heartbeat retention=%s diagnostics retention=%s interval=%s",
+				ke.config.HeartbeatStorageRetention,
+				ke.config.DiagnosticsStorageRetention,
+				ke.config.StorageCleanupInterval,
+			)
+		}
+	}
+
 	// initialize emitter's internal state
 	ke.dataSource = dataSource
 	ke.costModel = costModel
 	ke.pipelineControllers = pipelineControllers
 	ke.heartbeatController = agentHeartbeat
 	ke.diagController = diagnosticsExporter
+	ke.storageCleaner = storageCleaner
 
 	return nil
 }
