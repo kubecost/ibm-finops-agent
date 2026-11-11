@@ -24,9 +24,11 @@ agent:
   kubecost:
     enabled: true
   # Short intervals so the self-hosted specs see usage in the bucket within
-  # about 30s instead of 3+ minutes.
+  # about 80s instead of 3+ minutes.
   collectorDataSource:
-    scrapeInterval: 5s
+    # Not lower: the kubelet refreshes CPU stats every 11-19s, and a shorter
+    # scrape makes the collector overstate CPU usage about 3x.
+    scrapeInterval: 30s
   exporter:
     emissionInterval: 10s
   exportIntervals:
