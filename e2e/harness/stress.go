@@ -43,9 +43,10 @@ const (
 	stressLoadDuration = 2 * time.Hour
 
 	// StressSteadyCPUNanoCores and StressSteadyMemoryBytes are the usage the
-	// kubelet must report for the stress pod before DeployStress returns. They
-	// match the lower bounds of the usage checks: the load takes 10-20s to ramp
-	// up, and an agent emitting every 10s would otherwise sample the ramp.
+	// kubelet must report for the stress pod before DeployStress returns, so
+	// the load has ramped up (10-20s) before an agent emitting every 10s takes
+	// its first sample. They match the Cloudability spec's lower bounds; the
+	// self-hosted spec's averages use a tighter 70m minimum after 2 minutes.
 	StressSteadyCPUNanoCores = 50 * 1_000_000    // 50m
 	StressSteadyMemoryBytes  = 100 * 1024 * 1024 // 100 MiB
 )

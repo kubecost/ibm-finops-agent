@@ -3,6 +3,9 @@
 package e2e_test
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,9 +28,10 @@ const (
 
 	// bucketTimeout bounds the wait. minStressMinutes of runtime is normally
 	// there about 2.5 minutes after the agent starts. Crossing a 10m boundary
-	// starts a new 10m window that needs its own minStressMinutes, so the worst
-	// case is about 4.8 minutes.
-	bucketTimeout = 5 * time.Minute
+	// (about 1 run in 3) starts a new 10m window that needs its own
+	// minStressMinutes, so the worst case is about 4.8 minutes. The timeout
+	// leaves room for slow shared CI runners; a passing run doesn't wait for it.
+	bucketTimeout = 8 * time.Minute
 
 	// The stress pod runs harness.StressCPUMillicores (100m) and
 	// harness.StressMemoryMegabytes (128 MB, about 136 MiB working set). The
@@ -47,7 +51,20 @@ var _ = Describe("Self-hosted bucket export", Ordered, Label("selfhosted"), func
 	var (
 		reader harness.BucketReader
 		snap   *harness.BucketSnapshot
+		// lastErr is the last failed read, saved with the snapshot on failure.
+		lastErr error
+		dumped  bool
 	)
+
+	// On the first failure, save what the bucket held, so a CI failure can be
+	// read from the uploaded artifacts instead of a kept cluster.
+	AfterEach(func() {
+		if dumped || !CurrentSpecReport().Failed() {
+			return
+		}
+		dumped = true
+		dumpBucket(snap, lastErr)
+	})
 
 	BeforeAll(func(ctx SpecContext) {
 		reader = harness.BucketReader{Client: kube, Namespace: cfg.Namespace, Cluster: cluster, ClusterID: clusterID}
@@ -57,9 +74,10 @@ var _ = Describe("Self-hosted bucket export", Ordered, Label("selfhosted"), func
 		polls := 0
 		Eventually(func(g Gomega) {
 			polls++
-			var err error
-			snap, err = reader.Read(ctx)
+			next, err := reader.Read(ctx)
+			lastErr = err
 			g.Expect(err).NotTo(HaveOccurred())
+			snap = next // keep the last good read if a later one fails
 			for _, res := range harness.BucketResolutions {
 				s := stressAllocation(snap.Allocations[res])
 				g.Expect(s).NotTo(BeNil(), "stress allocation in allocations/%s", res)
@@ -301,4 +319,32 @@ func agentStartTime(ctx SpecContext) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// dumpBucket writes the last decoded bucket read and the last read error to
+// <ARTIFACTS_DIR>/selfhosted, which CI uploads.
+func dumpBucket(snap *harness.BucketSnapshot, readErr error) {
+	dir := filepath.Join(cfg.ArtifactsDir, "selfhosted")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		GinkgoWriter.Printf("save bucket snapshot: %v\n", err)
+		return
+	}
+	if readErr != nil {
+		_ = os.WriteFile(filepath.Join(dir, "last-read-error.txt"), []byte(readErr.Error()+"\n"), 0o644)
+	}
+	if snap == nil {
+		GinkgoWriter.Printf("no successful bucket read to save; last error in %s\n", dir)
+		return
+	}
+	b, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		GinkgoWriter.Printf("save bucket snapshot: %v\n", err)
+		return
+	}
+	path := filepath.Join(dir, "bucket-snapshot.json")
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		GinkgoWriter.Printf("save bucket snapshot: %v\n", err)
+		return
+	}
+	GinkgoWriter.Printf("saved the decoded bucket read to %s\n", path)
 }
