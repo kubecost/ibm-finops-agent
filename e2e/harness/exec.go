@@ -24,6 +24,14 @@ var LogWriter io.Writer = io.Discard
 // command line and trimmed stderr; if ctx expired, the error also wraps
 // ctx.Err() so callers can check errors.Is(err, context.DeadlineExceeded).
 func run(ctx context.Context, env []string, name string, args ...string) (string, error) {
+	out, err := runBytes(ctx, env, name, args...)
+	return strings.TrimSpace(string(out)), err
+}
+
+// runBytes is run without the trimming: it returns stdout exactly as the
+// command wrote it. Use it for binary output, such as a bingen object fetched
+// from the bucket, where a leading or trailing whitespace byte is data.
+func runBytes(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
 	cmdline := strings.Join(append([]string{name}, args...), " ")
 	_, _ = fmt.Fprintf(LogWriter, "+ %s\n", cmdline)
 
@@ -38,7 +46,7 @@ func run(ctx context.Context, env []string, name string, args ...string) (string
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	out := strings.TrimSpace(stdout.String())
+	out := stdout.Bytes()
 	if err == nil {
 		return out, nil
 	}
