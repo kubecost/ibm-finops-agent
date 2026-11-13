@@ -34,6 +34,8 @@ const metricsCollectorClusterUIDHeader = "x-cluster-uid"
 const metricsCollectorAgentVersionHeader = "x-agent-version"
 const metricsCollectorUserAgentHeader = "User-Agent"
 const metricsCollectorUploadFileHashHeader = "x-upload-file"
+const metricsCollectorAgentTypeHeader = "X-Agent-Type"
+const metricsCollectorAgentType = "finops-agent"
 
 const metricsCollectorPresignDescription = "acquiring presigned URL from metrics-collector using API key"
 
@@ -127,6 +129,7 @@ func (s *MetricsCollectorServiceImpl) getUploadURL(payload UploadPayload) (strin
 	request.Header.Set(metricsCollectorAgentVersionHeader, agentVersion)
 	request.Header.Set(metricsCollectorClusterUIDHeader, payload.ClusterUID)
 	request.Header.Set(metricsCollectorUploadFileHashHeader, payload.UploadHash)
+	request.Header.Set(metricsCollectorAgentTypeHeader, metricsCollectorAgentType)
 
 	resp, err := s.CldyUploadClient.Do(request, metricsCollectorPresignDescription)
 	if err != nil {
