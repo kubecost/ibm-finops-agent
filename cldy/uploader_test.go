@@ -129,7 +129,7 @@ var _ = Describe("Uploader", func() {
 			config := defaultConfig(tempDir)
 			config.RecoveryPeriod = 100000 * time.Hour
 			// copy over data before creating uploader simulating recovery state
-			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
+			err := copyCompleteData(tempDir+"/scratch/test_id/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -138,7 +138,7 @@ var _ = Describe("Uploader", func() {
 			actualUploader := uploader.(*cldy.CldyUploader)
 			Expect(actualUploader.RecoveredSamples).To(Equal(1))
 			Expect(actualUploader.RecoveredUploads).To(Equal(1))
-			checkScratchEmpty(tempDir + "/scratch")
+			checkScratchEmpty(tempDir + "/scratch/test_id")
 
 			// copy over another sample and ensure recovery does not break happy path
 			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
@@ -149,7 +149,7 @@ var _ = Describe("Uploader", func() {
 			config.RecoveryPeriod = 1 * time.Hour
 
 			// copy over data before creating uploader simulating recovery state
-			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
+			err := copyCompleteData(tempDir+"/scratch/test_id/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -158,7 +158,7 @@ var _ = Describe("Uploader", func() {
 			actualUploader := uploader.(*cldy.CldyUploader)
 			Expect(actualUploader.RecoveredSamples).To(Equal(1))
 			Expect(actualUploader.RecoveredUploads).To(Equal(0))
-			checkScratchEmpty(tempDir + "/scratch")
+			checkScratchEmpty(tempDir + "/scratch/test_id")
 
 			// copy over another sample and ensure recovery does not break happy path
 			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
@@ -193,7 +193,7 @@ var _ = Describe("Uploader", func() {
 			config.RecoveryPeriod = 1000000 * time.Hour
 
 			// copy over data before creating uploader simulating recovery state
-			err := copyIncompleteData(tempDir+"/scratch/temp_test_data", "testdata", []string{"deployments.jsonl"})
+			err := copyIncompleteData(tempDir+"/scratch/test_id/temp_test_data", "testdata", []string{"deployments.jsonl"})
 			Expect(err).ToNot(HaveOccurred())
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -202,7 +202,7 @@ var _ = Describe("Uploader", func() {
 			actualUploader := uploader.(*cldy.CldyUploader)
 			Expect(actualUploader.RecoveredSamples).To(Equal(0))
 			Expect(actualUploader.RecoveredUploads).To(Equal(0))
-			checkScratchEmpty(tempDir + "/scratch")
+			checkScratchEmpty(tempDir + "/scratch/test_id")
 
 			// copy over another sample and ensure recovery does not break happy path
 			checkCollectionAndConstruction(tempDir, uploader, actualUploader)
@@ -213,15 +213,15 @@ var _ = Describe("Uploader", func() {
 			config.RecoveryPeriod = 1000000 * time.Hour
 
 			// copy over data before creating uploader simulating recovery state
-			err := copyCompleteData(tempDir+"/scratch/temp_test_data", "testdata")
+			err := copyCompleteData(tempDir+"/scratch/test_id/temp_test_data", "testdata")
 			Expect(err).ToNot(HaveOccurred())
 			// still valid test data, just with only 1 node file
-			err = copyIncompleteData(tempDir+"/scratch/temp_test_data_1", "testdata", []string{"stats-summary-nodename2.json", "stats-summary-nodename3.json", "stats-summary-nodename4.json"})
+			err = copyIncompleteData(tempDir+"/scratch/test_id/temp_test_data_1", "testdata", []string{"stats-summary-nodename2.json", "stats-summary-nodename3.json", "stats-summary-nodename4.json"})
 			Expect(err).ToNot(HaveOccurred())
-			err = updateAgentTimestamp(tempDir+"/scratch/temp_test_data_1/agent-measurement.json", 1743499000)
+			err = updateAgentTimestamp(tempDir+"/scratch/test_id/temp_test_data_1/agent-measurement.json", 1743499000)
 			Expect(err).ToNot(HaveOccurred())
 			// invalid data set
-			err = copyIncompleteData(tempDir+"/scratch/temp_test_data_2", "testdata", []string{"deployments.jsonl"})
+			err = copyIncompleteData(tempDir+"/scratch/test_id/temp_test_data_2", "testdata", []string{"deployments.jsonl"})
 			Expect(err).ToNot(HaveOccurred())
 			stopCh := make(chan struct{})
 			defer close(stopCh)
@@ -230,7 +230,7 @@ var _ = Describe("Uploader", func() {
 			actualUploader := uploader.(*cldy.CldyUploader)
 			Expect(actualUploader.RecoveredSamples).To(Equal(2))
 			Expect(actualUploader.RecoveredUploads).To(Equal(2))
-			checkScratchEmpty(tempDir + "/scratch")
+			checkScratchEmpty(tempDir + "/scratch/test_id")
 
 			// copy over another sample and ensure recovery does not break happy path
 			checkCollectionAndConstruction(tempDir, uploader, actualUploader)

@@ -221,74 +221,69 @@ func (cu *CldyUploader) recoverDataOnStartup() error {
 	return nil
 }
 
+// recoverCompleteSamples recovers the samples the emitter left in scratch/<clusterID>/<sample>/
+// on a previous run. A complete sample is packed into a tar for upload; anything incomplete is
+// removed. The cluster directory name is the cluster ID, which is not known to the uploader yet
+// at startup (the emitter sets it later), so it is taken from the directory.
 func (cu *CldyUploader) recoverCompleteSamples() error {
-	var currentDir string
-	var sampleTime time.Time
-	first := true
-	hasShipped := false
-	filesNeeded := getNeededFiles()
-	err := filepath.WalkDir(cu.config.ScratchDir+"/"+scratchPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		// skip first Walk (top level directory /scratch)
-		if first {
-			first = false
-			return nil
-		}
-
-		if !d.IsDir() {
-			// file found, gather timestamp from agent measure and remove from filesNeeded
-			if strings.Contains(path, "agent-measurement") {
-				sampleTime, err = collectSampleTime(path)
-				if err != nil {
-					return err
-				}
-			}
-			for requiredFile := range filesNeeded {
-				if strings.Contains(path, requiredFile) {
-					delete(filesNeeded, requiredFile)
-					break
-				}
-			}
-		}
-		// this directory has a complete sample and should be added
-		if len(filesNeeded) == 0 && !hasShipped {
-			hasShipped = true
-			err = cu.recoverSample(currentDir, sampleTime)
-			if err != nil {
-				return err
-			}
-			return nil
-		}
-
-		if d.IsDir() {
-			dir := path
-			// on first pass, set currentDir to first found
-			if currentDir == "" {
-				currentDir = dir
-			}
-			// if dir changes, new sample set found, reset required files and delete previous from scratch
-			if currentDir != dir {
-				err = os.RemoveAll(currentDir)
-				if err != nil {
-					return err
-				}
-				filesNeeded = getNeededFiles()
-				currentDir = dir
-				hasShipped = false
-			}
-		}
+	root := cu.config.ScratchDir + "/" + scratchPath
+	clusterDirs, err := os.ReadDir(root)
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
-	})
-	// last sample was incomplete, need to remove
-	if !hasShipped {
-		err = os.RemoveAll(currentDir)
+	}
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+	for _, clusterDir := range clusterDirs {
+		if !clusterDir.IsDir() {
+			continue
+		}
+		clusterPath := filepath.Join(root, clusterDir.Name())
+		sampleDirs, err := os.ReadDir(clusterPath)
 		if err != nil {
-			return err
+			errs = append(errs, err)
+			continue
+		}
+		cu.clusterID = clusterDir.Name()
+		for _, sampleDir := range sampleDirs {
+			if sampleDir.IsDir() {
+				errs = append(errs, cu.recoverSampleDir(filepath.Join(clusterPath, sampleDir.Name())))
+			}
 		}
 	}
-	return err
+	return errors.Join(errs...)
+}
+
+// recoverSampleDir packs dir for upload if it holds every required file, and removes it if not.
+func (cu *CldyUploader) recoverSampleDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	filesNeeded := getNeededFiles()
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		for requiredFile := range filesNeeded {
+			if strings.Contains(entry.Name(), requiredFile) {
+				delete(filesNeeded, requiredFile)
+				break
+			}
+		}
+	}
+	if len(filesNeeded) != 0 {
+		return os.RemoveAll(dir)
+	}
+
+	sampleTime, err := collectSampleTime(filepath.Join(dir, "agent-measurement.json"))
+	if err != nil {
+		log.Warnf("Discarding sample %s, its agent measurement is unreadable: %v", dir, err)
+		return os.RemoveAll(dir)
+	}
+	return cu.recoverSample(dir, sampleTime)
 }
 
 // recover sample adds a completed sample to the set and constructs the upload file, construct handles
