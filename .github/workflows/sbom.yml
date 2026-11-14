@@ -89,8 +89,10 @@ jobs:
             ibm-finops-agent-source-sbom.spdx.json
             ibm-finops-agent-source-sbom.cyclonedx.json
 
+      # Release candidates (vX.Y.Z-rc.N) don't get a GitHub release. Their SBOM
+      # is still kept as a workflow artifact by the upload step above.
       - name: Attach SBOM and VEX to release
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && !contains(env.VERSION, '-rc.')
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', env.VERSION) }}
