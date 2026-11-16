@@ -288,8 +288,12 @@ jobs:
 
           if [ "$IS_RC" = "true" ]; then
             CHART_LINE="⏭️ finops-agent-chart untouched (release candidate). Deploy \`$TAG\` to the soak cluster; if it holds, release with \`sha=$SHA\`."
+            LINKS="[agent tag](https://github.com/${{ github.repository }}/releases/tag/$TAG)"
           else
             CHART_LINE="$(mark "$CHART_RESULT") finops-agent-chart published (its publish workflow opens the kubecost PR — merge it to finish the release)"
+            LINKS="[agent tag](https://github.com/${{ github.repository }}/releases/tag/$TAG) &middot;
+          [chart release](https://github.com/$CHART_REPO/releases/tag/$TAG) &middot;
+          [kubecost PR](https://github.com/kubecost/kubecost/pulls?q=finops-agent+subchart+$VERSION)"
           fi
 
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
@@ -299,9 +303,7 @@ jobs:
           - $(mark "$TAG_RESULT") ibm-finops-agent tagged and image built
           - $CHART_LINE
 
-          [agent tag](https://github.com/${{ github.repository }}/releases/tag/$TAG) &middot;
-          [chart release](https://github.com/$CHART_REPO/releases/tag/$TAG) &middot;
-          [kubecost PR](https://github.com/kubecost/kubecost/pulls?q=finops-agent+subchart+$VERSION)
+          $LINKS
           EOF
 
       # A dry run pushes no tags, so there is never anything to clean up.
