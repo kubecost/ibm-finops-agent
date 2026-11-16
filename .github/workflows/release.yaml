@@ -1,17 +1,30 @@
 name: Automated FinOps Agent Release
 
+# A version with an -rc.N suffix is a release candidate: it is tagged and its
+# image built, then the run stops. It never touches finops-agent-chart, so no
+# chart is published and no kubecost PR is opened.
+run-name: ${{ inputs.dry_run && 'DRY RUN ' || '' }}${{ contains(inputs.version, '-rc.') && 'RC' || 'Release' }} ${{ inputs.version }}
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version number (e.g., 1.0.22)"
+        description: "Version (1.0.22 for a release, 1.0.22-rc.1 for a release candidate)"
         required: true
+        type: string
+      # Pinning the sha is what lets the final release be cut from the exact
+      # code an RC soaked. Empty means the current develop HEAD.
+      sha:
+        description: "Full commit SHA to tag (optional, defaults to develop HEAD)"
+        required: false
+        default: ""
         type: string
       # Every irreversible action here is a `git push`, so a dry run passes
       # --dry-run to each one: git still contacts the remote and validates auth
       # and the ref update, but nothing lands. Steps that need a push to have
       # actually landed are skipped with `if: !inputs.dry_run`. Not exercised:
       # the image build, the chart PR merge and tag, and the chart publish.
+      # RC dry runs stop after the tag push, like real RCs.
       dry_run:
         description: "Dry run (validate and edit locally, push nothing)"
         required: false
@@ -29,6 +42,7 @@ env:
   VERSION: ${{ inputs.version }}
   TAG: v${{ inputs.version }}
   BRANCH: finops-agent-v${{ inputs.version }}
+  INPUT_SHA: ${{ inputs.sha }}
 
   # The only difference between a real release and a dry run.
   PUSH_ARGS: ${{ inputs.dry_run && '--dry-run' || '' }}
@@ -51,14 +65,29 @@ jobs:
   tag-agent:
     name: Validate and tag ibm-finops-agent
     runs-on: ubuntu-latest
+    outputs:
+      is_rc: ${{ steps.validate.outputs.is_rc }}
+      sha: ${{ steps.on-develop.outputs.sha }}
     steps:
-      - name: Validate version format
+      # Strict on purpose: the suffix alone decides whether the chart is
+      # published, so a near-miss like 1.0.22rc1 must fail, not ship.
+      - name: Validate inputs
+        id: validate
         run: |
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "❌ Invalid version format. Expected: X.Y.Z (e.g., 1.0.22)"
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_rc=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Release $VERSION"
+          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            echo "is_rc=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Release candidate $VERSION"
+          else
+            echo "❌ Invalid version format. Expected: X.Y.Z or X.Y.Z-rc.N (e.g., 1.0.22, 1.0.22-rc.1)"
             exit 1
           fi
-          echo "✅ Version format valid: $VERSION"
+          if [ -n "$INPUT_SHA" ] && ! [[ "$INPUT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "❌ sha must be a full 40 char lowercase commit sha, got '$INPUT_SHA'"
+            exit 1
+          fi
 
       - name: Generate app token to tag ibm-finops-agent and watch the build
         id: generate-app-token
@@ -70,11 +99,25 @@ jobs:
             ibm-finops-agent
             integration-ci-cd
 
+      # The tag lands on whatever is checked out, so checking out the sha is
+      # what pins it. Full history is needed for the develop ancestry check.
       - name: Checkout ibm-finops-agent
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: develop
+          ref: ${{ inputs.sha || 'develop' }}
+          fetch-depth: 0
           token: ${{ steps.generate-app-token.outputs.token }}
+
+      - name: Check commit is on develop
+        id: on-develop
+        run: |
+          git fetch origin develop
+          if ! git merge-base --is-ancestor HEAD origin/develop; then
+            echo "❌ $(git rev-parse HEAD) is not on develop"
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "✅ Tagging $(git rev-parse HEAD)"
 
       - name: Check tag doesn't exist
         run: |
@@ -86,11 +129,13 @@ jobs:
 
       - name: Create and push tag
         id: push-tag
+        env:
+          TAG_MESSAGE: ${{ steps.validate.outputs.is_rc == 'true' && 'Release candidate' || 'Release' }}
         run: |
           # Recorded before the push, so the build poll below can tell our run
           # apart from an earlier release's.
           echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-          git tag -a "$TAG" -m "Release $TAG"
+          git tag -a "$TAG" -m "$TAG_MESSAGE $TAG"
           git push $PUSH_ARGS origin "$TAG"
 
       # The tag push triggers build-release.yaml, which dispatches to
@@ -114,6 +159,8 @@ jobs:
   update-chart:
     name: Update finops-agent-chart
     needs: tag-agent
+    # The one gate between an RC and the chart repo.
+    if: needs.tag-agent.outputs.is_rc == 'false'
     runs-on: ubuntu-latest
     steps:
       - name: Generate app token to update finops-agent-chart
@@ -221,6 +268,8 @@ jobs:
         env:
           TAG_RESULT: ${{ needs.tag-agent.result }}
           CHART_RESULT: ${{ needs.update-chart.result }}
+          IS_RC: ${{ needs.tag-agent.outputs.is_rc }}
+          SHA: ${{ needs.tag-agent.outputs.sha }}
         run: |
           mark() {
             case "$1" in
@@ -230,17 +279,25 @@ jobs:
             esac
           }
 
+          KIND=$([ "$IS_RC" = "true" ] && echo "Release Candidate" || echo "Release")
           if [ "${{ inputs.dry_run }}" = "true" ]; then
-            TITLE="🔍 Dry Run — FinOps Agent Release $TAG (nothing was pushed)"
+            TITLE="🔍 Dry Run — FinOps Agent $KIND $TAG (nothing was pushed)"
           else
-            TITLE="FinOps Agent Release $TAG"
+            TITLE="FinOps Agent $KIND $TAG"
+          fi
+
+          if [ "$IS_RC" = "true" ]; then
+            CHART_LINE="⏭️ finops-agent-chart untouched (release candidate). Deploy \`$TAG\` to the soak cluster; if it holds, release with \`sha=$SHA\`."
+          else
+            CHART_LINE="$(mark "$CHART_RESULT") finops-agent-chart published (its publish workflow opens the kubecost PR — merge it to finish the release)"
           fi
 
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           # $TITLE
 
+          - Commit: \`${SHA:-unknown}\`
           - $(mark "$TAG_RESULT") ibm-finops-agent tagged and image built
-          - $(mark "$CHART_RESULT") finops-agent-chart published (its publish workflow opens the kubecost PR — merge it to finish the release)
+          - $CHART_LINE
 
           [agent tag](https://github.com/${{ github.repository }}/releases/tag/$TAG) &middot;
           [chart release](https://github.com/$CHART_REPO/releases/tag/$TAG) &middot;
@@ -259,6 +316,6 @@ jobs:
 
           \`\`\`bash
           gh api -X DELETE repos/${{ github.repository }}/git/refs/tags/$TAG
-          gh api -X DELETE repos/$CHART_REPO/git/refs/tags/$TAG
+          $([ "$IS_RC" = "true" ] || echo "gh api -X DELETE repos/$CHART_REPO/git/refs/tags/$TAG")
           \`\`\`
           EOF
