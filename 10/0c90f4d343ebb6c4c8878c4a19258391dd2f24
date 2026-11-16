@@ -1,0 +1,35 @@
+.github/workflows/release.yaml
+  s_f26379c3ab2db6::t_d4ad010468a762 3-7,12,15-20
+  s_f26379c3ab2db6::t_19e2e158e776b1 138
+  s_f26379c3ab2db6::t_35730b44dad80e 162-163
+  s_f26379c3ab2db6::t_a0cbfaac28b002 68-70,72-75,77-88
+  s_f26379c3ab2db6::t_55e467ef98e2f9 271-272,282,284-290,292,298,300
+  s_f26379c3ab2db6::t_e4fadfb0013d95 27
+  s_f26379c3ab2db6::t_ea52ce80fb146b 45
+  s_f26379c3ab2db6::t_6e61619cac2fd4 132-133
+  s_f26379c3ab2db6::t_aac5c29a5d2d4d 319
+  s_f26379c3ab2db6::t_ec0170347f6343 102-103,107-108,111-120
+  s_f26379c3ab2db6::t_3d7749af6d32d1 21
+  s_f26379c3ab2db6::t_b07a916369bc25 121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "100c90f4d343ebb6c4c8878c4a19258391dd2f24",
+  "prompts": {},
+  "humans": {
+    "h_cca6aa2712613d": {
+      "author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_f26379c3ab2db6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5418a467-8d75-4241-96cb-fedd83118693",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  }
+}
