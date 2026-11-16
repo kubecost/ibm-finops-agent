@@ -1,0 +1,19 @@
+.github/workflows/release.yaml
+  s_a1aa29b225d453::t_de4cdf80b55c5a 291,294-296,306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f04260eaa7b98a756c6df8f462d755e1d388619f",
+  "prompts": {},
+  "sessions": {
+    "s_a1aa29b225d453": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "03d3614e-fb0b-4669-86fd-cab7392b968b",
+        "model": "default"
+      },
+      "human_author": "jesse goodier <31039225+jessegoodier@users.noreply.github.com>"
+    }
+  }
+}
