@@ -7,8 +7,8 @@ name: FinOps Agent Release Candidate
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "RC version (e.g., 1.0.22-rc.1)"
+      rc_tag:
+        description: "RC tag (e.g., v1.0.22-rc.1)"
         required: true
         type: string
       # Pinning the sha is what lets the final release be cut from the exact
@@ -34,8 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  VERSION: ${{ inputs.version }}
-  TAG: v${{ inputs.version }}
+  TAG: ${{ inputs.rc_tag }}
   INPUT_SHA: ${{ inputs.sha }}
   PUSH_ARGS: ${{ inputs.dry_run && '--dry-run' || '' }}
 
@@ -57,15 +56,15 @@ jobs:
       # release by accident.
       - name: Validate inputs
         run: |
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
-            echo "❌ Invalid version format. Expected: X.Y.Z-rc.N (e.g., 1.0.22-rc.1)"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            echo "❌ Invalid RC tag format. Expected: vX.Y.Z-rc.N (e.g., v1.0.22-rc.1)"
             exit 1
           fi
           if [ -n "$INPUT_SHA" ] && ! [[ "$INPUT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "❌ sha must be a full 40 char lowercase commit sha, got '$INPUT_SHA'"
             exit 1
           fi
-          echo "✅ Inputs valid: $VERSION"
+          echo "✅ Inputs valid: $TAG"
 
       - name: Generate app token to tag ibm-finops-agent and watch the build
         id: generate-app-token

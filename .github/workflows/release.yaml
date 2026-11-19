@@ -3,8 +3,8 @@ name: Automated FinOps Agent Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version number (e.g., 1.0.22)"
+      rc_tag:
+        description: "Release candidate tag to promote (e.g., v1.0.22-rc.1)"
         required: true
         type: string
       # Every irreversible action here is a `git push`, so a dry run passes
@@ -20,16 +20,13 @@ on:
 
 permissions:
   contents: read
+  issues: read
 
 concurrency:
   group: finops-agent-release
   cancel-in-progress: false
 
 env:
-  VERSION: ${{ inputs.version }}
-  TAG: v${{ inputs.version }}
-  BRANCH: finops-agent-v${{ inputs.version }}
-
   # The only difference between a real release and a dry run.
   PUSH_ARGS: ${{ inputs.dry_run && '--dry-run' || '' }}
 
@@ -51,14 +48,37 @@ jobs:
   tag-agent:
     name: Validate and tag ibm-finops-agent
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve-rc.outputs.version }}
+      tag: ${{ steps.resolve-rc.outputs.tag }}
+      rc_tag: ${{ steps.resolve-rc.outputs.rc_tag }}
+      branch: ${{ steps.resolve-rc.outputs.branch }}
+      commit_sha: ${{ steps.commit-sha.outputs.commit_sha }}
     steps:
-      - name: Validate version format
+      - name: Validate inputs and resolve RC tag
+        id: resolve-rc
         run: |
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "❌ Invalid version format. Expected: X.Y.Z (e.g., 1.0.22)"
+          RC_TAG="${{ inputs.rc_tag }}"
+          if ! [[ "$RC_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            echo "❌ Invalid RC tag format. Expected: vX.Y.Z-rc.N (e.g., v1.0.22-rc.1)"
             exit 1
           fi
-          echo "✅ Version format valid: $VERSION"
+          RC_VERSION="${RC_TAG#v}"
+          VERSION="${RC_VERSION%-rc.*}"
+          TAG="v${VERSION}"
+          BRANCH="finops-agent-${TAG}"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "rc_tag=$RC_TAG" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "RC_TAG=$RC_TAG" >> "$GITHUB_ENV"
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
+
+          echo "✅ Promoting $RC_TAG to final release $TAG ($VERSION)"
 
       - name: Generate app token to tag ibm-finops-agent and watch the build
         id: generate-app-token
@@ -70,11 +90,52 @@ jobs:
             ibm-finops-agent
             integration-ci-cd
 
-      - name: Checkout ibm-finops-agent
+      - name: Checkout ibm-finops-agent at RC tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: develop
+          ref: ${{ steps.resolve-rc.outputs.rc_tag }}
+          fetch-depth: 0
           token: ${{ steps.generate-app-token.outputs.token }}
+
+      - name: Record commit SHA
+        id: commit-sha
+        run: |
+          COMMIT_SHA=$(git rev-parse HEAD)
+          echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "Tagging commit: $COMMIT_SHA"
+
+      - name: Verify RC commit is on develop
+        run: |
+          git fetch origin develop
+          if ! git merge-base --is-ancestor HEAD origin/develop; then
+            echo "❌ RC commit $(git rev-parse HEAD) is not on develop"
+            exit 1
+          fi
+          echo "✅ RC commit is an ancestor of develop"
+
+      - name: Check for release blocker issues
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+        run: |
+          echo "Checking for open release-blocker issues..."
+          BLOCKERS=$(gh issue list --repo "${{ github.repository }}" \
+            --state open \
+            --label "release-blocker" \
+            --json number,title,url \
+            --jq '.[] | "- [#\(.number)](\(.url)): \(.title)"')
+
+          if [ -n "$BLOCKERS" ]; then
+            echo "❌ Release blocked by open release-blocker issues:"
+            echo "$BLOCKERS"
+            cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ### ❌ Release Gate Failed: Open Release Blockers
+
+          The following open issues are blocking this release:
+          $BLOCKERS
+          EOF
+            exit 1
+          fi
+          echo "✅ No open release blockers found"
 
       - name: Check tag doesn't exist
         run: |
@@ -115,6 +176,10 @@ jobs:
     name: Update finops-agent-chart
     needs: tag-agent
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.tag-agent.outputs.version }}
+      TAG: ${{ needs.tag-agent.outputs.tag }}
+      BRANCH: ${{ needs.tag-agent.outputs.branch }}
     steps:
       - name: Generate app token to update finops-agent-chart
         id: generate-app-token
@@ -216,6 +281,11 @@ jobs:
     needs: [tag-agent, update-chart]
     runs-on: ubuntu-latest
     if: always()
+    env:
+      VERSION: ${{ needs.tag-agent.outputs.version }}
+      TAG: ${{ needs.tag-agent.outputs.tag }}
+      RC_TAG: ${{ needs.tag-agent.outputs.rc_tag }}
+      COMMIT_SHA: ${{ needs.tag-agent.outputs.commit_sha }}
     steps:
       - name: Report status
         env:
@@ -239,6 +309,7 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           # $TITLE
 
+          - Promoted from \`$RC_TAG\` (commit: \`${COMMIT_SHA:0:7}\`)
           - $(mark "$TAG_RESULT") ibm-finops-agent tagged and image built
           - $(mark "$CHART_RESULT") finops-agent-chart published (its publish workflow opens the kubecost PR — merge it to finish the release)
 
