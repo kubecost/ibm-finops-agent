@@ -1,11 +1,15 @@
 name: Automated FinOps Agent Release
 
 on:
+  schedule:
+    # 10:00 AM PST (18:00 UTC) every Tuesday  (there is a guard later down to make it every other Tuesday)
+    - cron: '0 18 * * 2'
   workflow_dispatch:
     inputs:
       rc_tag:
-        description: "Release candidate tag to promote (e.g., v1.0.22-rc.1)"
-        required: true
+        description: "Release candidate tag to promote (e.g., v1.0.36-rc.1, optional for scheduled runs)"
+        required: false
+        default: ""
         type: string
       # Every irreversible action here is a `git push`, so a dry run passes
       # --dry-run to each one: git still contacts the remote and validates auth
@@ -49,18 +53,41 @@ jobs:
     name: Validate and tag ibm-finops-agent
     runs-on: ubuntu-latest
     outputs:
+      skip: ${{ steps.resolve-rc.outputs.skip }}
       version: ${{ steps.resolve-rc.outputs.version }}
       tag: ${{ steps.resolve-rc.outputs.tag }}
       rc_tag: ${{ steps.resolve-rc.outputs.rc_tag }}
       branch: ${{ steps.resolve-rc.outputs.branch }}
       commit_sha: ${{ steps.commit-sha.outputs.commit_sha }}
     steps:
-      - name: Validate inputs and resolve RC tag
+      - name: Check cadence and resolve RC tag
         id: resolve-rc
         run: |
+          # Bi-weekly check: only run on alternate Tuesdays (4 days after anchor Friday)
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            ANCHOR=$(date -u -d "2026-11-20" +%s)
+            NOW=$(date -u +%s)
+            DAYS=$(( (NOW - ANCHOR) / 86400 ))
+            if [ $(( DAYS % 14 )) -ne 4 ]; then
+              echo "⏭️ Off-week Tuesday (days since anchor: $DAYS); skipping automated release."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
           RC_TAG="${{ inputs.rc_tag }}"
+          if [ -z "$RC_TAG" ]; then
+            git fetch --tags origin
+            RC_TAG=$(git tag -l "v*-rc.*" | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$" | sort -V | tail -n 1)
+            if [ -z "$RC_TAG" ]; then
+              echo "❌ No release candidate tag found to promote"
+              exit 1
+            fi
+            echo "🤖 Auto-selected latest RC tag: $RC_TAG"
+          fi
+
           if ! [[ "$RC_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
-            echo "❌ Invalid RC tag format. Expected: vX.Y.Z-rc.N (e.g., v1.0.22-rc.1)"
+            echo "❌ Invalid RC tag format: '$RC_TAG'. Expected: vX.Y.Z-rc.N (e.g., v1.0.36-rc.1)"
             exit 1
           fi
           RC_VERSION="${RC_TAG#v}"
@@ -81,6 +108,7 @@ jobs:
           echo "✅ Promoting $RC_TAG to final release $TAG ($VERSION)"
 
       - name: Generate app token to tag ibm-finops-agent and watch the build
+        if: steps.resolve-rc.outputs.skip != 'true'
         id: generate-app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
@@ -91,6 +119,7 @@ jobs:
             integration-ci-cd
 
       - name: Checkout ibm-finops-agent at RC tag
+        if: steps.resolve-rc.outputs.skip != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.resolve-rc.outputs.rc_tag }}
@@ -98,6 +127,7 @@ jobs:
           token: ${{ steps.generate-app-token.outputs.token }}
 
       - name: Record commit SHA
+        if: steps.resolve-rc.outputs.skip != 'true'
         id: commit-sha
         run: |
           COMMIT_SHA=$(git rev-parse HEAD)
@@ -105,6 +135,7 @@ jobs:
           echo "Tagging commit: $COMMIT_SHA"
 
       - name: Verify RC commit is on develop
+        if: steps.resolve-rc.outputs.skip != 'true'
         run: |
           git fetch origin develop
           if ! git merge-base --is-ancestor HEAD origin/develop; then
@@ -114,30 +145,32 @@ jobs:
           echo "✅ RC commit is an ancestor of develop"
 
       - name: Check for release blocker issues
+        if: steps.resolve-rc.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
         run: |
-          echo "Checking for open release-blocker issues..."
-          BLOCKERS=$(gh issue list --repo "${{ github.repository }}" \
+          echo "Checking for open release-blocker issues in $BUILD_REPO..."
+          BLOCKERS=$(gh issue list --repo "$BUILD_REPO" \
             --state open \
             --label "release-blocker" \
             --json number,title,url \
             --jq '.[] | "- [#\(.number)](\(.url)): \(.title)"')
 
           if [ -n "$BLOCKERS" ]; then
-            echo "❌ Release blocked by open release-blocker issues:"
+            echo "❌ Release blocked by open release-blocker issues in $BUILD_REPO:"
             echo "$BLOCKERS"
             cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           ### ❌ Release Gate Failed: Open Release Blockers
 
-          The following open issues are blocking this release:
+          The following open issues in \`$BUILD_REPO\` are blocking this release:
           $BLOCKERS
           EOF
             exit 1
           fi
-          echo "✅ No open release blockers found"
+          echo "✅ No open release blockers found in $BUILD_REPO"
 
       - name: Check tag doesn't exist
+        if: steps.resolve-rc.outputs.skip != 'true'
         run: |
           if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
             echo "❌ Tag $TAG already exists"
@@ -146,6 +179,7 @@ jobs:
           echo "✅ Tag $TAG is available"
 
       - name: Create and push tag
+        if: steps.resolve-rc.outputs.skip != 'true'
         id: push-tag
         run: |
           # Recorded before the push, so the build poll below can tell our run
@@ -158,7 +192,7 @@ jobs:
       # $BUILD_REPO. A dispatched run doesn't name our tag, so match on start
       # time and event type (PR builds run the same workflow).
       - name: Wait for image build
-        if: ${{ !inputs.dry_run }}
+        if: steps.resolve-rc.outputs.skip != 'true' && !inputs.dry_run
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
           SINCE: ${{ steps.push-tag.outputs.since }}
@@ -175,6 +209,7 @@ jobs:
   update-chart:
     name: Update finops-agent-chart
     needs: tag-agent
+    if: needs.tag-agent.outputs.skip != 'true'
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.tag-agent.outputs.version }}
@@ -280,7 +315,7 @@ jobs:
     name: Release Summary
     needs: [tag-agent, update-chart]
     runs-on: ubuntu-latest
-    if: always()
+    if: always() && needs.tag-agent.outputs.skip != 'true'
     env:
       VERSION: ${{ needs.tag-agent.outputs.version }}
       TAG: ${{ needs.tag-agent.outputs.tag }}

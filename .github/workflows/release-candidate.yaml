@@ -5,11 +5,15 @@ name: FinOps Agent Release Candidate
 # finops-agent-chart, so no chart is published and no kubecost PR is opened.
 # The final release is still cut with release.yaml.
 on:
+  schedule:
+    # 10:00 AM PST (18:00 UTC) every Friday (there is a guard later down to make it every other Friday)
+    - cron: '0 18 * * 5'
   workflow_dispatch:
     inputs:
       rc_tag:
-        description: "RC tag (e.g., v1.0.22-rc.1)"
-        required: true
+        description: "RC tag (e.g., v1.0.36-rc.1, optional for scheduled runs)"
+        required: false
+        default: ""
         type: string
       # Pinning the sha is what lets the final release be cut from the exact
       # code that soaked. Empty means the current develop HEAD.
@@ -34,7 +38,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TAG: ${{ inputs.rc_tag }}
   INPUT_SHA: ${{ inputs.sha }}
   PUSH_ARGS: ${{ inputs.dry_run && '--dry-run' || '' }}
 
@@ -52,21 +55,57 @@ jobs:
     name: Tag release candidate and build image
     runs-on: ubuntu-latest
     steps:
-      # Only RC versions are accepted, so this workflow can never cut a final
-      # release by accident.
-      - name: Validate inputs
+      - name: Check cadence and resolve RC tag
+        id: resolve-tag
         run: |
+          # Bi-weekly check: only run on alternate Fridays when triggered on schedule
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            ANCHOR=$(date -u -d "2026-11-20" +%s)
+            NOW=$(date -u +%s)
+            DAYS=$(( (NOW - ANCHOR) / 86400 ))
+            if [ $(( DAYS % 14 )) -ne 0 ]; then
+              echo "⏭️ Off-week Friday (days since anchor: $DAYS); skipping automated RC cut."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          TAG="${{ inputs.rc_tag }}"
+          if [ -z "$TAG" ]; then
+            git fetch --tags origin
+            LATEST_RELEASE=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
+            if [ -z "$LATEST_RELEASE" ]; then
+              echo "❌ Could not determine latest release tag"
+              exit 1
+            fi
+            if [[ "$LATEST_RELEASE" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              MAJOR="${BASH_REMATCH[1]}"
+              MINOR="${BASH_REMATCH[2]}"
+              PATCH="${BASH_REMATCH[3]}"
+              NEXT_PATCH=$(( PATCH + 1 ))
+              TAG="v${MAJOR}.${MINOR}.${NEXT_PATCH}-rc.1"
+            else
+              echo "❌ Latest release tag $LATEST_RELEASE is not valid semver"
+              exit 1
+            fi
+            echo "🤖 Auto-computed next RC tag: $TAG (from $LATEST_RELEASE)"
+          fi
+
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
-            echo "❌ Invalid RC tag format. Expected: vX.Y.Z-rc.N (e.g., v1.0.22-rc.1)"
+            echo "❌ Invalid RC tag format: '$TAG'. Expected: vX.Y.Z-rc.N (e.g., v1.0.36-rc.1)"
             exit 1
           fi
           if [ -n "$INPUT_SHA" ] && ! [[ "$INPUT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "❌ sha must be a full 40 char lowercase commit sha, got '$INPUT_SHA'"
             exit 1
           fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "✅ Inputs valid: $TAG"
 
       - name: Generate app token to tag ibm-finops-agent and watch the build
+        if: steps.resolve-tag.outputs.skip != 'true'
         id: generate-app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
@@ -79,6 +118,7 @@ jobs:
       # The tag lands on whatever is checked out, so checking out the sha is
       # what pins it. Full history is needed for the develop ancestry check.
       - name: Checkout ibm-finops-agent
+        if: steps.resolve-tag.outputs.skip != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.sha || 'develop' }}
@@ -87,6 +127,7 @@ jobs:
 
       # Soaking code that can't be released from develop is wasted effort.
       - name: Check commit is on develop
+        if: steps.resolve-tag.outputs.skip != 'true'
         run: |
           git fetch origin develop
           if ! git merge-base --is-ancestor HEAD origin/develop; then
@@ -96,6 +137,7 @@ jobs:
           echo "✅ Tagging $(git rev-parse HEAD)"
 
       - name: Check tag doesn't exist
+        if: steps.resolve-tag.outputs.skip != 'true'
         run: |
           if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
             echo "❌ Tag $TAG already exists"
@@ -104,6 +146,7 @@ jobs:
           echo "✅ Tag $TAG is available"
 
       - name: Create and push tag
+        if: steps.resolve-tag.outputs.skip != 'true'
         id: push-tag
         run: |
           # Recorded before the push, so the build poll below can tell our run
@@ -116,7 +159,7 @@ jobs:
       # $BUILD_REPO. A dispatched run doesn't name our tag, so match on start
       # time and event type (PR builds run the same workflow).
       - name: Wait for image build
-        if: ${{ !inputs.dry_run }}
+        if: steps.resolve-tag.outputs.skip != 'true' && !inputs.dry_run
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
           SINCE: ${{ steps.push-tag.outputs.since }}
@@ -131,6 +174,7 @@ jobs:
           gh run watch "$RUN_ID" --repo "$BUILD_REPO" --exit-status
 
       - name: Report
+        if: steps.resolve-tag.outputs.skip != 'true'
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           # Release candidate $TAG$([ "${{ inputs.dry_run }}" = "true" ] && echo " (dry run, nothing was pushed)")
