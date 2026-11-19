@@ -1,0 +1,144 @@
+name: FinOps Agent Release Candidate
+
+# Tags a release candidate (vX.Y.Z-rc.N) on a specific commit and waits for its
+# image to build. It deliberately stops there: it never touches
+# finops-agent-chart, so no chart is published and no kubecost PR is opened.
+# The final release is still cut with release.yaml.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "RC version (e.g., 1.0.22-rc.1)"
+        required: true
+        type: string
+      # Pinning the sha is what lets the final release be cut from the exact
+      # code that soaked. Empty means the current develop HEAD.
+      sha:
+        description: "Full commit SHA to tag (optional, defaults to develop HEAD)"
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Dry run (validate locally, push nothing)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# Shared with release.yaml: the build wait below finds its run by start time, so
+# an RC and a release running at once could pick up each other's build.
+concurrency:
+  group: finops-agent-release
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ inputs.version }}
+  TAG: v${{ inputs.version }}
+  INPUT_SHA: ${{ inputs.sha }}
+  PUSH_ARGS: ${{ inputs.dry_run && '--dry-run' || '' }}
+
+  # Same cross-repo contract as release.yaml.
+  BUILD_REPO: kubecost/integration-ci-cd
+  BUILD_WORKFLOW: finops-agent-build-release.yaml
+
+  GIT_AUTHOR_NAME: kc-actions-bot[bot]
+  GIT_AUTHOR_EMAIL: kc-actions-bot[bot]@users.noreply.github.com
+  GIT_COMMITTER_NAME: kc-actions-bot[bot]
+  GIT_COMMITTER_EMAIL: kc-actions-bot[bot]@users.noreply.github.com
+
+jobs:
+  tag-release-candidate:
+    name: Tag release candidate and build image
+    runs-on: ubuntu-latest
+    steps:
+      # Only RC versions are accepted, so this workflow can never cut a final
+      # release by accident.
+      - name: Validate inputs
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            echo "❌ Invalid version format. Expected: X.Y.Z-rc.N (e.g., 1.0.22-rc.1)"
+            exit 1
+          fi
+          if [ -n "$INPUT_SHA" ] && ! [[ "$INPUT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "❌ sha must be a full 40 char lowercase commit sha, got '$INPUT_SHA'"
+            exit 1
+          fi
+          echo "✅ Inputs valid: $VERSION"
+
+      - name: Generate app token to tag ibm-finops-agent and watch the build
+        id: generate-app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: |
+            ibm-finops-agent
+            integration-ci-cd
+
+      # The tag lands on whatever is checked out, so checking out the sha is
+      # what pins it. Full history is needed for the develop ancestry check.
+      - name: Checkout ibm-finops-agent
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha || 'develop' }}
+          fetch-depth: 0
+          token: ${{ steps.generate-app-token.outputs.token }}
+
+      # Soaking code that can't be released from develop is wasted effort.
+      - name: Check commit is on develop
+        run: |
+          git fetch origin develop
+          if ! git merge-base --is-ancestor HEAD origin/develop; then
+            echo "❌ $(git rev-parse HEAD) is not on develop"
+            exit 1
+          fi
+          echo "✅ Tagging $(git rev-parse HEAD)"
+
+      - name: Check tag doesn't exist
+        run: |
+          if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+            echo "❌ Tag $TAG already exists"
+            exit 1
+          fi
+          echo "✅ Tag $TAG is available"
+
+      - name: Create and push tag
+        id: push-tag
+        run: |
+          # Recorded before the push, so the build poll below can tell our run
+          # apart from an earlier one.
+          echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          git tag -a "$TAG" -m "Release candidate $TAG"
+          git push $PUSH_ARGS origin "$TAG"
+
+      # The tag push triggers build-release.yaml, which dispatches to
+      # $BUILD_REPO. A dispatched run doesn't name our tag, so match on start
+      # time and event type (PR builds run the same workflow).
+      - name: Wait for image build
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          SINCE: ${{ steps.push-tag.outputs.since }}
+        timeout-minutes: 30
+        run: |
+          while [ -z "${RUN_ID:-}" ]; do
+            sleep 5
+            RUN_ID=$(gh run list --repo "$BUILD_REPO" --workflow "$BUILD_WORKFLOW" --created ">=$SINCE" \
+              --json databaseId,displayTitle \
+              --jq 'map(select(.displayTitle == "finops-agent-release"))[0].databaseId // empty')
+          done
+          gh run watch "$RUN_ID" --repo "$BUILD_REPO" --exit-status
+
+      - name: Report
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          # Release candidate $TAG$([ "${{ inputs.dry_run }}" = "true" ] && echo " (dry run, nothing was pushed)")
+
+          - Commit: \`$(git rev-parse HEAD)\`
+          - Image built by \`$BUILD_WORKFLOW\` in \`$BUILD_REPO\`
+          - No chart was published and no kubecost PR was opened
+
+          Deploy \`$TAG\` to the soak cluster. If it holds, cut the final release from this same commit.
+          EOF
