@@ -23,6 +23,20 @@ global:
 agent:
   kubecost:
     enabled: true
+  # Short intervals so usage reaches the bucket within about 80s instead of
+  # 3+ minutes. The self-hosted specs then wait for 2 minutes of data in every
+  # window, about 2m40s after the agent starts.
+  collectorDataSource:
+    # Not lower: the kubelet refreshes CPU stats every 11-19s, and a shorter
+    # scrape makes the collector overstate CPU usage about 3x.
+    scrapeInterval: 30s
+  exporter:
+    emissionInterval: 10s
+  exportIntervals:
+    allocation: 10s
+    asset: 10s
+    heartbeat: 10s
+    diagnostics: 10s
   cloudability:
     enabled: true
     uploadRegion: staging
@@ -32,6 +46,10 @@ agent:
       cloudabilityAccessKey: "XXX"
       cloudabilitySecretKey: "XXX"
       cloudabilityEnvId: "XXX"
+# The chart has no value for the kubemodel export interval.
+extraEnvVars:
+  - name: KUBEMODEL_EXPORT_INTERVAL
+    value: 10s
 sidecars:
   - name: e2e-reader
     image: busybox:1.37

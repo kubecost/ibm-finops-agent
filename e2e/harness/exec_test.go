@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os/exec"
@@ -17,6 +18,52 @@ func TestRunReturnsTrimmedStdout(t *testing.T) {
 	}
 	if out != "hello" {
 		t.Fatalf("out = %q, want %q", out, "hello")
+	}
+}
+
+// runBytes must return binary stdout untouched. These bytes start and end
+// with whitespace (tab, newline, space, CR) and include a NUL, which run's
+// TrimSpace would corrupt; bingen objects from the bucket can look like this.
+func TestRunBytesKeepsBinaryOutput(t *testing.T) {
+	t.Parallel()
+	want := []byte{'\t', '\n', 0x00, 0x01, 0xff, ' ', 'b', 'i', 'n', '\n', ' ', '\r'}
+	// printf with octal escapes writes the exact bytes, with no added newline.
+	out, err := runBytes(context.Background(), nil, "sh", "-c", `printf '\011\012\000\001\377 bin\012 \015'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out, want) {
+		t.Fatalf("out = %q, want %q", out, want)
+	}
+
+	// The same output through run loses its leading and trailing bytes.
+	trimmed, err := run(context.Background(), nil, "sh", "-c", `printf '\011\012\000\001\377 bin\012 \015'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal([]byte(trimmed), want) {
+		t.Fatal("run kept the whitespace bytes; this test no longer shows why runBytes exists")
+	}
+}
+
+func TestRunBytesErrorMatchesRun(t *testing.T) {
+	t.Parallel()
+	out, err := runBytes(context.Background(), nil, "sh", "-c", "printf partial; echo boom >&2; exit 3")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, want := range []string{"sh -c", "exit status 3", "boom"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 3 {
+		t.Errorf("error does not wrap *exec.ExitError with code 3: %v", err)
+	}
+	// stdout written before the failure is still returned, as run does.
+	if string(out) != "partial" {
+		t.Errorf("out = %q, want %q", out, "partial")
 	}
 }
 
