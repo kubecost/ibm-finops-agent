@@ -1,4 +1,4 @@
-FROM golang:1.27.3-alpine AS build-env
+FROM golang:1.27.4-alpine AS build-env
 
 RUN mkdir /app
 WORKDIR /app
