@@ -55,6 +55,24 @@ jobs:
     name: Tag release candidate and build image
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token to tag ibm-finops-agent and watch the build
+        id: generate-app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: |
+            ibm-finops-agent
+            integration-ci-cd
+
+      # Checkout repo and tags first so git tag queries and ancestry checks succeed
+      - name: Checkout ibm-finops-agent
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha || 'develop' }}
+          fetch-depth: 0
+          token: ${{ steps.generate-app-token.outputs.token }}
+
       - name: Check cadence and resolve RC tag
         id: resolve-tag
         run: |
@@ -72,7 +90,6 @@ jobs:
 
           TAG="${{ inputs.rc_tag }}"
           if [ -z "$TAG" ]; then
-            git fetch --tags origin
             LATEST_RELEASE=$(git tag -l "v[0-9]*.[0-9]*.[0-9]*" | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
             if [ -z "$LATEST_RELEASE" ]; then
               echo "❌ Could not determine latest release tag"
@@ -103,27 +120,6 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "✅ Inputs valid: $TAG"
-
-      - name: Generate app token to tag ibm-finops-agent and watch the build
-        if: steps.resolve-tag.outputs.skip != 'true'
-        id: generate-app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
-          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
-          repositories: |
-            ibm-finops-agent
-            integration-ci-cd
-
-      # The tag lands on whatever is checked out, so checking out the sha is
-      # what pins it. Full history is needed for the develop ancestry check.
-      - name: Checkout ibm-finops-agent
-        if: steps.resolve-tag.outputs.skip != 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.sha || 'develop' }}
-          fetch-depth: 0
-          token: ${{ steps.generate-app-token.outputs.token }}
 
       # Soaking code that can't be released from develop is wasted effort.
       - name: Check commit is on develop

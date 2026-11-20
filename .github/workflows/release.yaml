@@ -60,6 +60,24 @@ jobs:
       branch: ${{ steps.resolve-rc.outputs.branch }}
       commit_sha: ${{ steps.commit-sha.outputs.commit_sha }}
     steps:
+      - name: Generate app token to tag ibm-finops-agent and watch the build
+        id: generate-app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
+          repositories: |
+            ibm-finops-agent
+            integration-ci-cd
+
+      # Checkout repo and all tags first so git tag queries and commit checkout succeed
+      - name: Checkout ibm-finops-agent
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ steps.generate-app-token.outputs.token }}
+
       - name: Check cadence and resolve RC tag
         id: resolve-rc
         run: |
@@ -77,7 +95,6 @@ jobs:
 
           RC_TAG="${{ inputs.rc_tag }}"
           if [ -z "$RC_TAG" ]; then
-            git fetch --tags origin
             RC_TAG=$(git tag -l "v*-rc.*" | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$" | sort -V | tail -n 1)
             if [ -z "$RC_TAG" ]; then
               echo "❌ No release candidate tag found to promote"
@@ -95,6 +112,9 @@ jobs:
           TAG="v${VERSION}"
           BRANCH="finops-agent-${TAG}"
 
+          # Switch working directory to the commit of the RC tag that soaked
+          git checkout "refs/tags/$RC_TAG"
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "rc_tag=$RC_TAG" >> "$GITHUB_OUTPUT"
@@ -106,25 +126,6 @@ jobs:
           echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
 
           echo "✅ Promoting $RC_TAG to final release $TAG ($VERSION)"
-
-      - name: Generate app token to tag ibm-finops-agent and watch the build
-        if: steps.resolve-rc.outputs.skip != 'true'
-        id: generate-app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ vars.KC_ACTIONS_BOT_APP_CLIENT_ID }}
-          private-key: ${{ secrets.KC_ACTIONS_BOT_APP_PRIVATE_KEY }}
-          repositories: |
-            ibm-finops-agent
-            integration-ci-cd
-
-      - name: Checkout ibm-finops-agent at RC tag
-        if: steps.resolve-rc.outputs.skip != 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ steps.resolve-rc.outputs.rc_tag }}
-          fetch-depth: 0
-          token: ${{ steps.generate-app-token.outputs.token }}
 
       - name: Record commit SHA
         if: steps.resolve-rc.outputs.skip != 'true'
