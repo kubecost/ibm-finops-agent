@@ -1672,6 +1672,18 @@ func (mqa *MetricsQuerierAdapter) QueryDaemonSetAnnotations(start, end time.Time
 	return source.NewFutureFrom(snapshot.DaemonSetAnnotations)
 }
 
+func (mqa *MetricsQuerierAdapter) QueryDaemonSetArguments(start, end time.Time) *source.Future[source.DaemonSetArgumentResult] {
+	mqa.lock.RLock()
+	defer mqa.lock.RUnlock()
+
+	snapshot := mqa.metricsSnapshotFor(start, end)
+	if snapshot == nil {
+		return newErrorResult(source.DecodeDaemonSetArgumentResult, fmt.Errorf("invalid start/end duration: %s", end.Sub(start)))
+	}
+
+	return source.NewFutureFrom(snapshot.DaemonSetArguments)
+}
+
 func (mqa *MetricsQuerierAdapter) QueryJobInfo(start, end time.Time) *source.Future[source.JobInfoResult] {
 	mqa.lock.RLock()
 	defer mqa.lock.RUnlock()

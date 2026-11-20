@@ -1,0 +1,21 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/kubecost/ibm-finops-agent/blob/develop/vex/ibm-finops-agent.openvex.json",
+  "author": "IBM FinOps Agent maintainers",
+  "timestamp": "2026-10-26T18:55:00Z",
+  "version": 2,
+  "statements": [
+    {
+      "vulnerability": { "name": "GO-2026-5932" },
+      "products": [
+        {
+          "@id": "pkg:oci/agent?repository_url=icr.io/ibm-finops/agent",
+          "subcomponents": [{ "@id": "pkg:golang/golang.org/x/crypto" }]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "The advisory covers the golang.org/x/crypto/openpgp packages. The agent does not import or link any of them."
+    }
+  ]
+}

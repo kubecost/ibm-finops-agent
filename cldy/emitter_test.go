@@ -28,13 +28,9 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
-				UploaderConfig: cldy.UploaderConfig{
-					ScratchDir: tempDir,
-					ApptioConfig: cldy.ApptioConfig{
-						SecretManager: cldy.NewKeyValueSecretManager("", ""),
-						EnvID:         "1",
-					},
-				},
+				ScratchDir:    tempDir,
+				SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				EnvID:         "1",
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
@@ -92,13 +88,10 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
-				UploaderConfig: cldy.UploaderConfig{
-					ScratchDir: tempDir,
-					ApptioConfig: cldy.ApptioConfig{
-						SecretManager: cldy.NewKeyValueSecretManager("", ""),
-						EnvID:         "1",
-					}},
-				EmitAsJson: true,
+				ScratchDir:    tempDir,
+				SecretManager: cldy.NewKeyValueSecretManager("", ""),
+				EnvID:         "1",
+				EmitAsJson:    true,
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
@@ -172,12 +165,8 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
-				UploaderConfig: cldy.UploaderConfig{
-					ScratchDir: tempDir,
-					ApptioConfig: cldy.ApptioConfig{
-						SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					},
-				},
+				ScratchDir:       tempDir,
+				SecretManager:    cldy.NewKeyValueSecretManager("", ""),
 				EmissionInterval: time.Duration(200) * time.Millisecond,
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
@@ -207,12 +196,8 @@ var _ = Describe("Emitter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer safeRemove(tempDir)
 			config := cldy.EmitterConfig{
-				UploaderConfig: cldy.UploaderConfig{
-					ScratchDir: tempDir,
-					ApptioConfig: cldy.ApptioConfig{
-						SecretManager: cldy.NewKeyValueSecretManager("", ""),
-					},
-				},
+				ScratchDir:    tempDir,
+				SecretManager: cldy.NewKeyValueSecretManager("", ""),
 			}
 			cldyEmitter := cldy.NewEmitter(config, make(chan struct{}))
 			actualEmitter := cldyEmitter.(*cldy.Emitter)
@@ -261,6 +246,16 @@ var _ = Describe("Emitter", func() {
 			Expect(config.ParseMetricData).To(BeFalse())
 			Expect(config.UploaderConfig.ScratchDir).To(Equal("/opt/finops-agent"))
 			Expect(config.UploaderConfig.ApptioConfig.Region).To(Equal("us"))
+			Expect(config.UploaderConfig.RecoveryPeriod).To(Equal(24 * time.Hour))
+		})
+		It("should load the recovery period from env", func() {
+			t := GinkgoT()
+			t.Setenv("CLOUDABILITY_UPLOAD_RECOVERY_PERIOD", "36h")
+
+			config, err := cldy.NewEmitterConfigFromEnv()
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(config.UploaderConfig.RecoveryPeriod).To(Equal(36 * time.Hour))
 		})
 		It("should load and parse custom outbound config", func() {
 			tempDir, err := os.MkdirTemp("", "")
@@ -314,6 +309,8 @@ func (m *mockUploader) AddSample(sample string) {
 }
 
 func (m *mockUploader) RemoveSample(sample string) {}
+
+func (m *mockUploader) LastUploadAttempt() time.Time { return time.Time{} }
 
 // ensure replicaSets with zero replicas are not emitted
 func checkForDeadReplicaSets(path string) error {

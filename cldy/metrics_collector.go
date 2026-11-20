@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"os"
 	"path"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/ibm/finops-agent/pkg/version"
 	"github.com/opencost/opencost/core/pkg/log"
@@ -36,6 +34,8 @@ const metricsCollectorClusterUIDHeader = "x-cluster-uid"
 const metricsCollectorAgentVersionHeader = "x-agent-version"
 const metricsCollectorUserAgentHeader = "User-Agent"
 const metricsCollectorUploadFileHashHeader = "x-upload-file"
+const metricsCollectorAgentTypeHeader = "X-Agent-Type"
+const metricsCollectorAgentType = "finops-agent"
 
 const metricsCollectorPresignDescription = "acquiring presigned URL from metrics-collector using API key"
 
@@ -129,6 +129,7 @@ func (s *MetricsCollectorServiceImpl) getUploadURL(payload UploadPayload) (strin
 	request.Header.Set(metricsCollectorAgentVersionHeader, agentVersion)
 	request.Header.Set(metricsCollectorClusterUIDHeader, payload.ClusterUID)
 	request.Header.Set(metricsCollectorUploadFileHashHeader, payload.UploadHash)
+	request.Header.Set(metricsCollectorAgentTypeHeader, metricsCollectorAgentType)
 
 	resp, err := s.CldyUploadClient.Do(request, metricsCollectorPresignDescription)
 	if err != nil {
@@ -177,21 +178,13 @@ func (s *MetricsCollectorServiceImpl) testUpload() error {
 	request.Header.Set(contentTypeHeader, "multipart/form-data")
 	request.Header.Set(contentMD5, testUpload.UploadHash)
 
-	for i := 1; i < 4; i++ {
-		resp, err := s.CldyUploadClient.(ApptioClient).client.Do(request)
-		if err == nil && resp != nil && resp.StatusCode == http.StatusForbidden {
-			return nil
-		}
-		if err != nil {
-			log.Warnf("Cloudability metrics-collector test HTTPS request failed with error: %s", err.Error())
-		}
-		if resp != nil {
-			log.Warnf("Cloudability metrics-collector test upload %d failed with status code: %s", i, resp.Status)
-		}
-		time.Sleep(time.Duration(math.Pow(float64(2), float64(i))))
-	}
-
-	return fmt.Errorf("metrics-collector test upload exceeded max amount of failures")
+	return uploadProbe{
+		client:           s.CldyUploadClient.(ApptioClient).client,
+		request:          request,
+		requestErrFormat: "Cloudability metrics-collector test HTTPS request failed with error: %s",
+		statusFormat:     "Cloudability metrics-collector test upload %d failed with status code: %s",
+		exhaustedErr:     "metrics-collector test upload exceeded max amount of failures",
+	}.run()
 }
 
 // MetricsCollectorURLForRegion exposes region mapping for tests and documentation consumers.
@@ -228,29 +221,51 @@ func getMetricsCollectorURLByRegion(region string) string {
 }
 
 func uploadPayloadToPresignedURL(client ClientService, payload UploadPayload, uploadURL string) error {
+	log.Debugf("Reading payload file for upload: %s", payload.FilePath)
 	fileToUpload, err := os.Open(payload.FilePath)
 	if err != nil {
 		return fmt.Errorf("error in opening file to upload: %w", err)
 	}
 
+	// The transport closes whatever body it is handed, so the descriptor is ours to close only
+	// until client.Do is called.
+	fileOwnedHere := true
+	defer func() {
+		if fileOwnedHere {
+			if closeErr := fileToUpload.Close(); closeErr != nil {
+				log.Warnf("error closing file to upload: %v", closeErr)
+			}
+		}
+	}()
+
 	fi, err := fileToUpload.Stat()
 	if err != nil {
-		return err
+		return fmt.Errorf("error in reading size of file to upload: %w", err)
 	}
 
 	request, err := http.NewRequest(http.MethodPut, uploadURL, fileToUpload)
 	if err != nil {
+		_ = fileToUpload.Close()
 		return err
+	}
+	// doWithRetry re-issues this request and the transport closes the *os.File after each attempt,
+	// so GetBody reopens the file by path. ContentLength is measured once: a tar is never rewritten
+	// in place, and a mismatch fails closed (S3 rejects it, and Content-MD5 would not match).
+	request.GetBody = func() (io.ReadCloser, error) {
+		return os.Open(payload.FilePath)
 	}
 
 	request.Header.Set(contentTypeHeader, "multipart/form-data")
 	request.Header.Set(contentMD5, payload.UploadHash)
 	request.ContentLength = fi.Size()
 
+	// the request owns the descriptor from here
+	fileOwnedHere = false
 	resp, err := client.Do(request, s3UploadDescription)
 	if err != nil {
 		return err
 	}
+	log.Debugf("Finished reading payload file for upload: %s", payload.FilePath)
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
 			log.Warnf("error closing upload response body: %v", closeErr)

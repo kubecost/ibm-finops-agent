@@ -59,12 +59,17 @@ func (m *metricsCollectorMockClient) Do(r *http.Request, _ string) (*http.Respon
 		m.countByPath = map[string]int{}
 	}
 	m.countByPath[r.URL.Path]++
+	// a ClientService owns the request body, which for the upload is the sample file itself
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
 
 	if strings.Contains(r.URL.Path, "metricsample") {
 		Expect(r.Header.Get("x-api-key")).To(Equal("goodkey123"))
 		Expect(r.Header.Get("token")).To(Equal("goodkey123"))
 		Expect(r.Header.Get("x-cluster-uid")).To(Equal("good-cluster"))
 		Expect(r.Header.Get("x-upload-file")).To(Equal("aexCzQgBAnRYEZxKy71lAw=="))
+		Expect(r.Header.Get("X-Agent-Type")).To(Equal("finops-agent"))
 
 		responseBody, _ := json.Marshal(map[string]string{
 			"location": "https://metrics-collector.example.com/somewhere/valid-location",

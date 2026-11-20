@@ -85,6 +85,7 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 	// Set defaults
 	viper.SetDefault("HTTPS_CLIENT_TIMEOUT", 60) // Note for readme: In seconds
 	viper.SetDefault("UPLOAD_RETRY_COUNT", 5)
+	viper.SetDefault("UPLOAD_RECOVERY_PERIOD", defaultRecoveryPeriod)
 	viper.SetDefault("OUTBOUND_PROXY_INSECURE", false)
 	viper.SetDefault("UPLOAD_REGION", "us")
 	viper.SetDefault("SCRATCH_DIR", "/opt/finops-agent")
@@ -128,33 +129,30 @@ func NewEmitterConfigFromEnv() (EmitterConfig, error) {
 		envID = getSecretFromFileVolume(viper.GetString("ENV_ID_FILEPATH"))
 	}
 	return EmitterConfig{
-		UploaderConfig: UploaderConfig{
-			ApptioConfig: ApptioConfig{
-				ClusterName:                     viper.GetString("CLUSTER_NAME"),
-				SecretManager:                   NewKeyValueSecretManager(keyAccess, keySecret),
-				APIKeySecretManager:             NewValueSecretManager(apiKey),
-				EnvID:                           envID,
-				Timeout:                         time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
-				Retries:                         viper.GetInt("UPLOAD_RETRY_COUNT"),
-				ProxyURL:                        outboundProxyUrl,
-				ProxyAuth:                       viper.GetString("OUTBOUND_PROXY_AUTH"),
-				ProxyInsecure:                   viper.GetBool("OUTBOUND_PROXY_INSECURE"),
-				Region:                          viper.GetString("UPLOAD_REGION"),
-				CustomS3UploadBucket:            customS3UploadBucket,
-				CustomS3UploadRegion:            customS3UploadRegion,
-				CustomAzureBlobContainerName:    customAzureBlobContainerName,
-				CustomAzureBlobUrl:              viper.GetString("CUSTOM_AZURE_BLOB_URL"),
-				CustomAzureTenantID:             viper.GetString("CUSTOM_AZURE_BLOB_TENANT_ID"),
-				CustomAzureClientID:             viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
-				CustomAzureClientSecret:         NewValueSecretManager(azureBlobClientSecret),
-				UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
-			},
-			UploadFrequency: time.Minute * time.Duration(UPLOAD_FREQUENCY),
-			ScratchDir:      viper.GetString("SCRATCH_DIR"),
-		},
-		EmitAsJson:       viper.GetBool("EMIT_AS_JSON"),
-		ParseMetricData:  viper.GetBool("PARSE_METRIC_DATA"),
-		EmissionInterval: viper.GetDuration("EMISSION_INTERVAL"),
+		ClusterName:                     viper.GetString("CLUSTER_NAME"),
+		SecretManager:                   NewKeyValueSecretManager(keyAccess, keySecret),
+		APIKeySecretManager:             NewValueSecretManager(apiKey),
+		EnvID:                           envID,
+		Timeout:                         time.Second * time.Duration(viper.GetInt("HTTPS_CLIENT_TIMEOUT")),
+		Retries:                         viper.GetInt("UPLOAD_RETRY_COUNT"),
+		ProxyURL:                        outboundProxyUrl,
+		ProxyAuth:                       viper.GetString("OUTBOUND_PROXY_AUTH"),
+		ProxyInsecure:                   viper.GetBool("OUTBOUND_PROXY_INSECURE"),
+		Region:                          viper.GetString("UPLOAD_REGION"),
+		CustomS3UploadBucket:            customS3UploadBucket,
+		CustomS3UploadRegion:            customS3UploadRegion,
+		CustomAzureBlobContainerName:    customAzureBlobContainerName,
+		CustomAzureBlobUrl:              viper.GetString("CUSTOM_AZURE_BLOB_URL"),
+		CustomAzureTenantID:             viper.GetString("CUSTOM_AZURE_BLOB_TENANT_ID"),
+		CustomAzureClientID:             viper.GetString("CUSTOM_AZURE_BLOB_CLIENT_ID"),
+		CustomAzureClientSecret:         NewValueSecretManager(azureBlobClientSecret),
+		UseProxyForGettingUploadURLOnly: viper.GetBool("USE_PROXY_FOR_GETTING_UPLOAD_URL_ONLY"),
+		UploadFrequency:                 time.Minute * time.Duration(UPLOAD_FREQUENCY),
+		ScratchDir:                      viper.GetString("SCRATCH_DIR"),
+		RecoveryPeriod:                  viper.GetDuration("UPLOAD_RECOVERY_PERIOD"),
+		EmitAsJson:                      viper.GetBool("EMIT_AS_JSON"),
+		ParseMetricData:                 viper.GetBool("PARSE_METRIC_DATA"),
+		EmissionInterval:                viper.GetDuration("EMISSION_INTERVAL"),
 		// Cloudy emitter requires the following kubernetes resources to be enabled
 		KubernetesResourcesRequired: []string{
 			emitter.SnapshotNodes,
@@ -211,9 +209,8 @@ func (ce *Emitter) ID() emitter.EmitterID {
 }
 
 // Healthy reports whether the cldy emitter considers itself healthy.
-// Returns false when node-stats collection has been stale for longer than
-// MaxStaleUploadCycles * UploadFrequencyDuration, signaling that a container
-// restart is warranted.
+// Returns false when node-stats collection or the upload loop
+// has stalled for longer than MaxStaleUploadCycles * UploadFrequencyDuration.
 //
 // Staleness is tracked from the snapshots the emitter receives, so this works on the
 // foreground collection path (node stats fetched at snapshot time). When node-stats
@@ -222,15 +219,24 @@ func (ce *Emitter) ID() emitter.EmitterID {
 // reports unhealthy.
 func (ce *Emitter) Healthy() bool {
 	ce.nodeStatsMu.RLock()
-	lastSuccess := ce.lastSuccessfulNodeCollection
+	lastNodeSuccess := ce.lastSuccessfulNodeCollection
 	ce.nodeStatsMu.RUnlock()
 
-	// startup grace: no successful collection has been observed yet
-	if lastSuccess.IsZero() {
-		return true
-	}
+	lastUploadAttempt := ce.Uploader.LastUploadAttempt()
+
 	restartThreshold := time.Duration(MaxStaleUploadCycles) * UploadFrequencyDuration
-	return time.Since(lastSuccess) <= restartThreshold
+
+	// Includes startup grace !isZero check
+	if !lastNodeSuccess.IsZero() && time.Since(lastNodeSuccess) > restartThreshold {
+		return false
+	}
+
+	// Includes startup grace !isZero check
+	if !lastUploadAttempt.IsZero() && time.Since(lastUploadAttempt) > restartThreshold {
+		return false
+	}
+
+	return true
 }
 
 // recordNodeStats captures node-stats collection diagnostics from a snapshot. It advances
@@ -388,6 +394,7 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 		fileName = ce.nextSamplePath
 	}
 	fileName = fileName + fmt.Sprintf(statsFileTemplate, outputPrefix, nodeName)
+	log.Debugf("Writing stats file %s (%d bytes)", fileName, len(data))
 	file, err := os.Create(fileName)
 	if err != nil {
 		return err
@@ -395,7 +402,11 @@ func (ce *Emitter) writeStatsFile(outputPrefix string, nodeName string, data []b
 	defer safeClose(file.Close, &rerr)
 
 	_, err = file.Write(data)
-	return err
+	if err != nil {
+		return err
+	}
+	log.Debugf("Finished writing stats file %s", fileName)
+	return nil
 }
 
 func (ce *Emitter) writeMetadata(snapshot *emitter.KubernetesSnapshot) error {
@@ -525,6 +536,7 @@ func shouldSkipPod(previousHour time.Time, resource *v1.Pod) bool {
 
 func (ce *Emitter) writeObjects(name string, data []runtime.Object) (err error) {
 	outputPath := ce.currentSamplePath + name + ce.getSuffix()
+	log.Debugf("Writing objects file %s (%d objects)", outputPath, len(data))
 	outFile, err := os.Create(outputPath)
 	defer safeClose(outFile.Close, &err)
 	if err != nil {
@@ -540,11 +552,13 @@ func (ce *Emitter) writeObjects(name string, data []runtime.Object) (err error) 
 			return err
 		}
 	}
+	log.Debugf("Finished writing objects file %s", outputPath)
 	return nil
 }
 
 func (ce *Emitter) writeAgentFile() (err error) {
 	outputPath := ce.currentSamplePath + "agent-measurement.json"
+	log.Debugf("Writing agent measurement file %s", outputPath)
 	outFile, err := os.Create(outputPath)
 	defer safeClose(outFile.Close, &err)
 	if err != nil {
@@ -606,7 +620,11 @@ func (ce *Emitter) writeAgentFile() (err error) {
 		return err
 	}
 	_, err = outFile.Write(agentBytes)
-	return err
+	if err != nil {
+		return err
+	}
+	log.Debugf("Finished writing agent measurement file %s", outputPath)
+	return nil
 }
 
 type agentData struct {
