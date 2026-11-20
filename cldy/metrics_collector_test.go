@@ -69,6 +69,7 @@ func (m *metricsCollectorMockClient) Do(r *http.Request, _ string) (*http.Respon
 		Expect(r.Header.Get("token")).To(Equal("goodkey123"))
 		Expect(r.Header.Get("x-cluster-uid")).To(Equal("good-cluster"))
 		Expect(r.Header.Get("x-upload-file")).To(Equal("aexCzQgBAnRYEZxKy71lAw=="))
+		Expect(r.Header.Get("X-Agent-Type")).To(Equal("finops-agent"))
 
 		responseBody, _ := json.Marshal(map[string]string{
 			"location": "https://metrics-collector.example.com/somewhere/valid-location",
