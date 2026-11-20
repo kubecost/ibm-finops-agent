@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/ibm/finops-agent/cldy"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -855,7 +855,7 @@ type mockS3UploadService struct {
 	UploadedSampleName string
 }
 
-func (mcs *mockS3UploadService) Do(sampleToUpload *s3manager.UploadInput) error {
+func (mcs *mockS3UploadService) Do(sampleToUpload *s3.PutObjectInput) error {
 	if sampleToUpload.Body == nil {
 		return fmt.Errorf("No sample detected")
 	}
