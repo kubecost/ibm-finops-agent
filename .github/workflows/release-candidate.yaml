@@ -169,9 +169,35 @@ jobs:
           done
           gh run watch "$RUN_ID" --repo "$BUILD_REPO" --exit-status
 
+      #  A soak problem must never fail the RC cut, so a failure only warns.
+      - name: Start the soak for this RC
+        id: soak
+        if: steps.resolve-tag.outputs.skip != 'true' && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          SOAK_WORKFLOW: finops-agent-soak.yaml
+        run: |
+          if gh workflow run "$SOAK_WORKFLOW" --repo "$BUILD_REPO" \
+              -f rc_tag="$TAG" -f sha="$(git rev-parse HEAD)"; then
+            echo "started=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "started=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Soak did not start for $TAG. Start it manually."
+          fi
+
       - name: Report
         if: steps.resolve-tag.outputs.skip != 'true'
+        env:
+          SOAK_STARTED: ${{ steps.soak.outputs.started }}
         run: |
+          if [ "$SOAK_STARTED" = "true" ]; then
+            NEXT="The soak was started automatically in \`$BUILD_REPO\`."
+          elif [ "${{ inputs.dry_run }}" = "true" ]; then
+            NEXT="Dry run: the soak was not started."
+          else
+            NEXT="⚠️ The soak did not start. Start it manually for \`$TAG\`."
+          fi
+
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           # Release candidate $TAG$([ "${{ inputs.dry_run }}" = "true" ] && echo " (dry run, nothing was pushed)")
 
@@ -179,5 +205,5 @@ jobs:
           - Image built by \`$BUILD_WORKFLOW\` in \`$BUILD_REPO\`
           - No chart was published and no kubecost PR was opened
 
-          Deploy \`$TAG\` to the soak cluster. If it holds, cut the final release from this same commit.
+          $NEXT If it holds, cut the final release from this same commit.
           EOF
