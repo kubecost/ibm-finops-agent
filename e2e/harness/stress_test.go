@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+	stats "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 )
 
 // readyOnCreate makes the fake mark created pods Ready, standing in for the
@@ -47,13 +48,113 @@ func recordConsume(failFirst int) (consumeFunc, func() []string) {
 	return f, func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(got) }
 }
 
+// steadyUsage reports the stress pod already at its steady load.
+func steadyUsage(context.Context) (uint64, uint64, error) {
+	return 100 * 1_000_000, 136 * 1024 * 1024, nil
+}
+
+// rampingUsage returns a usageFunc that replays readings in order and then
+// repeats the last one, counting the calls.
+func rampingUsage(readings ...usageReading) (usageFunc, func() int) {
+	var mu sync.Mutex
+	calls := 0
+	f := func(context.Context) (uint64, uint64, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		r := readings[min(calls, len(readings)-1)]
+		calls++
+		return r.cpu, r.mem, r.err
+	}
+	return f, func() int { mu.Lock(); defer mu.Unlock(); return calls }
+}
+
+type usageReading struct {
+	cpu, mem uint64
+	err      error
+}
+
+// The load ramps up after it is started; DeployStress returns only once the
+// kubelet reports both CPU and memory at their steady values.
+func TestDeployStressWaitsForSteadyLoad(t *testing.T) {
+	t.Parallel()
+	client := k8sfake.NewClientset()
+	readyOnCreate(client)
+	consume, _ := recordConsume(0)
+	usage, calls := rampingUsage(
+		usageReading{err: errors.New("stress pod not in the kubelet stats yet")},
+		usageReading{cpu: 35 * 1_000_000, mem: 136 * 1024 * 1024}, // the ramp seen in CI
+		usageReading{cpu: 99 * 1_000_000, mem: 60 * 1024 * 1024},  // memory still filling
+		usageReading{cpu: 99 * 1_000_000, mem: 136 * 1024 * 1024},
+	)
+
+	if err := deployStress(context.Background(), client, consume, usage, 5*time.Second, testInterval); err != nil {
+		t.Fatal(err)
+	}
+	if got := calls(); got != 4 {
+		t.Fatalf("usage read %d times, want 4 (returned before the load was steady?)", got)
+	}
+}
+
+func TestDeployStressReportsLoadThatNeverSettles(t *testing.T) {
+	t.Parallel()
+	client := k8sfake.NewClientset()
+	readyOnCreate(client)
+	consume, _ := recordConsume(0)
+	usage, _ := rampingUsage(usageReading{cpu: 35 * 1_000_000, mem: 136 * 1024 * 1024})
+
+	err := deployStress(context.Background(), client, consume, usage, 100*time.Millisecond, testInterval)
+	for _, want := range []string{"did not reach 50m cpu and 100 MiB memory", "last reading: cpu 35m, memory 136 MiB"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to contain %q", err, want)
+		}
+	}
+}
+
+func TestDeployStressReportsUsageReadError(t *testing.T) {
+	t.Parallel()
+	client := k8sfake.NewClientset()
+	readyOnCreate(client)
+	consume, _ := recordConsume(0)
+	usage, _ := rampingUsage(usageReading{err: errors.New("kubelet stats for node n1: forbidden")})
+
+	err := deployStress(context.Background(), client, consume, usage, 100*time.Millisecond, testInterval)
+	if err == nil || !strings.Contains(err.Error(), "last reading: kubelet stats for node n1: forbidden") {
+		t.Fatalf("err = %v, want the usage read error", err)
+	}
+}
+
+func TestStressUsageFindsStressPod(t *testing.T) {
+	t.Parallel()
+	cpu, mem := uint64(99_000_000), uint64(142_000_000)
+	other := uint64(1)
+	summary := stats.Summary{Pods: []stats.PodStats{
+		{PodRef: stats.PodReference{Namespace: "kube-system", Name: "stress"},
+			CPU: &stats.CPUStats{UsageNanoCores: &other}, Memory: &stats.MemoryStats{WorkingSetBytes: &other}},
+		{PodRef: stats.PodReference{Namespace: StressNamespace, Name: "stress"},
+			CPU: &stats.CPUStats{UsageNanoCores: &cpu}, Memory: &stats.MemoryStats{WorkingSetBytes: &mem}},
+	}}
+	gotCPU, gotMem, err := stressUsage(summary)
+	if err != nil || gotCPU != cpu || gotMem != mem {
+		t.Fatalf("stressUsage = %d, %d, %v; want %d, %d", gotCPU, gotMem, err, cpu, mem)
+	}
+
+	// Before the kubelet has a reading, the pod is listed without CPU stats.
+	summary.Pods[1].CPU = nil
+	if _, _, err := stressUsage(summary); err == nil || !strings.Contains(err.Error(), "no cpu or memory usage") {
+		t.Errorf("missing cpu: err = %v", err)
+	}
+	if _, _, err := stressUsage(stats.Summary{}); err == nil || !strings.Contains(err.Error(), "not in the kubelet stats") {
+		t.Errorf("missing pod: err = %v", err)
+	}
+}
+
 func TestDeployStressCreatesPodAndStartsLoad(t *testing.T) {
 	t.Parallel()
 	client := k8sfake.NewClientset()
 	readyOnCreate(client)
 	consume, sent := recordConsume(0)
 
-	if err := deployStress(context.Background(), client, consume, 5*time.Second, testInterval); err != nil {
+	if err := deployStress(context.Background(), client, consume, steadyUsage, 5*time.Second, testInterval); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.CoreV1().Namespaces().Get(context.Background(), StressNamespace, metav1.GetOptions{}); err != nil {
@@ -98,7 +199,7 @@ func TestDeployStressReplacesPodFromEarlierRun(t *testing.T) {
 	readyOnCreate(client)
 	consume, sent := recordConsume(0)
 
-	if err := deployStress(context.Background(), client, consume, 5*time.Second, testInterval); err != nil {
+	if err := deployStress(context.Background(), client, consume, steadyUsage, 5*time.Second, testInterval); err != nil {
 		t.Fatal(err)
 	}
 	p, err := client.CoreV1().Pods(StressNamespace).Get(context.Background(), "stress", metav1.GetOptions{})
@@ -120,7 +221,7 @@ func TestDeployStressRetriesLoadRequests(t *testing.T) {
 	readyOnCreate(client)
 	consume, sent := recordConsume(3)
 
-	if err := deployStress(context.Background(), client, consume, 5*time.Second, testInterval); err != nil {
+	if err := deployStress(context.Background(), client, consume, steadyUsage, 5*time.Second, testInterval); err != nil {
 		t.Fatal(err)
 	}
 	if got := sent(); len(got) != 2 {
@@ -134,7 +235,7 @@ func TestDeployStressLoadFailureIsReported(t *testing.T) {
 	readyOnCreate(client)
 	consume, _ := recordConsume(1 << 30) // never succeeds
 
-	err := deployStress(context.Background(), client, consume, 100*time.Millisecond, testInterval)
+	err := deployStress(context.Background(), client, consume, steadyUsage, 100*time.Millisecond, testInterval)
 	for _, want := range []string{"start stress load ConsumeCPU", "connection refused"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to contain %q", err, want)
@@ -147,7 +248,7 @@ func TestDeployStressReportsNotReady(t *testing.T) {
 	client := k8sfake.NewClientset() // pods stay without a Ready condition
 	consume, sent := recordConsume(0)
 
-	err := deployStress(context.Background(), client, consume, 100*time.Millisecond, testInterval)
+	err := deployStress(context.Background(), client, consume, steadyUsage, 100*time.Millisecond, testInterval)
 	if err == nil || !strings.Contains(err.Error(), "stress pod") || !strings.Contains(err.Error(), "not Ready") {
 		t.Fatalf("err = %v, want a not-Ready error for the stress pod", err)
 	}
@@ -164,7 +265,7 @@ func TestDeployStressCreateError(t *testing.T) {
 	})
 	consume, _ := recordConsume(0)
 
-	err := deployStress(context.Background(), client, consume, time.Second, testInterval)
+	err := deployStress(context.Background(), client, consume, steadyUsage, time.Second, testInterval)
 	if err == nil || !strings.Contains(err.Error(), "create namespace stress: forbidden") {
 		t.Fatalf("err = %v", err)
 	}
