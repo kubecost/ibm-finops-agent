@@ -2,8 +2,11 @@ name: Automated FinOps Agent Release
 
 on:
   schedule:
-    # 10:00 AM PST (18:00 UTC) every Tuesday  (there is a guard later down to make it every other Tuesday)
-    - cron: '0 18 * * 2'
+    # 1:00 PM PST (21:00 UTC) every Tuesday  (there is a guard later down to make it every other Tuesday).
+    # The RC is cut Friday 18:00 UTC and soaks for 4 days from its day-0 start check (about
+    # Friday 18:30-19:00), so its end-of-soak summary lands Tuesday around 19:00. 21:00 leaves time
+    # for it; a soak that isn't done by then keeps its release-blocker issue open and blocks this run.
+    - cron: '0 21 * * 2'
   workflow_dispatch:
     inputs:
       rc_tag:
@@ -145,6 +148,9 @@ jobs:
           fi
           echo "✅ RC commit is an ancestor of develop"
 
+      # Every RC has an open "[release-blocker] Soak rc-<tag>: not finished" issue from
+      # release-candidate.yaml until its soak ends GO, so an RC whose soak didn't run, didn't
+      # finish or didn't pass is blocked here too.
       - name: Check for release blocker issues
         if: steps.resolve-rc.outputs.skip != 'true'
         env:

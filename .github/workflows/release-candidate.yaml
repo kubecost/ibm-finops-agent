@@ -141,6 +141,45 @@ jobs:
           fi
           echo "✅ Tag $TAG is available"
 
+      # Fail closed: before the tag exists, open the soak's release-blocker issue in $BUILD_REPO.
+      # Only a GO end-of-soak summary closes it (finops-agent-soak.yaml), so a failed build, a soak
+      # that never started, didn't finish or wasn't GO keeps release.yaml blocked. If the issue
+      # can't be opened, stop here, before tagging, rather than cut an RC with no gate. Same marker
+      # and labels as the soak workflow; re-running finds the open issue instead of adding one.
+      - name: Open the soak's release-blocker issue
+        if: steps.resolve-tag.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          NAME="rc-$TAG"
+          MARKER="<!-- soak-key: $NAME|pending -->"
+          TITLE="[release-blocker] Soak $NAME: not finished"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "Dry run: would open (or reuse) '$TITLE' in $BUILD_REPO"
+            exit 0
+          fi
+          gh label create soak-test -R "$BUILD_REPO" --color 5319E7 \
+            --description "Failure found by the FinOps agent soak test" 2>/dev/null || true
+          gh label create release-blocker -R "$BUILD_REPO" --color D93F0B \
+            --description "Blocks the FinOps agent release (chaos or soak test failure)" 2>/dev/null || true
+          OPEN=$(gh issue list -R "$BUILD_REPO" --label soak-test --state open --limit 200 --json number,body \
+            | jq -r --arg m "$MARKER" '[.[] | select(.body | contains($m)) | .number][0] // empty')
+          if [ -n "$OPEN" ]; then
+            echo "✅ Release-blocker issue #$OPEN for $NAME is already open"
+            exit 0
+          fi
+          BODY="$(printf '%s\n' "$MARKER" \
+            "Release candidate **$TAG** (commit \`$(git rev-parse HEAD)\`) has not finished its soak." "" \
+            "This issue blocks the FinOps agent release until the soak's end-of-soak summary is GO, which" \
+            "closes it automatically. Anything else (the soak didn't start, a deploy failed, the start" \
+            "check never passed, the soak hasn't ended yet, or the summary is NO-GO or INCOMPLETE) leaves" \
+            "it open. To release without a GO, close it by hand and say why." "" \
+            "RC run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")"
+          URL=$(gh issue create -R "$BUILD_REPO" --title "$TITLE" --label release-blocker --label soak-test \
+            --body-file - <<< "$BODY")
+          echo "✅ Opened $URL"
+
       - name: Create and push tag
         if: steps.resolve-tag.outputs.skip != 'true'
         id: push-tag
@@ -169,7 +208,8 @@ jobs:
           done
           gh run watch "$RUN_ID" --repo "$BUILD_REPO" --exit-status
 
-      #  A soak problem must never fail the RC cut, so a failure only warns.
+      # A soak problem doesn't fail the RC cut: the release-blocker issue opened above stays open
+      # until the soak ends GO, so a soak that didn't start blocks the release instead.
       - name: Start the soak for this RC
         id: soak
         if: steps.resolve-tag.outputs.skip != 'true' && !inputs.dry_run
@@ -182,7 +222,7 @@ jobs:
             echo "started=true" >> "$GITHUB_OUTPUT"
           else
             echo "started=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Soak did not start for $TAG. Start it manually."
+            echo "::warning::Soak did not start for $TAG. Start it manually; until it ends GO, its release-blocker issue blocks the release."
           fi
 
       - name: Report
@@ -195,7 +235,7 @@ jobs:
           elif [ "${{ inputs.dry_run }}" = "true" ]; then
             NEXT="Dry run: the soak was not started."
           else
-            NEXT="⚠️ The soak did not start. Start it manually for \`$TAG\`."
+            NEXT="⚠️ The soak did not start. Start it manually for \`$TAG\`; its release-blocker issue blocks the release until the soak ends GO."
           fi
 
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
