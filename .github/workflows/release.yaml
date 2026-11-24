@@ -148,9 +148,10 @@ jobs:
           fi
           echo "✅ RC commit is an ancestor of develop"
 
-      # Every RC has an open "[release-blocker] Soak rc-<tag>: not finished" issue from
-      # release-candidate.yaml until its soak ends GO, so an RC whose soak didn't run, didn't
-      # finish or didn't pass is blocked here too.
+      # release-candidate.yaml opens "[release-blocker] Soak rc-<tag>: not finished" for every RC.
+      # The soak workflow closes it on GO, on NO-GO once its NO-GO issue is open, or when a later
+      # RC's soak replaces it. Any other outcome leaves it open until a person closes it, and that
+      # blocks every release here, including later RCs.
       - name: Check for release blocker issues
         if: steps.resolve-rc.outputs.skip != 'true'
         env:
