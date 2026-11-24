@@ -70,7 +70,8 @@ func IsCloudyEmitterEnabled() bool {
 }
 
 func IsTurboEmitterEnabled() bool {
-	return env.GetBool(TurboEmitterEnabledEnvVar, true)
+	// Set this to true once turbo is integrated!
+	return env.GetBool(TurboEmitterEnabledEnvVar, false)
 }
 
 // GetExporterEmissionInterval returns the interval at which the exporter will snapshot and emit data

@@ -476,6 +476,36 @@ func (s *ApptioServiceImpl) sendData(payload UploadPayload, uploadURL string) er
 	return uploadPayloadToPresignedURL(s.CldyUploadClient, payload, uploadURL)
 }
 
+// maxFailureMessageBytes bounds how much of a failed response body is read for logging.
+const maxFailureMessageBytes = 1024
+
+// failureMessage extracts the human-readable reason from a failed response body. The
+// metrics-collector lambda reports errors through API Gateway as a JSON document such as
+// {"statusCode": 400, "body": "Incompatible agent version please upgrade", ...}; in that case
+// only the "body" text is returned. Any other body is returned as-is. The caller still owns
+// and closes resp.Body.
+func failureMessage(resp *http.Response) string {
+	if resp.Body == nil {
+		return ""
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxFailureMessageBytes))
+	if err != nil {
+		log.Debugf("error reading failed response body: %s", err)
+	}
+	var lambdaErr struct {
+		Body any `json:"body"`
+	}
+	if json.Unmarshal(raw, &lambdaErr) == nil && lambdaErr.Body != nil {
+		if text, ok := lambdaErr.Body.(string); ok {
+			return strings.TrimSpace(text)
+		}
+		if encoded, err := json.Marshal(lambdaErr.Body); err == nil {
+			return string(encoded)
+		}
+	}
+	return strings.TrimSpace(string(raw))
+}
+
 func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string) (*http.Response, error) {
 	attempts := ac.maxRetries
 	if attempts <= 0 {
@@ -510,7 +540,11 @@ func (ac ApptioClient) doWithRetry(req *http.Request, requestDescription string)
 			log.Warnf("HTTPS request failed with error: %s", err.Error())
 		}
 		if resp != nil {
-			log.Warnf("Request failed with status code: %s", resp.Status)
+			if msg := failureMessage(resp); msg != "" {
+				log.Warnf("Request failed with status code: %s, message: %s", resp.Status, msg)
+			} else {
+				log.Warnf("Request failed with status code: %s", resp.Status)
+			}
 			drainAndClose(resp.Body)
 		}
 		if i < attempts {
